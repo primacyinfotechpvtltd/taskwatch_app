@@ -1,0 +1,122 @@
+﻿cargo :    Compiling rust_lib_pi_task_watch v0.1.0 (C:\Users\user\Downloads\taskwatch (2)\taskwatch\rust)
+At line:1 char:1
++ cargo build > build_output.txt 2>&1
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (   Compiling ru...taskwatch\rust):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+error[E0432]: unresolved import `x_win::XWinError`
+ --> src\api\active_window_listener.rs:1:50
+  |
+1 | use x_win::{get_active_window, get_open_windows, XWinError, WindowInfo, get_window_icon};
+  |                                                  ^^^^^^^^^ no `XWinError` in the root
+
+warning: unused imports: `SystemTime` and `UNIX_EPOCH`
+  --> src\api\take_full_screenshot.rs:12:55
+   |
+12 | use std::{fs, path::PathBuf, thread, time::{Duration, SystemTime, UNIX_EPOCH}};
+   |                                                       ^^^^^^^^^^  ^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable `XWinError` is assigned to, but never used
+  --> src\api\active_window_listener.rs:50:13
+   |
+50 |         Err(XWinError) => Err("Error occurred while getting active window".to_string()),
+   |             ^^^^^^^^^
+   |
+   = note: consider using `_XWinError` instead
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: value assigned to `XWinError` is never read
+  --> src\api\active_window_listener.rs:50:13
+   |
+50 |         Err(XWinError) => Err("Error occurred while getting active window".to_string()),
+   |             ^^^^^^^^^
+   |
+   = help: maybe it is overwritten before being read?
+   = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable `XWinError` is assigned to, but never used
+  --> src\api\active_window_listener.rs:63:13
+   |
+63 |         Err(XWinError) => Err("Error occurred while getting open windows".to_string()),
+   |             ^^^^^^^^^
+   |
+   = note: consider using `_XWinError` instead
+
+warning: value assigned to `XWinError` is never read
+  --> src\api\active_window_listener.rs:63:13
+   |
+63 |         Err(XWinError) => Err("Error occurred while getting open windows".to_string()),
+   |             ^^^^^^^^^
+   |
+   = help: maybe it is overwritten before being read?
+
+warning: variable `XWinError` is assigned to, but never used
+  --> src\api\active_window_listener.rs:74:25
+   |
+74 |                     Err(XWinError) => Err("Error occurred while getting window icon".to_string()),
+   |                         ^^^^^^^^^
+   |
+   = note: consider using `_XWinError` instead
+
+warning: variable `XWinError` is assigned to, but never used
+  --> src\api\active_window_listener.rs:84:37
+   |
+84 | ...                   Err(XWinError) => Err("Error getting window icon".to_string()),
+   |                           ^^^^^^^^^
+   |
+   = note: consider using `_XWinError` instead
+
+warning: variable `XWinError` is assigned to, but never used
+  --> src\api\active_window_listener.rs:90:21
+   |
+90 |                 Err(XWinError) => Err("Error occurred while getting open windows".to_string()),
+   |                     ^^^^^^^^^
+   |
+   = note: consider using `_XWinError` instead
+
+warning: variable `XWinError` is assigned to, but never used
+  --> src\api\active_window_listener.rs:93:13
+   |
+93 |         Err(XWinError) => Err("Error occurred while getting active window".to_string()),
+   |             ^^^^^^^^^
+   |
+   = note: consider using `_XWinError` instead
+
+warning: value assigned to `XWinError` is never read
+  --> src\api\active_window_listener.rs:74:25
+   |
+74 |                     Err(XWinError) => Err("Error occurred while getting window icon".to_string()),
+   |                         ^^^^^^^^^
+   |
+   = help: maybe it is overwritten before being read?
+
+warning: value assigned to `XWinError` is never read
+  --> src\api\active_window_listener.rs:84:37
+   |
+84 | ...                   Err(XWinError) => Err("Error getting window icon".to_string()),
+   |                           ^^^^^^^^^
+   |
+   = help: maybe it is overwritten before being read?
+
+warning: value assigned to `XWinError` is never read
+  --> src\api\active_window_listener.rs:90:21
+   |
+90 |                 Err(XWinError) => Err("Error occurred while getting open windows".to_string()),
+   |                     ^^^^^^^^^
+   |
+   = help: maybe it is overwritten before being read?
+
+warning: value assigned to `XWinError` is never read
+  --> src\api\active_window_listener.rs:93:13
+   |
+93 |         Err(XWinError) => Err("Error occurred while getting active window".to_string()),
+   |             ^^^^^^^^^
+   |
+   = help: maybe it is overwritten before being read?
+
+For more information about this error, try `rustc --explain E0432`.
+warning: `rust_lib_pi_task_watch` (lib) generated 13 warnings
+error: could not compile `rust_lib_pi_task_watch` (lib) due to 1 previous error; 13 warnings emitted

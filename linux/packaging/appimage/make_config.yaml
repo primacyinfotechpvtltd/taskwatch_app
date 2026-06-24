@@ -1,0 +1,27 @@
+display_name: PI Task Watch
+icon: assets/logo.png
+keywords:
+  - Productivity
+  - Monitoring
+  - Employee
+  - Tracking
+  - Screenshot
+  - Activity
+generic_name: Employee Time Tracking Application
+actions:
+  - name: Start Tracking
+    label: start-tracking
+    arguments:
+      - --start
+  - name: Pause Tracking
+    label: pause-tracking
+    arguments:
+      - --pause
+categories:
+  - Office
+  - Utility
+  - Monitor
+startup_notify: true
+include:
+  - libcurl.so.4
+# metainfo: linux/packaging/appimage/org.primacyinfotech.pitaskwatch.appdata.xml

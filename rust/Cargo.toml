@@ -1,0 +1,29 @@
+[package]
+name = "rust_lib_pi_task_watch"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+anyhow = "1.0"            # Error handling
+base64 = "0.21"           # For base64 encoding
+image = "0.24"            # For image processing and writing to formats
+flutter_rust_bridge = "=2.11.1"  # For Flutter-Rust interop
+sysinfo = "0.34.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+lazy_static = "1.4.0"
+
+[target.'cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))'.dependencies]
+screenshots = "0.8"       # For capturing screenshots
+notify-rust = "=4.5"   # Version without mac-notification-sys build errors
+device_query = "0.2"
+x-win = "5.5.0"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
+
+# [patch.crates-io]
+# mac-notification-sys = { version = "0.6.1" }

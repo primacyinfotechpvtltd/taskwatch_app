@@ -1,0 +1,29 @@
+icon: assets/logo.png
+summary: Employee time tracking and monitoring solution for Odoo and custom applications
+group: Applications/Productivity
+vendor: Primacy Infotech
+packager: Primacy Infotech
+packagerEmail: info@primacyinfotech.com
+license: Proprietary
+url: https://primacyinfotech.com
+
+display_name: PI Task Watch
+
+keywords:
+  - Employee
+  - Monitoring
+  - Time
+  - Tracking
+  - Screenshot
+  - Productivity
+  - Odoo
+
+generic_name: Employee Time Tracking Application
+
+categories:
+  - Office
+  - Utility
+  - Monitor
+
+startup_notify: true
+# metainfo: linux/packaging/rpm/org.primacyinfotech.pitaskwatch.appdata.xml

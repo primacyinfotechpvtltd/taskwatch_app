@@ -1,0 +1,36 @@
+display_name: PI Task Watch
+package_name: pi-task-watch
+maintainer:
+  name: Primacy Infotech
+  email: info@primacyinfotech.com
+co_authors:
+  - name: Development Team
+    email: dev@primacyinfotech.com
+priority: optional
+section: utils
+installed_size: 8000
+essential: false
+icon: assets/logo.png
+
+postinstall_scripts:
+  - echo "PI Task Watch has been installed successfully!"
+postuninstall_scripts:
+  - echo "PI Task Watch has been uninstalled."
+
+keywords:
+  - Employee
+  - Monitoring
+  - Time
+  - Tracking
+  - Screenshot
+  - Productivity
+
+generic_name: Employee Time Tracking Application
+
+categories:
+  - Office
+  - Utility
+  - Monitor
+
+startup_notify: true
+# metainfo: linux/packaging/deb/org.primacyinfotech.pitaskwatch.appdata.xml

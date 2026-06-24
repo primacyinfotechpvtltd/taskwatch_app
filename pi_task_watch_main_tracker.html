@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>PI Task Watch - Kinetic Chronometer</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700;800;900&amp;family=Inter:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "on-primary": "#ffffff",
+              "inverse-primary": "#ffb2be",
+              "inverse-surface": "#3b2c32",
+              "outline-variant": "#e4bdc2",
+              "on-secondary-container": "#00743a",
+              "on-tertiary-fixed": "#2b1700",
+              "on-secondary": "#ffffff",
+              "secondary-container": "#6bfe9c",
+              "surface-container-highest": "#f4dce4",
+              "outline": "#8f6f73",
+              "secondary-fixed": "#6bfe9c",
+              "tertiary-fixed": "#ffddb9",
+              "on-secondary-fixed-variant": "#005228",
+              "tertiary-container": "#a46700",
+              "error": "#ba1a1a",
+              "on-primary-fixed": "#400014",
+              "on-error": "#ffffff",
+              "surface-container-high": "#fae2ea",
+              "on-tertiary-container": "#fffbff",
+              "surface-container-lowest": "#ffffff",
+              "surface-container-low": "#fff0f4",
+              "on-error-container": "#93000a",
+              "primary": "#b80049",
+              "background": "#fff8f8",
+              "inverse-on-surface": "#ffecf2",
+              "on-secondary-fixed": "#00210c",
+              "on-tertiary": "#ffffff",
+              "error-container": "#ffdad6",
+              "primary-fixed": "#ffd9de",
+              "surface-variant": "#f4dce4",
+              "primary-fixed-dim": "#ffb2be",
+              "on-surface": "#25181e",
+              "surface-bright": "#fff8f8",
+              "on-surface-variant": "#5b3f43",
+              "secondary-fixed-dim": "#4ae183",
+              "tertiary-fixed-dim": "#ffb961",
+              "surface-container": "#ffe8f0",
+              "tertiary": "#835100",
+              "on-primary-container": "#fffbff",
+              "surface": "#fff8f8",
+              "on-tertiary-fixed-variant": "#663e00",
+              "primary-container": "#e2165f",
+              "surface-dim": "#ebd4dc",
+              "on-primary-fixed-variant": "#900038",
+              "on-background": "#25181e",
+              "secondary": "#006d37",
+              "surface-tint": "#bc004b"
+            },
+            fontFamily: {
+              "headline": ["Space Grotesk"],
+              "body": ["Inter"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "1rem", "lg": "2rem", "xl": "3rem", "full": "9999px"},
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 200, 'GRAD' 0, 'opsz' 24;
+            font-size: 20px;
+        }
+        .timer-pulse {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.85; }
+        }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+        }
+        .magenta-shadow {
+            box-shadow: 0 4px 16px rgba(37, 24, 30, 0.06);
+        }
+    </style>
+</head>
+<body class="bg-background font-body text-on-surface min-h-screen flex items-center justify-center p-4">
+<!-- Compact Widget Container (0.7 Aspect Ratio Approx) -->
+<main class="w-full max-w-[480px] h-[686px] bg-surface relative flex flex-col overflow-hidden rounded-lg magenta-shadow">
+<!-- TopAppBar (From Shared JSON) -->
+<header class="bg-[#fff8f8] flex justify-between items-center w-full px-6 py-4 sticky top-0 z-50">
+<div class="flex items-center gap-3">
+<div class="relative">
+<img alt="User Profile" class="w-10 h-10 rounded-full object-cover" data-alt="Close up portrait of a professional woman with soft studio lighting and a clean neutral background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCsw50eugpG60TEHvoc0ZgrAiccK7gmGittmy29imaadeZdX-yGAP7cl8M8oCv2sYdwGu1bsgZBK8M4ZGGhzpdfeZfbqvQ_j7iN6fbEZX0c13oMyhgZLYtCs_455ZUqm6HFywOhnQviieL3ut88NQnS2i1O1t6PQInNWpULHqCfGMLLyZRg1cH-VcgvwdRcPgVDuSmtiJyXdbWWSQorr1F1dgxlCVhVwZqyoiGphgk2-dL_PY6WrCt69Ona96NsBzoDnJgCiXSWS-U"/>
+<div class="absolute -bottom-1 -right-1 w-4 h-4 bg-secondary border-2 border-surface rounded-full"></div>
+</div>
+<div>
+<h1 class="font-headline font-bold text-lg tracking-tighter text-primary leading-tight">PI Task Watch</h1>
+<div class="flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+<span class="font-label text-[10px] uppercase tracking-widest text-on-secondary-fixed-variant font-semibold">Connected</span>
+</div>
+</div>
+</div>
+<div class="flex gap-2">
+<button class="w-10 h-10 flex items-center justify-center rounded-full text-on-surface-variant hover:bg-[#f4dce4] transition-colors active:scale-95 duration-150">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+</button>
+<button class="w-10 h-10 flex items-center justify-center rounded-full text-on-surface-variant hover:bg-[#f4dce4] transition-colors active:scale-95 duration-150">
+<span class="material-symbols-outlined" data-icon="account_circle">account_circle</span>
+</button>
+</div>
+</header>
+<!-- Content Canvas -->
+<div class="flex-1 overflow-y-auto px-6 py-4 space-y-8">
+<!-- Centerpiece Tracking Card -->
+<section class="space-y-6">
+<div class="text-center">
+<span class="font-label text-[11px] uppercase tracking-[0.2em] text-on-surface-variant opacity-60">Currently Active</span>
+<h2 class="font-headline text-2xl font-bold text-on-surface leading-tight">Project Alpha: System Audit</h2>
+</div>
+<!-- Timer Visual -->
+<div class="glass-card bg-surface-container-lowest/80 p-8 rounded-xl magenta-shadow flex flex-col items-center gap-6 relative">
+<!-- Timer Display -->
+<div class="timer-pulse flex flex-col items-center">
+<span class="font-headline text-[4rem] font-black text-primary tracking-tighter leading-none">01:45:22</span>
+<span class="font-label text-[10px] text-on-surface-variant tracking-[0.3em] uppercase mt-2 font-medium">Standard Hours</span>
+</div>
+<!-- Progress Bar (65% Orange) -->
+<div class="w-full space-y-2">
+<div class="flex justify-between items-end px-1">
+<span class="font-label text-[10px] text-on-surface-variant font-bold">TASK QUOTA</span>
+<span class="font-label text-[10px] text-tertiary font-black">65% (8h 30m)</span>
+</div>
+<div class="h-1.5 w-full bg-surface-container-high rounded-full overflow-hidden">
+<div class="h-full bg-tertiary-container w-[65%] rounded-full"></div>
+</div>
+</div>
+<!-- Controls -->
+<div class="flex gap-4 w-full">
+<button class="flex-1 bg-gradient-to-br from-primary to-primary-container text-on-primary py-4 rounded-full font-headline font-bold text-sm tracking-wide active:scale-95 transition-all shadow-lg shadow-primary/20">
+                            Stop Tracking
+                        </button>
+<button class="w-14 h-14 flex items-center justify-center bg-surface-container-highest text-primary rounded-full hover:bg-surface-container-high transition-colors active:scale-90">
+<span class="material-symbols-outlined" data-icon="pause" style="font-variation-settings: 'FILL' 1;">pause</span>
+</button>
+</div>
+</div>
+</section>
+<!-- Quick Stats Bento -->
+<section class="grid grid-cols-2 gap-3">
+<div class="bg-surface-container-low p-4 rounded-lg">
+<span class="font-label text-[9px] uppercase tracking-widest text-on-surface-variant">Daily Total</span>
+<div class="font-headline text-xl font-bold text-on-surface">06:12:45</div>
+</div>
+<div class="bg-surface-container-low p-4 rounded-lg">
+<span class="font-label text-[9px] uppercase tracking-widest text-on-surface-variant">Efficiency</span>
+<div class="font-headline text-xl font-bold text-secondary">94.2%</div>
+</div>
+</section>
+<!-- Recent Activity List -->
+<section class="space-y-4">
+<div class="flex justify-between items-center px-1">
+<h3 class="font-headline text-sm font-extrabold uppercase tracking-widest text-on-surface">Recent Activity</h3>
+<button class="text-[10px] font-bold text-primary tracking-widest uppercase">View All</button>
+</div>
+<div class="space-y-3">
+<!-- Activity Item 1 -->
+<div class="bg-surface-container-lowest p-3 flex items-center gap-4 rounded-md magenta-shadow">
+<div class="w-10 h-10 rounded-full bg-surface-container-high flex items-center justify-center text-primary">
+<span class="material-symbols-outlined" data-icon="layers">layers</span>
+</div>
+<div class="flex-1 min-w-0">
+<div class="flex justify-between items-start">
+<h4 class="font-headline text-[13px] font-bold text-on-surface truncate">Database Optimization</h4>
+<span class="font-label text-[10px] text-on-surface-variant font-medium">14:20</span>
+</div>
+<div class="flex items-center gap-2 mt-0.5">
+<span class="px-1.5 py-0.5 bg-surface-variant rounded text-[8px] font-black uppercase text-on-surface-variant">Backend</span>
+<span class="font-label text-[10px] text-on-surface-variant opacity-60">+02:15:00</span>
+</div>
+</div>
+</div>
+<!-- Activity Item 2 -->
+<div class="bg-surface-container-lowest p-3 flex items-center gap-4 rounded-md opacity-70">
+<div class="w-10 h-10 rounded-full bg-surface-container-high flex items-center justify-center text-on-surface-variant">
+<span class="material-symbols-outlined" data-icon="history">history</span>
+</div>
+<div class="flex-1 min-w-0">
+<div class="flex justify-between items-start">
+<h4 class="font-headline text-[13px] font-bold text-on-surface truncate">UI Component Polish</h4>
+<span class="font-label text-[10px] text-on-surface-variant font-medium">10:05</span>
+</div>
+<div class="flex items-center gap-2 mt-0.5">
+<span class="px-1.5 py-0.5 bg-surface-variant rounded text-[8px] font-black uppercase text-on-surface-variant">Design</span>
+<span class="font-label text-[10px] text-on-surface-variant opacity-60">+01:30:00</span>
+</div>
+</div>
+</div>
+<!-- Activity Item 3 -->
+<div class="bg-surface-container-lowest p-3 flex items-center gap-4 rounded-md opacity-70">
+<div class="w-10 h-10 rounded-full bg-surface-container-high flex items-center justify-center text-on-surface-variant">
+<span class="material-symbols-outlined" data-icon="timer">timer</span>
+</div>
+<div class="flex-1 min-w-0">
+<div class="flex justify-between items-start">
+<h4 class="font-headline text-[13px] font-bold text-on-surface truncate">Standup Meeting</h4>
+<span class="font-label text-[10px] text-on-surface-variant font-medium">09:00</span>
+</div>
+<div class="flex items-center gap-2 mt-0.5">
+<span class="px-1.5 py-0.5 bg-surface-variant rounded text-[8px] font-black uppercase text-on-surface-variant">Admin</span>
+<span class="font-label text-[10px] text-on-surface-variant opacity-60">+00:45:00</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+</div>
+<!-- SideNavBar as Bottom Nav for Mobile/Vertical Context (From Shared JSON Logic) -->
+<nav class="bg-[#fff8f8] w-full flex justify-around items-center py-4 border-t border-outline-variant/10">
+<div class="flex flex-col items-center gap-1 text-[#b80049] font-bold transition-all duration-300">
+<span class="material-symbols-outlined" data-icon="timer" style="font-variation-settings: 'FILL' 1;">timer</span>
+<span class="font-label text-[9px] uppercase tracking-widest">Dashboard</span>
+</div>
+<div class="flex flex-col items-center gap-1 text-[#25181e] opacity-50 hover:opacity-100 transition-all duration-300">
+<span class="material-symbols-outlined" data-icon="layers">layers</span>
+<span class="font-label text-[9px] uppercase tracking-widest">Projects</span>
+</div>
+<div class="flex flex-col items-center gap-1 text-[#25181e] opacity-50 hover:opacity-100 transition-all duration-300">
+<span class="material-symbols-outlined" data-icon="insights">insights</span>
+<span class="font-label text-[9px] uppercase tracking-widest">Analytics</span>
+</div>
+<div class="flex flex-col items-center gap-1 text-[#25181e] opacity-50 hover:opacity-100 transition-all duration-300">
+<span class="material-symbols-outlined" data-icon="history">history</span>
+<span class="font-label text-[9px] uppercase tracking-widest">Archive</span>
+</div>
+</nav>
+<!-- Contextual FAB (Mandate Logic: Home/Dashboard) -->
+<button class="absolute bottom-24 right-6 w-14 h-14 rounded-full bg-primary text-on-primary shadow-xl shadow-primary/30 flex items-center justify-center active:scale-95 transition-transform">
+<span class="material-symbols-outlined" data-icon="add" style="font-size: 28px;">add</span>
+</button>
+</main>
+</body></html>

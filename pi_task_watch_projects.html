@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>PI Task Watch - Projects</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300..700&amp;family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "on-secondary-fixed-variant": "#005228",
+                        "surface-variant": "#f4dce4",
+                        "inverse-on-surface": "#ffecf2",
+                        "surface-dim": "#ebd4dc",
+                        "on-tertiary": "#ffffff",
+                        "surface-container-highest": "#f4dce4",
+                        "on-surface": "#25181e",
+                        "inverse-surface": "#3b2c32",
+                        "tertiary-fixed-dim": "#ffb961",
+                        "tertiary-container": "#a46700",
+                        "surface-container-lowest": "#ffffff",
+                        "surface-container-low": "#fff0f4",
+                        "on-background": "#25181e",
+                        "error": "#ba1a1a",
+                        "tertiary": "#835100",
+                        "outline-variant": "#e4bdc2",
+                        "secondary-fixed-dim": "#4ae183",
+                        "primary": "#b80049",
+                        "on-secondary-fixed": "#00210c",
+                        "on-secondary": "#ffffff",
+                        "primary-fixed-dim": "#ffb2be",
+                        "on-primary-container": "#fffbff",
+                        "background": "#fff8f8",
+                        "on-surface-variant": "#5b3f43",
+                        "surface-container-high": "#fae2ea",
+                        "on-primary-fixed": "#400014",
+                        "tertiary-fixed": "#ffddb9",
+                        "on-secondary-container": "#00743a",
+                        "on-primary-fixed-variant": "#900038",
+                        "secondary-fixed": "#6bfe9c",
+                        "on-tertiary-container": "#fffbff",
+                        "surface-bright": "#fff8f8",
+                        "primary-container": "#e2165f",
+                        "surface": "#fff8f8",
+                        "inverse-primary": "#ffb2be",
+                        "on-tertiary-fixed-variant": "#663e00",
+                        "surface-container": "#ffe88f0",
+                        "secondary": "#006d37",
+                        "on-error": "#ffffff",
+                        "on-error-container": "#93000a",
+                        "error-container": "#ffdad6",
+                        "on-primary": "#ffffff",
+                        "primary-fixed": "#ffd9de",
+                        "surface-tint": "#bc004b",
+                        "outline": "#8f6f73",
+                        "on-tertiary-fixed": "#2b1700",
+                        "secondary-container": "#6bfe9c"
+                    },
+                    fontFamily: {
+                        "headline": ["Space Grotesk"],
+                        "body": ["Inter"],
+                        "label": ["Inter"]
+                    },
+                    borderRadius: { "DEFAULT": "1rem", "lg": "2rem", "xl": "3rem", "full": "9999px" },
+                },
+            },
+        }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; background-color: #fff8f8; color: #25181e; }
+        .font-space { font-family: 'Space Grotesk', sans-serif; }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(20px);
+            box-shadow: 0 4px 16px rgba(37, 24, 30, 0.06);
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+            font-size: 1.1rem;
+        }
+    </style>
+</head>
+<body class="flex flex-col md:flex-row min-h-screen">
+<!-- SideNavBar (Desktop Shell) -->
+<aside class="hidden md:flex fixed left-0 top-0 flex-col h-full py-8 w-64 bg-[#fff0f4] dark:bg-[#1a1114]">
+<div class="px-6 mb-8">
+<div class="flex items-center gap-3 mb-6">
+<img alt="Project Owner" class="w-10 h-10 rounded-full object-cover" data-alt="Professional headshot of a creative director in a minimalist studio setting, soft cinematic lighting, neutral background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBDANKWiNgi7s813cuLfwtIhFqjM3igKG5lkkkFlg7a_bYYow_WNtvfEwrpbzCHPn73uI_2GUWnyJNZ7oDRH1rxX02R_w0CzOdKv2260KRLQDai0CqPA6mNinuT_M33g3s98DoNtkthGmYDVLH-ovtqWGKXQODe2ALErdalm6tgD8sa-itgMFQzJRNUAuARmfuOMmnRd9wYW5NFFKBxconcfi4cTl8zvkT8L1taNes3BD-WJXidWSfmyQQ6kyLhc1lyNTbyYdSxgSI"/>
+<div>
+<h2 class="text-lg font-black text-[#b80049] font-space leading-tight">Project Alpha</h2>
+<p class="text-[10px] uppercase tracking-wider opacity-60 font-bold text-[#b80049]">High Priority</p>
+</div>
+</div>
+<button class="w-full bg-gradient-to-br from-[#b80049] to-[#e2165f] text-on-primary py-3 rounded-full font-space font-bold text-sm shadow-lg hover:scale-105 transition-transform">
+                New Project
+            </button>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center px-6 py-3 text-[#25181e] opacity-60 font-space text-sm hover:pl-8 transition-all duration-200" href="#">
+<span class="material-symbols-outlined mr-3">timer</span> Active Focus
+            </a>
+<a class="flex items-center px-6 py-3 bg-[#f4dce4] dark:bg-[#3d262e] text-[#b80049] dark:text-[#ffb2be] font-bold rounded-r-full font-space text-sm translate-x-1" href="#">
+<span class="material-symbols-outlined mr-3" style="font-variation-settings: 'FILL' 1;">grid_view</span> All Projects
+            </a>
+<a class="flex items-center px-6 py-3 text-[#25181e] opacity-60 font-space text-sm hover:pl-8 transition-all duration-200" href="#">
+<span class="material-symbols-outlined mr-3">history</span> Recent Tasks
+            </a>
+<a class="flex items-center px-6 py-3 text-[#25181e] opacity-60 font-space text-sm hover:pl-8 transition-all duration-200" href="#">
+<span class="material-symbols-outlined mr-3">group</span> Team Watch
+            </a>
+<a class="flex items-center px-6 py-3 text-[#25181e] opacity-60 font-space text-sm hover:pl-8 transition-all duration-200" href="#">
+<span class="material-symbols-outlined mr-3">inventory_2</span> Archive
+            </a>
+</nav>
+</aside>
+<!-- Main Content Area -->
+<main class="flex-1 md:ml-64 min-h-screen bg-surface">
+<!-- TopAppBar -->
+<header class="flex justify-between items-center px-6 h-16 w-full max-w-full sticky top-0 z-50 bg-[#fff8f8] dark:bg-[#1a1114]">
+<div class="flex items-center gap-8">
+<span class="text-xl font-bold tracking-tighter text-[#b80049] dark:text-[#ffb2be] font-space">PI Task Watch</span>
+<nav class="hidden lg:flex gap-6">
+<a class="text-[#25181e] opacity-70 font-space text-sm hover:bg-[#f4dce4] transition-colors px-2 py-1 rounded" href="#">Dashboard</a>
+<a class="text-[#b80049] border-b-2 border-[#b80049] font-space text-sm px-2 py-1" href="#">Projects</a>
+<a class="text-[#25181e] opacity-70 font-space text-sm hover:bg-[#f4dce4] transition-colors px-2 py-1 rounded" href="#">Timers</a>
+<a class="text-[#25181e] opacity-70 font-space text-sm hover:bg-[#f4dce4] transition-colors px-2 py-1 rounded" href="#">Analytics</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<div class="hidden sm:flex bg-surface-container-low px-3 py-1.5 rounded-full items-center gap-2">
+<span class="material-symbols-outlined text-[18px] opacity-50">search</span>
+<input class="bg-transparent border-none text-[11px] focus:ring-0 p-0 w-32 font-body" placeholder="Search tasks..." type="text"/>
+</div>
+<span class="material-symbols-outlined text-primary cursor-pointer hover:scale-110 duration-150">notifications</span>
+<span class="material-symbols-outlined text-primary cursor-pointer hover:scale-110 duration-150">settings</span>
+<img alt="User profile" class="w-8 h-8 rounded-full border-2 border-primary-fixed-dim" data-alt="Close up portrait of a young male professional with kind eyes and short dark hair, soft natural lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuA0AeAzXMv4kv_Fk5jPo27Jm1bYTfpdv2rqWNzS9J7NCfYEMefBLGZvju8p9PwWTU1OOTNtZeBjmQ6oHoAe2bpCMQq9bp0ts1zBtuHf6IHO1hAypO1qFOGggCA3cV20bax5u9CCXyNN5VUu1JkTWADpkeGtNMMzHqMzR78pYWOmMH6lKTtw1pQKaH0eoBWFE2mUugSf_slMziPyMRDoRSLS8NVXLrFI5u2vcFRgblCdANgpmO0fWsHJE4-3MfcvuTS9PaJs2wCDfD0"/>
+</div>
+</header>
+<!-- Project Canvas -->
+<div class="p-6 md:p-8 max-w-[480px] mx-auto md:mx-0">
+<div class="flex justify-between items-end mb-8">
+<div>
+<h1 class="text-3xl font-black font-space tracking-tight text-primary">Projects</h1>
+<p class="text-[11px] font-medium opacity-50 uppercase tracking-[0.2em] mt-1">12 Total Active</p>
+</div>
+<div class="flex gap-2">
+<button class="bg-surface-container-highest p-2 rounded-full text-primary">
+<span class="material-symbols-outlined">filter_list</span>
+</button>
+</div>
+</div>
+<!-- Bento / Density Project Cards -->
+<div class="space-y-4">
+<!-- Card 1: Active Focus -->
+<div class="glass-card rounded-[1.5rem] p-5 relative overflow-hidden group">
+<div class="flex justify-between items-start mb-3">
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-secondary animate-pulse"></div>
+<h3 class="font-space font-bold text-lg leading-none">Quantum OS</h3>
+</div>
+<span class="text-[10px] font-bold bg-secondary-container text-on-secondary-container px-2 py-0.5 rounded-full uppercase">Active</span>
+</div>
+<div class="flex justify-between text-[11px] font-medium opacity-60 mb-1">
+<span>Time Utilization</span>
+<span>84%</span>
+</div>
+<div class="h-1.5 w-full bg-surface-container-high rounded-full overflow-hidden mb-4">
+<div class="h-full bg-primary w-[84%] rounded-full"></div>
+</div>
+<div class="grid grid-cols-2 gap-4">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-primary">task_alt</span>
+<span class="text-[11px] font-bold">24 Tasks</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-primary" style="font-variation-settings: 'FILL' 1;">schedule</span>
+<span class="text-[11px] font-bold">142h Total</span>
+</div>
+</div>
+</div>
+<!-- Card 2: Alert State -->
+<div class="glass-card rounded-[1.5rem] p-5 border-l-4 border-error/20">
+<div class="flex justify-between items-start mb-3">
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-error"></div>
+<h3 class="font-space font-bold text-lg leading-none">Redline Rebrand</h3>
+</div>
+<span class="text-[10px] font-bold bg-error-container text-on-error-container px-2 py-0.5 rounded-full uppercase">Alert</span>
+</div>
+<div class="flex justify-between text-[11px] font-medium opacity-60 mb-1">
+<span>Budget Exhaustion</span>
+<span class="text-error">98%</span>
+</div>
+<div class="h-1.5 w-full bg-surface-container-high rounded-full overflow-hidden mb-4">
+<div class="h-full bg-error w-[98%] rounded-full"></div>
+</div>
+<div class="grid grid-cols-2 gap-4">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-error">warning</span>
+<span class="text-[11px] font-bold">3 Overdue</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-error" style="font-variation-settings: 'FILL' 1;">payments</span>
+<span class="text-[11px] font-bold">$12.4k Spent</span>
+</div>
+</div>
+</div>
+<!-- Card 3: Paused -->
+<div class="glass-card rounded-[1.5rem] p-5 opacity-80">
+<div class="flex justify-between items-start mb-3">
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-tertiary"></div>
+<h3 class="font-space font-bold text-lg leading-none">Internal Audit</h3>
+</div>
+<span class="text-[10px] font-bold bg-tertiary-fixed text-on-tertiary-fixed px-2 py-0.5 rounded-full uppercase">Paused</span>
+</div>
+<div class="flex justify-between text-[11px] font-medium opacity-60 mb-1">
+<span>Progression</span>
+<span>42%</span>
+</div>
+<div class="h-1.5 w-full bg-surface-container-high rounded-full overflow-hidden mb-4">
+<div class="h-full bg-tertiary w-[42%] rounded-full"></div>
+</div>
+<div class="grid grid-cols-2 gap-4">
+<div class="flex items-center gap-2 opacity-50">
+<span class="material-symbols-outlined text-[16px]">pause_circle</span>
+<span class="text-[11px] font-bold">8 Pending</span>
+</div>
+<div class="flex items-center gap-2 opacity-50">
+<span class="material-symbols-outlined text-[16px]">history</span>
+<span class="text-[11px] font-bold">12d Stagnant</span>
+</div>
+</div>
+</div>
+<!-- Card 4: Normal Progress -->
+<div class="glass-card rounded-[1.5rem] p-5">
+<div class="flex justify-between items-start mb-3">
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-secondary"></div>
+<h3 class="font-space font-bold text-lg leading-none">Mobile App V2</h3>
+</div>
+<span class="text-[10px] font-bold bg-secondary-container text-on-secondary-container px-2 py-0.5 rounded-full uppercase">Active</span>
+</div>
+<div class="flex justify-between text-[11px] font-medium opacity-60 mb-1">
+<span>Time Utilization</span>
+<span>18%</span>
+</div>
+<div class="h-1.5 w-full bg-surface-container-high rounded-full overflow-hidden mb-4">
+<div class="h-full bg-secondary w-[18%] rounded-full"></div>
+</div>
+<div class="grid grid-cols-2 gap-4">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-primary">list_alt</span>
+<span class="text-[11px] font-bold">102 Tasks</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-primary" style="font-variation-settings: 'FILL' 1;">group</span>
+<span class="text-[11px] font-bold">8 Members</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Floating High-Density Summary Widget -->
+<div class="mt-8 p-4 rounded-xl bg-primary-container text-on-primary-container">
+<div class="flex justify-between items-center">
+<div>
+<p class="text-[10px] uppercase tracking-widest opacity-80 font-bold">Weekly Velocity</p>
+<h4 class="text-2xl font-space font-black">+14.2%</h4>
+</div>
+<div class="flex gap-1 h-8 items-end">
+<div class="w-1 bg-white/20 h-4 rounded-full"></div>
+<div class="w-1 bg-white/40 h-6 rounded-full"></div>
+<div class="w-1 bg-white/60 h-5 rounded-full"></div>
+<div class="w-1 bg-white h-8 rounded-full"></div>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- BottomNavBar (Mobile Shell) -->
+<nav class="md:hidden fixed bottom-0 left-0 w-full bg-[#fff8f8] flex justify-around items-center h-16 z-50">
+<button class="flex flex-col items-center justify-center text-[#25181e] opacity-70">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="text-[10px] font-space mt-1">Home</span>
+</button>
+<button class="flex flex-col items-center justify-center text-[#b80049]">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">grid_view</span>
+<span class="text-[10px] font-space mt-1 font-bold">Projects</span>
+</button>
+<div class="relative -top-6">
+<button class="bg-gradient-to-br from-[#b80049] to-[#e2165f] w-12 h-12 rounded-full flex items-center justify-center text-white shadow-lg active:scale-95 duration-150">
+<span class="material-symbols-outlined">add</span>
+</button>
+</div>
+<button class="flex flex-col items-center justify-center text-[#25181e] opacity-70">
+<span class="material-symbols-outlined">timer</span>
+<span class="text-[10px] font-space mt-1">Timer</span>
+</button>
+<button class="flex flex-col items-center justify-center text-[#25181e] opacity-70">
+<span class="material-symbols-outlined">person</span>
+<span class="text-[10px] font-space mt-1">Profile</span>
+</button>
+</nav>
+</body></html>
