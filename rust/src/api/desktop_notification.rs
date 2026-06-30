@@ -324,6 +324,7 @@ pub enum NotificationUrgency {
     Critical,
 }
 
+#[allow(dead_code)]
 struct NotificationBuilder<'a> {
     title: &'a str,
     message: &'a str,
