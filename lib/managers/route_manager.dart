@@ -26,6 +26,11 @@ class RouteManager {
         routeName: TaskDetailScreen.routeName,
         isProtected: true,
       ),
+      RouteItem(
+        screen: const DiscussScreen(),
+        routeName: DiscussScreen.routeName,
+        isProtected: true,
+      ),
     ];
   }
 

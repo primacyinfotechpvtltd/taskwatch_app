@@ -3,6 +3,7 @@ import 'package:pi_task_watch/controllers/timesheet_controller.dart';
 import 'package:pi_task_watch/exports.dart';
 import 'package:pi_task_watch/models/timesheet_model.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:pi_task_watch/utils/log_utils.dart';
 
 class AuthController extends GetxController {
   // Shared preferences keys
@@ -29,6 +30,21 @@ class AuthController extends GetxController {
       final stringValue = value.toString().toLowerCase().trim();
       return stringValue == 'true' || stringValue == '1';
     }
+  }
+
+  /// Safely extracts the database name from dynamic value (handles Map, String, etc.)
+  static String _extractDbName(dynamic e) {
+    if (e == null) return '';
+    if (e is Map) {
+      if (e.containsKey('name')) {
+        return e['name']?.toString() ?? '';
+      } else if (e.containsKey('db_name')) {
+        return e['db_name']?.toString() ?? '';
+      } else if (e.containsKey('database')) {
+        return e['database']?.toString() ?? '';
+      }
+    }
+    return e.toString();
   }
 
   //
@@ -243,36 +259,36 @@ class AuthController extends GetxController {
             if (bodyMap.containsKey('db_name')) {
               final dbList = bodyMap['db_name'];
               if (dbList is List) {
-                databases = dbList.map((e) => e.toString()).toList();
+                databases = dbList.map((e) => _extractDbName(e)).toList();
                 print("   ✅ Found databases in 'db_name': $databases");
               }
             } else if (bodyMap.containsKey('databases')) {
               final dbList = bodyMap['databases'];
               if (dbList is List) {
-                databases = dbList.map((e) => e.toString()).toList();
+                databases = dbList.map((e) => _extractDbName(e)).toList();
                 print("   ✅ Found databases in 'databases': $databases");
               }
             } else if (bodyMap.containsKey('database')) {
               final dbList = bodyMap['database'];
               if (dbList is List) {
-                databases = dbList.map((e) => e.toString()).toList();
+                databases = dbList.map((e) => _extractDbName(e)).toList();
                 print("   ✅ Found databases in 'database': $databases");
               }
             } else if (bodyMap.containsKey('db_list')) {
               final dbList = bodyMap['db_list'];
               if (dbList is List) {
-                databases = dbList.map((e) => e.toString()).toList();
+                databases = dbList.map((e) => _extractDbName(e)).toList();
                 print("   ✅ Found databases in 'db_list': $databases");
               }
             } else if (bodyMap.containsKey('result')) {
               final result = bodyMap['result'];
               if (result is List) {
-                databases = result.map((e) => e.toString()).toList();
+                databases = result.map((e) => _extractDbName(e)).toList();
                 print("   ✅ Found databases in 'result': $databases");
               } else if (result is Map && result.containsKey('databases')) {
                 final dbList = result['databases'];
                 if (dbList is List) {
-                  databases = dbList.map((e) => e.toString()).toList();
+                  databases = dbList.map((e) => _extractDbName(e)).toList();
                   print(
                       "   ✅ Found databases in 'result.databases': $databases");
                 }
@@ -288,7 +304,7 @@ class AuthController extends GetxController {
           } else if (apiResponse.body is List) {
             // If the response is directly a list
             databases =
-                (apiResponse.body as List).map((e) => e.toString()).toList();
+                (apiResponse.body as List).map((e) => _extractDbName(e)).toList();
             print("   ✅ Response body is directly a list: $databases");
           }
 
@@ -367,7 +383,7 @@ class AuthController extends GetxController {
 
         // Now check if we have a valid list
         if (dbList != null && dbList is List) {
-          databases = dbList.map((e) => e.toString()).toList();
+          databases = dbList.map((e) => _extractDbName(e)).toList();
         }
       }
 
@@ -426,6 +442,7 @@ class AuthController extends GetxController {
       await getAllDb();
 
       // Configure and authenticate with OdooRpcApiManager
+      // Configure OdooRpcApiManager initially
       OdooRpcApiManager.configure(
         authMode: OdooAuthMode.session,
         serverUrl: AppConstant.apiServerUrl,
@@ -433,30 +450,6 @@ class AuthController extends GetxController {
         username: email,
         password: password,
       );
-
-      final dList = await OdooRpcApiManager.getDbList(
-        serverUrl: AppConstant.apiServerUrl,
-      );
-      print("Database list: ${dList.rawData}");
-
-      final odooUser = await OdooRpcApiManager.authenticate(
-        showLog: kDebugMode,
-      );
-
-      print("base url : ${AppConstant.apiServerUrl}");
-      print("db : $db");
-      print("email : $email");
-      print("password : $password");
-
-      print("d result : ${odooUser.isOdooRpc} ${odooUser.rawData}");
-
-      if (odooUser.isError) {
-        showToast(
-          "Invalid credentials or database not found",
-          idSuccess: false,
-        );
-        return null;
-      }
 
       final apiResponse = await ApiManager.postRequest(
         endPoint: "login",
@@ -471,6 +464,30 @@ class AuthController extends GetxController {
         print("   • Response Body: ${apiResponse.rawResponse.body}");
         print("   • Parsed Body: ${apiResponse.body}");
         print("────────────────────────────────────────────────────────\n");
+      }
+
+      if (apiResponse.statusCode != 200 || apiResponse.body == null || apiResponse.body['result'] == null) {
+        showToast(
+          "Invalid credentials or database not found",
+          idSuccess: false,
+        );
+        return null;
+      }
+
+      final result = apiResponse.body['result'];
+
+      // Safely convert success to boolean using helper function
+      final bool isSuccess = _safeBoolConversion(result['success']);
+
+      if (kDebugMode) {
+        print(
+          "Success value: ${result['success']} (${result['success'].runtimeType}) → converted to: $isSuccess",
+        );
+      }
+
+      if (!isSuccess) {
+        showToast(result['message'] ?? "Invalid credentials", idSuccess: false);
+        return null;
       }
 
       // Extract session ID from cookies with proper error handling
@@ -506,16 +523,19 @@ class AuthController extends GetxController {
       }
 
       if (nSessionId.isNotEmpty) {
-        OdooRpcApiManager.setSessionId(nSessionId);
-        if (kDebugMode) print("Session ID extracted successfully");
+        final parsedUser = UserModel.fromJson(result);
+        OdooRpcApiManager.setSession(
+          sessionId: nSessionId,
+          uid: parsedUser.userId,
+          serverUrl: AppConstant.apiServerUrl,
+          database: db,
+          username: email,
+          password: password,
+        );
+        if (kDebugMode) print("Session established in OdooRpcApiManager successfully");
       } else {
         if (kDebugMode) print("Warning: No valid session_id found in cookies");
       }
-
-      final result = apiResponse.body['result'];
-
-      // Safely convert success to boolean using helper function
-      final bool isSuccess = _safeBoolConversion(result['success']);
 
       if (kDebugMode) {
         print(
@@ -529,7 +549,9 @@ class AuthController extends GetxController {
       // If login successful
       if (isSuccess) {
         final user = UserModel.fromJson(result);
+        LogUtils.i('AUTH_STATE: Setting _user.value to user.id=${user.userId}, email=${user.email}');
         _user.value = user;
+        LogUtils.i('AUTH_STATE: _user.value successfully set to ${user.email}.');
 
         if (kDebugMode) print("🔧 Loading user settings...");
         _settingsLoading.value = true;
@@ -616,6 +638,7 @@ class AuthController extends GetxController {
       if (kDebugMode) print('🚪 [LOGOUT] Starting logout process...');
 
       // 1. Clear user data
+      LogUtils.i('AUTH_STATE: Setting _user.value to null (logout)');
       _user.value = null;
       _settings.value = null;
 

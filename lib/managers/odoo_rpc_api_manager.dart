@@ -1096,6 +1096,7 @@ class OdooRpcApiManager {
     required String model,
     required String method,
     List<dynamic>? args,
+    Map<String, dynamic>? kwargs,
     bool showLog = _defaultShowLog,
   }) async {
     if (!isAuthenticated) {
@@ -1111,6 +1112,7 @@ class OdooRpcApiManager {
         model: model,
         method: method,
         args: args,
+        kwargs: kwargs,
         showLog: showLog,
       );
     } else {
@@ -1118,6 +1120,7 @@ class OdooRpcApiManager {
         model: model,
         method: method,
         args: args,
+        kwargs: kwargs,
         showLog: showLog,
       );
     }
@@ -1127,6 +1130,7 @@ class OdooRpcApiManager {
     required String model,
     required String method,
     List<dynamic>? args,
+    Map<String, dynamic>? kwargs,
     bool showLog = false,
   }) async {
     if (_password == null || _password!.isEmpty) {
@@ -1137,13 +1141,23 @@ class OdooRpcApiManager {
     }
 
     try {
+      final List<dynamic> finalArgs = [];
+      final Map<String, dynamic> finalKwargs = {};
+
+      if (kwargs != null) {
+        finalKwargs.addAll(kwargs);
+      }
+      if (args != null) {
+        finalArgs.addAll(args);
+      }
       final params = [
         _database,
         _uid,
         _password,
         model,
         method,
-        ...(args ?? []),
+        finalArgs,
+        finalKwargs,
       ];
 
       final requestId = const Uuid().v4();
@@ -1209,46 +1223,14 @@ class OdooRpcApiManager {
     required String model,
     required String method,
     List<dynamic>? args,
+    Map<String, dynamic>? kwargs,
     bool showLog = false,
   }) async {
     try {
-      // For session-based calls, we need to handle args and kwargs correctly
-      // Methods like write, create, read, unlink should have their arguments in args
-      // Methods like search, search_read, name_search may have kwargs
-      final List<dynamic> finalArgs = [];
-      final Map<String, dynamic> finalKwargs = {};
-
-      if (args != null) {
-        // Methods that use kwargs for search parameters
-        final methodsWithKwargs = [
-          'search',
-          'search_read',
-          'name_search',
-          'fields_get',
-        ];
-
-        if (methodsWithKwargs.contains(method) && args.isNotEmpty) {
-          // For these methods, the last argument might be kwargs if it's a Map
-          for (int i = 0; i < args.length; i++) {
-            final arg = args[i];
-            if (i == args.length - 1 &&
-                arg is Map<String, dynamic> &&
-                (arg.containsKey('offset') ||
-                    arg.containsKey('limit') ||
-                    arg.containsKey('order') ||
-                    arg.containsKey('fields') ||
-                    arg.containsKey('attributes') ||
-                    arg.containsKey('operator'))) {
-              finalKwargs.addAll(arg);
-            } else {
-              finalArgs.add(arg);
-            }
-          }
-        } else {
-          // For other methods (write, create, read, unlink), all arguments go to args
-          finalArgs.addAll(args);
-        }
-      }
+      // Clean separation: positional args stay in finalArgs, keyword args in finalKwargs.
+      // All callers must use the kwargs parameter — never append a Map to args.
+      final List<dynamic> finalArgs = args != null ? List<dynamic>.from(args) : [];
+      final Map<String, dynamic> finalKwargs = kwargs != null ? Map<String, dynamic>.from(kwargs) : {};
 
       final requestData = {
         'jsonrpc': '2.0',
@@ -1278,17 +1260,15 @@ class OdooRpcApiManager {
         endpoint = '$schemaPart://$pathPart';
       }
 
-      if (showLog) {
-        _logger.d(
-          'Making session-based API call to $model.$method via $endpoint',
-        );
-      }
+      _logger.i('SESSION_RPC: [START] $model.$method, endpoint=$endpoint, headers=${_getHeaders(includeSession: true)}, requestData=$requestData');
 
       final response = await dioInstance.post(
         endpoint,
         data: jsonEncode(requestData),
         options: dio.Options(headers: _getHeaders(includeSession: true)),
       );
+
+      _logger.i('SESSION_RPC: [END] $model.$method, statusCode=${response.statusCode}, body=${response.data}');
 
       if (response.statusCode == 200) {
         final responseData = response.data;
@@ -1302,6 +1282,52 @@ class OdooRpcApiManager {
                   'Unknown error';
             } else {
               errorMessage = error.toString();
+            }
+
+            // Check for session expired and attempt re-authentication
+            final isSessionExpired = errorMessage.toLowerCase().contains('session expired') ||
+                errorMessage.toLowerCase().contains('sessionexpiredexception') ||
+                errorMessage.toLowerCase().contains('not authenticated');
+
+            if (isSessionExpired && _database != null && _username != null && _password != null) {
+              _logger.w('Odoo session expired during API call. Attempting to re-authenticate...');
+              final authRes = await authenticate(
+                database: _database!,
+                username: _username!,
+                password: _password!,
+                showLog: showLog,
+              );
+
+              if (authRes.isSuccess) {
+                _logger.i('Re-authentication successful. Retrying original API call...');
+                final retryResponse = await dioInstance.post(
+                  endpoint,
+                  data: jsonEncode(requestData),
+                  options: dio.Options(headers: _getHeaders(includeSession: true)),
+                );
+
+                if (retryResponse.statusCode == 200) {
+                  final retryData = retryResponse.data;
+                  if (retryData is Map<String, dynamic>) {
+                    if (!retryData.containsKey('error')) {
+                      return OdooResponse<dynamic>.success(
+                        data: retryData['result'],
+                        message: 'Request successful after re-authentication',
+                        requestId: retryData['id']?.toString() ?? const Uuid().v4(),
+                      );
+                    } else {
+                      final retryError = retryData['error'];
+                      if (retryError is Map<String, dynamic>) {
+                        errorMessage = retryError['message']?.toString() ??
+                            retryError['data']?['message']?.toString() ??
+                            'Unknown error';
+                      } else {
+                        errorMessage = retryError.toString();
+                      }
+                    }
+                  }
+                }
+              }
             }
 
             return OdooResponse<dynamic>.error(
@@ -1533,15 +1559,14 @@ class OdooRpcApiManager {
   }) async {
     final String modelName = model is String ? model : model.value;
 
-    final args = <dynamic>[ids];
-    if (fields != null && fields.isNotEmpty) {
-      args.add(fields);
-    }
+    final kwargs = <String, dynamic>{};
+    if (fields != null && fields.isNotEmpty) kwargs['fields'] = fields;
 
     final response = await _executeKw(
       model: modelName,
       method: 'read',
-      args: args,
+      args: [ids],
+      kwargs: kwargs.isNotEmpty ? kwargs : null,
       showLog: showLog,
     );
 
@@ -1577,25 +1602,21 @@ class OdooRpcApiManager {
     } else {
       throw OdooException('Invalid model type');
     }
-    // For search_read, we need to structure arguments differently
-    // The domain should be the first argument
-    // The fields, offset, limit, order should be passed as kwargs
-    final args = <dynamic>[domain ?? []];
-    final kwargs = <String, dynamic>{};
 
+    // Domain is always the sole positional arg.
+    // All query options go into kwargs so the server never sees
+    // duplicate keyword arguments.
+    final kwargs = <String, dynamic>{};
     if (fields != null && fields.isNotEmpty) kwargs['fields'] = fields;
     if (offset != null) kwargs['offset'] = offset;
     if (limit != null) kwargs['limit'] = limit;
     if (order != null) kwargs['order'] = order;
 
-    if (kwargs.isNotEmpty) {
-      args.add(kwargs);
-    }
-
     final response = await _executeKw(
       model: modelName,
       method: 'search_read',
-      args: args,
+      args: [domain ?? []],
+      kwargs: kwargs.isNotEmpty ? kwargs : null,
       showLog: showLog,
     );
 
@@ -1746,6 +1767,7 @@ class OdooRpcApiManager {
     required dynamic model,
     required String method,
     List<dynamic>? args,
+    Map<String, dynamic>? kwargs,
     bool showLog = _defaultShowLog,
   }) async {
     final String modelName = model is String ? model : model.value;
@@ -1754,6 +1776,7 @@ class OdooRpcApiManager {
       model: modelName,
       method: method,
       args: args,
+      kwargs: kwargs,
       showLog: showLog,
     );
 
@@ -1770,22 +1793,17 @@ class OdooRpcApiManager {
   }) async {
     final String modelName = model is String ? model : model.value;
 
-    // For name_search, the first argument is the name,
-    // and the search parameters go in kwargs
-    final args = <dynamic>[name];
-    final kwargs = <String, dynamic>{
-      'args': domain ?? [],
-      'operator': operator,
-      'limit': limit,
-    };
-
-    // Add the kwargs as the second argument for proper handling
-    args.add(kwargs);
-
+    // name_search: first positional arg is the search string;
+    // domain, operator, limit go as proper kwargs.
     final response = await _executeKw(
       model: modelName,
       method: 'name_search',
-      args: args,
+      args: [name],
+      kwargs: {
+        'args': domain ?? [],
+        'operator': operator,
+        'limit': limit,
+      },
       showLog: showLog,
     );
 

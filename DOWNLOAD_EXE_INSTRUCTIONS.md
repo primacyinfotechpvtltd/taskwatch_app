@@ -13,19 +13,17 @@ The Windows .exe file **only exists on GitHub** after the automated build comple
 ### **Step 1: Go to GitHub Actions**
 Open this link in your browser:
 ```
-https://github.com/spandanhalder8100-tech/pi-task-watch/actions
+https://github.com/primacyinfotechpvtltd/taskwatch_app/actions
 ```
 
 ### **Step 2: Find the Latest Successful Build**
 - Look for a workflow run with a **green checkmark ✓**
-- The name will be something like "Build Windows App" or "Fix Dart SDK version..."
 - Click on it
 
 ### **Step 3: Download the Artifact**
 - Scroll all the way to the **bottom** of the page
 - Find the section called **"Artifacts"**
-- Click on **"PI-Task-Watch-Windows"** to download
-- The ZIP file will download to your `~/Downloads/` folder
+- Click on **"PI-Task-Watch-Windows-Installer"** or **"PI-Task-Watch-Windows-ZIP"** to download
 
 ---
 
@@ -33,14 +31,14 @@ https://github.com/spandanhalder8100-tech/pi-task-watch/actions
 
 1. Go to your **Downloads** folder:
    ```
-   ~/Downloads/PI_Task_Watch_Windows_v1.0.23.zip
+   ~/Downloads/PI_Task_Watch_Windows_v1.0.29.zip
    ```
 
 2. **Extract the ZIP file** (double-click it)
 
 3. Inside you'll find:
    ```
-   PI_Task_Watch_Windows_v1.0.23/
+   PI_Task_Watch_Windows_v1.0.29/
    ├── pi_task_watch.exe          ← THIS IS THE APP!
    ├── flutter_windows.dll
    ├── data/
@@ -62,14 +60,9 @@ https://github.com/spandanhalder8100-tech/pi-task-watch/actions
 ### **Option 2: Direct GitHub Link**
 Share this with employees:
 ```
-https://spandanhalder8100-tech.github.io/pi-task-watch/
+https://github.com/primacyinfotechpvtltd/taskwatch_app/actions
 ```
-They click "Windows" and follow the download instructions.
-
-### **Option 3: WeTransfer/Dropbox**
-1. Upload the ZIP file to WeTransfer or Dropbox
-2. Share the download link
-3. Employees download and extract
+They click the latest successful run and download the ZIP file.
 
 ---
 
@@ -77,7 +70,7 @@ They click "Windows" and follow the download instructions.
 
 If you don't see any artifacts, the build might have failed. Check:
 
-1. Go to: https://github.com/spandanhalder8100-tech/pi-task-watch/actions
+1. Go to: https://github.com/primacyinfotechpvtltd/taskwatch_app/actions
 2. Look for **red X** marks (failed builds)
 3. Click on the failed build to see error logs
 
@@ -91,10 +84,9 @@ If you have access to a Windows PC:
 
 ```bash
 # On Windows:
-git clone https://github.com/spandanhalder8100-tech/pi-task-watch.git
-cd pi-task-watch
-flutter pub get
-flutter build windows --release
+git clone https://github.com/primacyinfotechpvtltd/taskwatch_app.git
+cd taskwatch_app
+build-windows.bat
 ```
 
 The .exe will be in:

@@ -1,0 +1,137 @@
+name: Build Task Watch for Windows and macOS
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    name: Build & Package Windows App
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Set up Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          target: x86_64-pc-windows-msvc
+
+      - name: Set up Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.32.4'
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Generate Fastforge configs
+        run: python generate_fastforge_configs.py
+
+      - name: Build Windows App (Release)
+        run: flutter build windows --release
+
+      - name: Build Installer and Package (Fastforge)
+        id: fastforge_pack
+        continue-on-error: true
+        run: |
+          dart pub global activate fastforge
+          # Add pub-cache bin directory to PATH
+          $env:Path += ";$env:USERPROFILE\.pub-cache\bin"
+          fastforge package --platform windows --targets exe
+
+      - name: Create ZIP Fallback Artifact
+        run: |
+          mkdir -p dist/zip
+          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath dist\zip\PI_Task_Watch_Windows_v1.0.29.zip
+
+      - name: Upload Windows Installer (.exe)
+        uses: actions/upload-artifact@v4
+        with:
+          name: PI-Task-Watch-Windows-Installer
+          path: dist/windows/exe/*.exe
+          if-no-files-found: ignore
+
+      - name: Upload Windows ZIP Release
+        uses: actions/upload-artifact@v4
+        with:
+          name: PI-Task-Watch-Windows-ZIP
+          path: dist/zip/*.zip
+
+  build-macos:
+    name: Build & Package macOS App
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Set up Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          target: x86_64-apple-darwin
+
+      - name: Set up Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.32.4'
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Generate Fastforge configs
+        run: python generate_fastforge_configs.py
+
+      - name: Build macOS App (Release)
+        run: flutter build macos --release
+
+      - name: Build DMG Package (Fastforge)
+        id: fastforge_pack
+        continue-on-error: true
+        run: |
+          dart pub global activate fastforge
+          export PATH="$PATH:$HOME/.pub-cache/bin"
+          fastforge package --platform macos --targets dmg
+
+      - name: Create ZIP Fallback Artifact
+        run: |
+          mkdir -p dist/zip
+          cd build/macos/Build/Products/Release/
+          zip -r ../../../../dist/zip/PI_Task_Watch_macOS_v1.0.29.zip "PI Task Watch.app"
+
+      - name: Upload macOS DMG Installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: PI-Task-Watch-macOS-DMG
+          path: dist/macos/dmg/*.dmg
+          if-no-files-found: ignore
+
+      - name: Upload macOS ZIP Release
+        uses: actions/upload-artifact@v4
+        with:
+          name: PI-Task-Watch-macOS-ZIP
+          path: dist/zip/*.zip

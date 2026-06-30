@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pi_task_watch/rust/api/take_full_screenshot.dart';
 import 'package:pi_task_watch/utils/confirmation_alert.dart';
 import 'package:pi_task_watch/widgets/recent_activity_widget.dart';
@@ -19,6 +20,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   late TrackerController _trackerController;
   late AuthController _authController;
   late AnimationController _pulseController;
+  int _selectedIndex = 0;
 
   @override
   void initState() {
@@ -53,19 +55,18 @@ class _DashboardScreenState extends State<DashboardScreen>
     try {
       return Scaffold(
         body: SafeArea(
-          child: SingleChildScrollView(
-            child: Column(
-              children: [
-                if (Platform.isLinux &&
-                    (Platform.environment['XDG_SESSION_TYPE'] == 'wayland' ||
-                        Platform.environment['WAYLAND_DISPLAY'] != null))
-                  //  _buildWaylandWarning(),
-                  _buildDashboardSection(),
-                _buildBottomSection()
-              ],
-            ),
-          ),
+          child: _selectedIndex == 0
+              ? SingleChildScrollView(
+                  child: Column(
+                    children: [
+                      _buildDashboardSection(),
+                      _buildBottomSection()
+                    ],
+                  ),
+                )
+              : const DiscussScreen(),
         ),
+        bottomNavigationBar: _buildBottomNavigationBar(),
       );
     } catch (e, stackTrace) {
       debugPrint('Critical error in dashboard build: $e');
@@ -84,44 +85,44 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
   }
 
-  Widget _buildWaylandWarning() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.amber.shade100,
-        border: Border(
-          bottom: BorderSide(color: Colors.amber.shade300, width: 1),
-        ),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.warning_amber_rounded,
-              color: Colors.amber.shade900, size: 20),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Wayland Session Detected',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.amber.shade900,
-                    fontSize: 12,
-                  ),
-                ),
-                const Text(
-                  'Global window tracking and input monitoring are restricted on Wayland. For full functionality on Zorin OS, please switch to Xorg at login.',
-                  style: TextStyle(fontSize: 10, color: Colors.black87),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  // Widget _buildWaylandWarning() {
+  //   return Container(
+  //     width: double.infinity,
+  //     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+  //     decoration: BoxDecoration(
+  //       color: Colors.amber.shade100,
+  //       border: Border(
+  //         bottom: BorderSide(color: Colors.amber.shade300, width: 1),
+  //       ),
+  //     ),
+  //     child: Row(
+  //       children: [
+  //         Icon(Icons.warning_amber_rounded,
+  //             color: Colors.amber.shade900, size: 20),
+  //         const SizedBox(width: 10),
+  //         Expanded(
+  //           child: Column(
+  //             crossAxisAlignment: CrossAxisAlignment.start,
+  //             children: [
+  //               Text(
+  //                 'Wayland Session Detected',
+  //                 style: TextStyle(
+  //                   fontWeight: FontWeight.bold,
+  //                   color: Colors.amber.shade900,
+  //                   fontSize: 12,
+  //                 ),
+  //               ),
+  //               const Text(
+  //                 'Global window tracking and input monitoring are restricted on Wayland. For full functionality on Zorin OS, please switch to Xorg at login.',
+  //                 style: TextStyle(fontSize: 10, color: Colors.black87),
+  //               ),
+  //             ],
+  //           ),
+  //         ),
+  //       ],
+  //     ),
+  //   );
+  // }
 
   Widget _buildDashboardSection() {
     return Container(
@@ -1099,7 +1100,12 @@ class _DashboardScreenState extends State<DashboardScreen>
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
-      child: _buildRecentTasksSection(),
+      child: Column(
+        children: [
+          _buildRecentTasksSection(),
+          const DashboardAnnouncementSection(),
+        ],
+      ),
     );
   }
 
@@ -1265,6 +1271,76 @@ class _DashboardScreenState extends State<DashboardScreen>
               fontWeight: FontWeight.bold,
               color: const Color(0xFF25181E),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBottomNavigationBar() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 10,
+            offset: const Offset(0, -2),
+          ),
+        ],
+      ),
+      child: BottomNavigationBar(
+        currentIndex: _selectedIndex,
+        onTap: (index) {
+          setState(() {
+            _selectedIndex = index;
+          });
+        },
+        selectedItemColor: AppTheme.primary,
+        unselectedItemColor: Colors.grey.shade400,
+        backgroundColor: Colors.white,
+        elevation: 0,
+        type: BottomNavigationBarType.fixed,
+        selectedLabelStyle: GoogleFonts.spaceGrotesk(
+          fontWeight: FontWeight.bold,
+          fontSize: 11,
+        ),
+        unselectedLabelStyle: GoogleFonts.spaceGrotesk(
+          fontWeight: FontWeight.w500,
+          fontSize: 11,
+        ),
+        items: [
+          const BottomNavigationBarItem(
+            icon: Icon(Icons.timer_outlined, size: 20),
+            activeIcon: Icon(Icons.timer_rounded, size: 20),
+            label: 'Tracker',
+          ),
+          BottomNavigationBarItem(
+            icon: Obx(() {
+              final discController = Get.isRegistered<DiscussController>()
+                  ? Get.find<DiscussController>()
+                  : null;
+              final unreadTotal = discController?.channels.fold<int>(
+                    0, (sum, item) => sum + item.unreadCount) ?? 0;
+              return Badge(
+                label: Text('$unreadTotal'),
+                isLabelVisible: unreadTotal > 0,
+                child: const Icon(Icons.forum_outlined, size: 20),
+              );
+            }),
+            activeIcon: Obx(() {
+              final discController = Get.isRegistered<DiscussController>()
+                  ? Get.find<DiscussController>()
+                  : null;
+              final unreadTotal = discController?.channels.fold<int>(
+                    0, (sum, item) => sum + item.unreadCount) ?? 0;
+              return Badge(
+                label: Text('$unreadTotal'),
+                isLabelVisible: unreadTotal > 0,
+                child: const Icon(Icons.forum_rounded, size: 20),
+              );
+            }),
+            label: 'Discuss',
           ),
         ],
       ),

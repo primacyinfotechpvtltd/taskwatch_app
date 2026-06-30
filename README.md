@@ -16,34 +16,39 @@ PI Task Watch is an employee monitoring application that integrates with Odoo fo
 
 ### Local Build
 
-#### macOS
+#### macOS Environment
+To build the macOS application locally inside your workspace, make sure you have the Flutter SDK, Xcode, and Rust installed. Then, simply execute the automated build script:
 ```bash
-flutter pub get
-flutter build macos
+./build-macos.sh
 ```
+The script will install package dependencies, compile the app bundle, and generate a ZIP archive/DMG installer.
 
-The built app will be in `build/macos/Build/Products/Release/PI Task Watch.app`
+*   **App Bundle Path**: `build/macos/Build/Products/Release/PI Task Watch.app`
+*   **DMG Installer Path**: `dist/macos/dmg/PI Task Watch.dmg`
 
-#### Windows
-```bash
-flutter pub get
-flutter build windows
+#### Windows Environment
+To build the Windows application locally inside your workspace, ensure you have the Flutter SDK, Visual Studio (with C++ Desktop development), and Rust installed. Then, run the batch script:
+```cmd
+build-windows.bat
 ```
+The script will automate the package setup, compile the Windows executable, and generate the Windows installer.
 
-The built app will be in `build/windows/x64/runner/Release/`
+*   **Release Executable Path**: `build\windows\x64\runner\Release\pi_task_watch.exe`
+*   **Installer Path**: `dist\windows\exe\PI Task Watch.exe`
 
 ### Cloud Build (GitHub Actions)
 
-This repository includes GitHub Actions workflows that automatically build for multiple platforms:
+This repository includes a GitHub Actions workflow that automatically builds for multiple platforms on push to `main`/`master` or via manual triggers:
 
 1. **Push your code to GitHub**
 2. **Go to the "Actions" tab** in your repository
-3. **Run the "Build Multi-Platform" workflow** manually or it will run automatically on push
-4. **Download the built apps** from the Artifacts section
+3. Select **"Build Task Watch for Windows and macOS"**
+4. Run the workflow manually, or let it run automatically on push.
+5. **Download the built apps** from the Artifacts section at the bottom of the run.
 
-The workflow builds:
-- ✅ Windows (ZIP file)
-- ✅ macOS (DMG file)
+The workflow automatically compiles and publishes:
+- ✅ Windows ZIP Release & Installer (.exe)
+- ✅ macOS ZIP Release & DMG Installer (.dmg)
 
 ## Distribution Files
 

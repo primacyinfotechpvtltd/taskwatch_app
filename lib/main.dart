@@ -193,6 +193,8 @@ void setAllController() {
   Get.put(ProjectController(), permanent: true);
   Get.put(TaskController(), permanent: true);
   Get.put(TimesheetController(), permanent: true);
+  Get.put(AnnouncementController(), permanent: true);
+  Get.put(DiscussController(), permanent: true);
 }
 
 // user : mailto:mark.brown23@example.com
