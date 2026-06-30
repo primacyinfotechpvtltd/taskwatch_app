@@ -36,27 +36,41 @@ The script will automate the package setup, compile the Windows executable, and 
 *   **Release Executable Path**: `build\windows\x64\runner\Release\pi_task_watch.exe`
 *   **Installer Path**: `dist\windows\exe\PI Task Watch.exe`
 
+#### Linux Environment
+To build the Linux application locally inside your workspace, ensure you have the Flutter SDK, Rust, and compiler toolchain/GTK development libraries installed. Then, run the shell script:
+```bash
+./build-linux.sh
+```
+The script will automate the package setup, compile the Linux release binary, and generate the Debian (.deb) package.
+
+*   **Release Executable Path**: `build/linux/x64/release/bundle/pi_task_watch`
+*   **DEB Package Path**: `dist/linux/deb/pi-task-watch_1.0.29_amd64.deb`
+
 ### Cloud Build (GitHub Actions)
 
 This repository includes a GitHub Actions workflow that automatically builds for multiple platforms on push to `main`/`master` or via manual triggers:
 
 1. **Push your code to GitHub**
 2. **Go to the "Actions" tab** in your repository
-3. Select **"Build Task Watch for Windows and macOS"**
+3. Select **"Build Task Watch for Windows, macOS, and Linux"**
 4. Run the workflow manually, or let it run automatically on push.
 5. **Download the built apps** from the Artifacts section at the bottom of the run.
 
 The workflow automatically compiles and publishes:
 - ✅ Windows ZIP Release & Installer (.exe)
 - ✅ macOS ZIP Release & DMG Installer (.dmg)
+- ✅ Linux ZIP Release & Debian Package (.deb)
 
 ## Distribution Files
 
 ### For macOS Users
-Send them: `PI_Task_Watch_macOS_v1.0.23.dmg`
+Send them: `PI_Task_Watch_macOS_v1.0.29.dmg`
 
 ### For Windows Users
-Send them: `PI_Task_Watch_Windows_v1.0.23.zip`
+Send them: `PI_Task_Watch_Windows_v1.0.29.zip` or the Installer executable
+
+### For Linux Users
+Send them: `pi-task-watch_1.0.29_amd64.deb` or `PI_Task_Watch_Linux_v1.0.29.zip`
 
 ## Installation
 
