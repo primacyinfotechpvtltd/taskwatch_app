@@ -3,6 +3,7 @@ use base64::{Engine as _, engine::general_purpose};
 #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
 use screenshots::Screen;
 use std::io::Cursor;
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 use std::env;
 use std::process::Command;
 use std::time::Instant;
@@ -13,8 +14,7 @@ use image;
 use std::{fs, path::PathBuf, thread, time::{Duration, SystemTime, UNIX_EPOCH}};
 
 // Imports needed for Linux-specific functions  
-#[cfg(target_os = "linux")]
-use std::time::{SystemTime, UNIX_EPOCH};
+// (SystemTime and UNIX_EPOCH are used via full path std::time::SystemTime in the linux fallback fn)
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
