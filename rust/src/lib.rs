@@ -1,3 +1,7 @@
+// Allow unused imports/dead code that are gated behind platform-specific cfg attributes.
+// Each platform only compiles a subset of the code, so other platforms see some items as unused.
+#![allow(dead_code, unused_imports, unused_variables)]
+
 #[cfg(target_os = "macos")]
 #[link(name = "Carbon", kind = "framework")]
 extern "C" {}
