@@ -48,13 +48,20 @@ The script will automate the package setup, compile the Linux release binary, an
 
 ### Cloud Build (GitHub Actions)
 
-This repository includes a GitHub Actions workflow that automatically builds for multiple platforms on push to `main`/`master` or via manual triggers:
+This repository includes a GitHub Actions workflow that builds all desktop platforms on pushes, pull requests, or manual runs. Pushing a version tag also publishes the packages permanently on the GitHub Releases page.
 
 1. **Push your code to GitHub**
 2. **Go to the "Actions" tab** in your repository
 3. Select **"Build Task Watch for Windows, macOS, and Linux"**
 4. Run the workflow manually, or let it run automatically on push.
 5. **Download the built apps** from the Artifacts section at the bottom of the run.
+
+To publish a release after updating the version in `pubspec.yaml`:
+
+```bash
+git tag v1.0.29
+git push origin v1.0.29
+```
 
 The workflow automatically compiles and publishes:
 - ✅ Windows ZIP Release & Installer (.exe)
