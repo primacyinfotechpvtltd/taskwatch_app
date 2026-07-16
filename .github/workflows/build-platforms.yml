@@ -132,9 +132,9 @@ jobs:
 
       - name: Create ZIP Fallback Artifact
         run: |
-          mkdir -p dist/zip
-          cd build/macos/Build/Products/Release/
-          zip -r ../../../../dist/zip/PI_Task_Watch_macOS_v1.0.29.zip "PI Task Watch.app"
+          mkdir -p "$GITHUB_WORKSPACE/dist/zip"
+          cd "$GITHUB_WORKSPACE/build/macos/Build/Products/Release/"
+          zip -r "$GITHUB_WORKSPACE/dist/zip/PI_Task_Watch_macOS_v1.0.29.zip" "PI Task Watch.app"
 
       - name: Upload macOS DMG Installer
         uses: actions/upload-artifact@v4
