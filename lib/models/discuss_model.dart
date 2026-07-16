@@ -120,6 +120,29 @@ class DiscussChannelModel {
   }
 }
 
+class DiscussAttachmentModel {
+  final int id;
+  final String name;
+  final String mimetype;
+  final int fileSize;
+
+  DiscussAttachmentModel({
+    required this.id,
+    required this.name,
+    required this.mimetype,
+    required this.fileSize,
+  });
+
+  factory DiscussAttachmentModel.fromJson(Map<String, dynamic> json) {
+    return DiscussAttachmentModel(
+      id: json['id'] ?? 0,
+      name: json['name'] ?? 'File',
+      mimetype: json['mimetype'] ?? 'application/octet-stream',
+      fileSize: json['file_size'] ?? 0,
+    );
+  }
+}
+
 class DiscussMessageModel {
   final int id;
   final String body;
@@ -128,6 +151,8 @@ class DiscussMessageModel {
   final String authorName;
   final DateTime date;
   final bool isOutgoing;
+  final List<int> attachmentIds;
+  final List<DiscussAttachmentModel> attachments;
 
   DiscussMessageModel({
     required this.id,
@@ -137,7 +162,17 @@ class DiscussMessageModel {
     required this.authorName,
     required this.date,
     required this.isOutgoing,
+    this.attachmentIds = const [],
+    this.attachments = const [],
   });
+
+  String get displayBody {
+    if (cleanBody.trim().isEmpty && (attachments.isNotEmpty || attachmentIds.isNotEmpty)) {
+      final isImage = attachments.any((a) => a.mimetype.startsWith('image/'));
+      return isImage ? '📷 Image' : '📄 Attachment';
+    }
+    return cleanBody;
+  }
 
   factory DiscussMessageModel.fromJson(Map<String, dynamic> json, int currentPartnerId) {
     int authId = 0;
@@ -158,6 +193,16 @@ class DiscussMessageModel {
       } catch (_) {}
     }
 
+    final rawAttachments = json['attachment_ids'];
+    List<int> attachmentsList = [];
+    if (rawAttachments is List) {
+      attachmentsList = rawAttachments.map<int>((x) {
+        if (x is int) return x;
+        if (x is Map && x['id'] is int) return x['id'] as int;
+        return 0;
+      }).where((id) => id > 0).toList();
+    }
+
     return DiscussMessageModel(
       id: json['id'] ?? 0,
       body: bodyStr,
@@ -166,6 +211,31 @@ class DiscussMessageModel {
       authorName: authName,
       date: msgDate,
       isOutgoing: authId == currentPartnerId,
+      attachmentIds: attachmentsList,
+    );
+  }
+
+  DiscussMessageModel copyWith({
+    int? id,
+    String? body,
+    String? cleanBody,
+    int? authorId,
+    String? authorName,
+    DateTime? date,
+    bool? isOutgoing,
+    List<int>? attachmentIds,
+    List<DiscussAttachmentModel>? attachments,
+  }) {
+    return DiscussMessageModel(
+      id: id ?? this.id,
+      body: body ?? this.body,
+      cleanBody: cleanBody ?? this.cleanBody,
+      authorId: authorId ?? this.authorId,
+      authorName: authorName ?? this.authorName,
+      date: date ?? this.date,
+      isOutgoing: isOutgoing ?? this.isOutgoing,
+      attachmentIds: attachmentIds ?? this.attachmentIds,
+      attachments: attachments ?? this.attachments,
     );
   }
 }

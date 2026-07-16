@@ -1,10 +1,21 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:pi_task_watch/exports.dart';
 import 'package:pi_task_watch/utils/log_utils.dart';
+
+enum MessageTickStatus {
+  none,
+  single,
+  doubleGray,
+  doubleBlue,
+}
 
 class DiscussController extends GetxController {
   final RxList<DiscussChannelModel> channels = <DiscussChannelModel>[].obs;
   final RxMap<int, List<DiscussMessageModel>> channelMessages = <int, List<DiscussMessageModel>>{}.obs;
+  final RxInt activeChannelOtherUserLastSeenMessageId = (-1).obs;
+  final Map<int, int> channelMemberIds = {};
   
   final RxBool isLoadingChannels = false.obs;
   final RxMap<int, bool> isLoadingMessages = <int, bool>{}.obs;
@@ -20,6 +31,7 @@ class DiscussController extends GetxController {
   
   Timer? _refreshTimer;
   StreamSubscription? _authSubscription;
+  bool _isLongPollingActive = false;
 
   @override
   void onInit() {
@@ -43,8 +55,8 @@ class DiscussController extends GetxController {
       }
     });
 
-    // Background polling for new messages every 10 seconds
-    _refreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+    // Background polling for new messages every 60 seconds (passive fallback)
+    _refreshTimer = Timer.periodic(const Duration(seconds: 60), (_) {
       if (OdooRpcApiManager.isAuthenticated && !isLoadingChannels.value) {
         refreshActiveChannel();
       }
@@ -54,12 +66,14 @@ class DiscussController extends GetxController {
 
   @override
   void onClose() {
+    _isLongPollingActive = false;
     _refreshTimer?.cancel();
     _authSubscription?.cancel();
     super.onClose();
   }
 
   void clearDiscuss() {
+    _isLongPollingActive = false;
     channels.clear();
     channelMessages.clear();
     selectedChannelId.value = -1;
@@ -87,6 +101,9 @@ class DiscussController extends GetxController {
       
       // 4. Load users list for starting DMs
       await fetchUsers();
+      
+      // 5. Start real-time long polling
+      _startLongPolling();
       
     } catch (e) {
       LogUtils.e('DISCUSS_INIT_ERROR: $e');
@@ -216,14 +233,29 @@ class DiscussController extends GetxController {
       // Try querying with channel_partner_ids first
       var response = await OdooRpcApiManager.searchRead(
         model: channelModelName.value,
-        domain: [],
+        domain: [
+          ['channel_partner_ids', 'in', [partnerId.value]]
+        ],
         fields: ['id', 'name', 'channel_type', 'description', 'channel_partner_ids'],
         order: 'write_date desc',
       );
 
-      // Fallback: If querying with channel_partner_ids fails, try querying basic fields
+      // Fallback: If querying with channel_partner_ids fails, try querying with partner_ids
       if (!response.isSuccess) {
-        LogUtils.i('DISCUSS_CHANNELS: searchRead with channel_partner_ids failed. Retrying with basic fields...');
+        LogUtils.i('DISCUSS_CHANNELS: searchRead with channel_partner_ids failed. Retrying with partner_ids...');
+        response = await OdooRpcApiManager.searchRead(
+          model: channelModelName.value,
+          domain: [
+            ['partner_ids', 'in', [partnerId.value]]
+          ],
+          fields: ['id', 'name', 'channel_type', 'description', 'partner_ids'],
+          order: 'write_date desc',
+        );
+      }
+
+      // Final fallback if both failed (unrestricted query)
+      if (!response.isSuccess) {
+        LogUtils.w('DISCUSS_CHANNELS: member filters failed. Falling back to unrestricted query...');
         response = await OdooRpcApiManager.searchRead(
           model: channelModelName.value,
           domain: [],
@@ -233,18 +265,222 @@ class DiscussController extends GetxController {
       }
 
       if (response.isSuccess && response.data != null) {
+        // Fetch unread message counts from discuss.channel.member for current partner
+        final Map<int, int> unreadCounters = {};
+        try {
+          final memberRes = await OdooRpcApiManager.searchRead(
+            model: 'discuss.channel.member',
+            domain: [
+              ['partner_id', '=', partnerId.value]
+            ],
+            fields: ['id', 'channel_id', 'message_unread_counter'],
+          );
+          if (memberRes.isSuccess && memberRes.data != null) {
+            for (var raw in memberRes.data!) {
+              final memberId = raw['id'] as int;
+              final channelIdVal = raw['channel_id'];
+              final unreadVal = raw['message_unread_counter'];
+              int? cId;
+              if (channelIdVal is List && channelIdVal.isNotEmpty) {
+                cId = channelIdVal[0] as int;
+              } else if (channelIdVal is int) {
+                cId = channelIdVal;
+              }
+              final unreadCount = unreadVal is int ? unreadVal : 0;
+              if (cId != null) {
+                unreadCounters[cId] = unreadCount;
+                channelMemberIds[cId] = memberId;
+              }
+            }
+          }
+        } catch (e) {
+          LogUtils.w('DISCUSS_CHANNELS: Failed to fetch unread counts from discuss.channel.member: $e');
+        }
+
         final List<DiscussChannelModel> fetched = [];
         for (var raw in response.data!) {
           try {
+            final rawMap = Map<String, dynamic>.from(raw);
+            final int channelId = rawMap['id'] as int;
+            rawMap['message_unread_counter'] = unreadCounters[channelId] ?? 0;
+
             fetched.add(DiscussChannelModel.fromJson(
-              Map<String, dynamic>.from(raw),
+              rawMap,
               currentPartnerId: partnerId.value,
             ));
           } catch (e) {
             LogUtils.e('DISCUSS_CHANNEL_PARSE_ERROR: $e on raw=$raw');
           }
         }
+
+        // Fetch last messages for these channels in a single optimized RPC call
+        if (fetched.isNotEmpty) {
+          try {
+            final channelIds = fetched.map((c) => c.id).toList();
+            LogUtils.i('DISCUSS_LAST_MSG: Querying mail.message for channels: $channelIds under model: ${channelModelName.value}');
+            final msgResponse = await OdooRpcApiManager.searchRead(
+              model: 'mail.message',
+              domain: [
+                ['model', '=', channelModelName.value],
+                ['res_id', 'in', channelIds],
+                ['message_type', '=', 'comment']
+              ],
+              fields: ['id', 'body', 'res_id', 'author_id', 'date', 'attachment_ids'],
+              order: 'id desc',
+              limit: 500,
+            );
+
+            LogUtils.i('DISCUSS_LAST_MSG: msgResponse success=${msgResponse.isSuccess}, dataLength=${msgResponse.data?.length}');
+
+            if (msgResponse.isSuccess && msgResponse.data != null) {
+              final Map<int, DiscussMessageModel> latestMessages = {};
+              for (var raw in msgResponse.data!) {
+                try {
+                  final msg = DiscussMessageModel.fromJson(
+                    Map<String, dynamic>.from(raw),
+                    partnerId.value,
+                  );
+                  final channelId = raw['res_id'] is int 
+                      ? raw['res_id'] as int 
+                      : (raw['res_id'] is List ? (raw['res_id'] as List)[0] as int : 0);
+                  if (channelId != 0 && !latestMessages.containsKey(channelId)) {
+                    latestMessages[channelId] = msg;
+                  }
+                } catch (e) {
+                  LogUtils.e('DISCUSS_CHANNEL_MSG_PARSE_ERROR: $e on raw=$raw');
+                }
+              }
+
+              // Query attachment details for these latest messages to determine if they are images
+              final allLastMsgAttachIds = latestMessages.values.expand((m) => m.attachmentIds).toList();
+              if (allLastMsgAttachIds.isNotEmpty) {
+                try {
+                  final attachResponse = await OdooRpcApiManager.searchRead(
+                    model: 'ir.attachment',
+                    domain: [
+                      ['id', 'in', allLastMsgAttachIds],
+                    ],
+                    fields: ['id', 'name', 'mimetype', 'file_size'],
+                  );
+                  if (attachResponse.isSuccess && attachResponse.data != null) {
+                    final Map<int, DiscussAttachmentModel> attachmentsMap = {};
+                    for (var rawAttach in attachResponse.data!) {
+                      try {
+                        final attachment = DiscussAttachmentModel.fromJson(
+                          Map<String, dynamic>.from(rawAttach),
+                        );
+                        attachmentsMap[attachment.id] = attachment;
+                      } catch (_) {}
+                    }
+                    // Assign attachments to latest messages
+                    for (var channelId in latestMessages.keys) {
+                      final msg = latestMessages[channelId]!;
+                      final List<DiscussAttachmentModel> msgAttachments = [];
+                      for (var id in msg.attachmentIds) {
+                        if (attachmentsMap.containsKey(id)) {
+                          msgAttachments.add(attachmentsMap[id]!);
+                        }
+                      }
+                      if (msgAttachments.isNotEmpty) {
+                        latestMessages[channelId] = msg.copyWith(attachments: msgAttachments);
+                      }
+                    }
+                  }
+                } catch (e) {
+                  LogUtils.e('DISCUSS_LAST_MSG_ATTACH_ERROR: $e');
+                }
+              }
+
+              LogUtils.i('DISCUSS_LAST_MSG: Resolved latestMessages keys: ${latestMessages.keys.toList()}');
+
+              for (var i = 0; i < fetched.length; i++) {
+                final c = fetched[i];
+                if (latestMessages.containsKey(c.id)) {
+                  final last = latestMessages[c.id]!;
+                  LogUtils.i('DISCUSS_LAST_MSG: Mapping lastMessage for channel id=${c.id} name=${c.name} -> "${last.displayBody}"');
+                  fetched[i] = c.copyWith(
+                    lastMessage: last.displayBody,
+                    lastMessageTime: last.date,
+                  );
+                } else {
+                  LogUtils.i('DISCUSS_LAST_MSG: No message found in query for channel id=${c.id} name=${c.name}');
+                }
+              }
+
+              // Fetch missing channels individually to ensure older/inactive channels show their last message
+              final missingChannelIds = fetched
+                  .where((c) => !latestMessages.containsKey(c.id))
+                  .map((c) => c.id)
+                  .toList();
+              
+              if (missingChannelIds.isNotEmpty) {
+                LogUtils.i('DISCUSS_LAST_MSG: Fetching last message for ${missingChannelIds.length} missing channels individually');
+                final List<Future<void>> tasks = [];
+                for (var id in missingChannelIds) {
+                  tasks.add(() async {
+                    try {
+                      final r = await OdooRpcApiManager.searchRead(
+                        model: 'mail.message',
+                        domain: [
+                          ['model', '=', channelModelName.value],
+                          ['res_id', '=', id],
+                          ['message_type', '=', 'comment'],
+                        ],
+                        fields: ['id', 'body', 'date', 'attachment_ids'],
+                        order: 'id desc',
+                        limit: 1,
+                      );
+                      if (r.isSuccess && r.data != null && r.data!.isNotEmpty) {
+                        final raw = r.data!.first;
+                        var msg = DiscussMessageModel.fromJson(
+                          Map<String, dynamic>.from(raw),
+                          partnerId.value,
+                        );
+                        if (msg.attachmentIds.isNotEmpty) {
+                          try {
+                            final attachR = await OdooRpcApiManager.searchRead(
+                              model: 'ir.attachment',
+                              domain: [['id', 'in', msg.attachmentIds]],
+                              fields: ['id', 'name', 'mimetype', 'file_size'],
+                            );
+                            if (attachR.isSuccess && attachR.data != null) {
+                              final List<DiscussAttachmentModel> attachList = [];
+                              for (var rawAttach in attachR.data!) {
+                                attachList.add(DiscussAttachmentModel.fromJson(Map<String, dynamic>.from(rawAttach)));
+                              }
+                              msg = msg.copyWith(attachments: attachList);
+                            }
+                          } catch (_) {}
+                        }
+                        final idx = fetched.indexWhere((c) => c.id == id);
+                        if (idx != -1) {
+                          fetched[idx] = fetched[idx].copyWith(
+                            lastMessage: msg.displayBody,
+                            lastMessageTime: msg.date,
+                          );
+                          LogUtils.i('DISCUSS_LAST_MSG: Mapped missing channel id=$id -> "${msg.displayBody}"');
+                        }
+                      }
+                    } catch (e) {
+                      LogUtils.e('DISCUSS_LAST_MSG_ERROR individually for channel id=$id: $e');
+                    }
+                  }());
+                }
+                await Future.wait(tasks);
+              }
+            } else {
+              LogUtils.w('DISCUSS_LAST_MSG: msgResponse failed or null data: error=${msgResponse.message}');
+            }
+          } catch (e) {
+            LogUtils.e('DISCUSS_CHANNELS_LAST_MSG_ERROR: $e');
+          }
+        }
         
+        fetched.sort((a, b) {
+          final timeA = a.lastMessageTime ?? DateTime(1970);
+          final timeB = b.lastMessageTime ?? DateTime(1970);
+          return timeB.compareTo(timeA);
+        });
         channels.value = fetched;
         
         // Auto-select the first channel if none is selected
@@ -408,7 +644,7 @@ class DiscussController extends GetxController {
           ['res_id', '=', channelId],
           ['message_type', '=', 'comment']
         ],
-        fields: ['id', 'body', 'author_id', 'date', 'message_type'],
+        fields: ['id', 'body', 'author_id', 'date', 'message_type', 'attachment_ids'],
         order: 'id desc',
         limit: 50,
       );
@@ -421,11 +657,48 @@ class DiscussController extends GetxController {
             partnerId.value,
           ));
         }
+
+        // Collect all attachment IDs from fetched messages
+        final allAttachmentIds = msgs.expand((m) => m.attachmentIds).toList();
+        if (allAttachmentIds.isNotEmpty) {
+          final attachResponse = await OdooRpcApiManager.searchRead(
+            model: 'ir.attachment',
+            domain: [
+              ['id', 'in', allAttachmentIds],
+            ],
+            fields: ['id', 'name', 'mimetype', 'file_size'],
+          );
+          if (attachResponse.isSuccess && attachResponse.data != null) {
+            final Map<int, DiscussAttachmentModel> attachmentsMap = {};
+            for (var rawAttach in attachResponse.data!) {
+              try {
+                final attachment = DiscussAttachmentModel.fromJson(
+                  Map<String, dynamic>.from(rawAttach),
+                );
+                attachmentsMap[attachment.id] = attachment;
+              } catch (e) {
+                debugPrint('DISCUSS_ATTACH_PARSE_ERROR: $e');
+              }
+            }
+            // Map attachments back to their messages
+            for (var i = 0; i < msgs.length; i++) {
+              final List<DiscussAttachmentModel> msgAttachments = [];
+              for (var id in msgs[i].attachmentIds) {
+                if (attachmentsMap.containsKey(id)) {
+                  msgAttachments.add(attachmentsMap[id]!);
+                }
+              }
+              msgs[i] = msgs[i].copyWith(attachments: msgAttachments);
+            }
+          }
+        }
         
         // Odoo returns newest first, so we reverse to display chronologically in chat bubble flow
         final chronological = msgs.reversed.toList();
         
         channelMessages[channelId] = chronological;
+        
+        await fetchChannelMembersSeenStatus(channelId);
         
         // Update the channel's last message info
         if (chronological.isNotEmpty) {
@@ -433,10 +706,14 @@ class DiscussController extends GetxController {
           final idx = channels.indexWhere((c) => c.id == channelId);
           if (idx != -1) {
             channels[idx] = channels[idx].copyWith(
-              lastMessage: last.cleanBody,
+              lastMessage: last.displayBody,
               lastMessageTime: last.date,
             );
+            sortChannels();
           }
+          
+          // Mark channel as read on Odoo server
+          markChannelAsSeen(channelId);
         }
       }
     } catch (e) {
@@ -446,13 +723,48 @@ class DiscussController extends GetxController {
     }
   }
 
+  Future<void> markChannelAsSeen(int channelId) async {
+    final memberId = channelMemberIds[channelId];
+    if (memberId == null) {
+      LogUtils.w('DISCUSS_SEEN: Cannot mark channel $channelId as seen - member ID not found in mapping.');
+      return;
+    }
+
+    final messages = channelMessages[channelId];
+    if (messages == null || messages.isEmpty) return;
+
+    final latestMessageId = messages.last.id;
+
+    LogUtils.i('DISCUSS_SEEN: Marking channel $channelId as seen (member=$memberId, msg=$latestMessageId)');
+    try {
+      final response = await OdooRpcApiManager.write(
+        model: 'discuss.channel.member',
+        ids: [memberId],
+        values: {
+          'seen_message_id': latestMessageId,
+          'fetched_message_id': latestMessageId,
+          'last_seen_dt': DateTime.now().toUtc().toString().substring(0, 19),
+        },
+      );
+      if (response.isSuccess) {
+        LogUtils.i('DISCUSS_SEEN: Server updated successfully for member=$memberId');
+      } else {
+        LogUtils.w('DISCUSS_SEEN_FAILED: Server returned error: ${response.message}');
+      }
+    } catch (e) {
+      LogUtils.w('DISCUSS_SEEN_ERROR: Failed to write seen status: $e');
+    }
+  }
+
   Future<void> refreshActiveChannel() async {
     if (selectedChannelId.value == -1) return;
     await fetchMessages(selectedChannelId.value, background: true);
     // Also fetch updated channel details to update list unreads or updates
     var response = await OdooRpcApiManager.searchRead(
       model: channelModelName.value,
-      domain: [],
+      domain: [
+        ['channel_partner_ids', 'in', [partnerId.value]]
+      ],
       fields: ['id', 'name', 'channel_type', 'description', 'channel_partner_ids'],
       order: 'write_date desc',
     );
@@ -460,8 +772,10 @@ class DiscussController extends GetxController {
     if (!response.isSuccess) {
       response = await OdooRpcApiManager.searchRead(
         model: channelModelName.value,
-        domain: [],
-        fields: ['id', 'name', 'channel_type', 'description'],
+        domain: [
+          ['partner_ids', 'in', [partnerId.value]]
+        ],
+        fields: ['id', 'name', 'channel_type', 'description', 'partner_ids'],
         order: 'write_date desc',
       );
     }
@@ -481,13 +795,17 @@ class DiscussController extends GetxController {
       for (var f in fetched) {
         final idx = channels.indexWhere((c) => c.id == f.id);
         if (idx != -1) {
+          final existing = channels[idx];
           channels[idx] = f.copyWith(
             unreadCount: f.id == selectedChannelId.value ? 0 : f.unreadCount,
+            lastMessage: existing.lastMessage,
+            lastMessageTime: existing.lastMessageTime,
           );
         } else {
           channels.add(f);
         }
       }
+      sortChannels();
     }
   }
 
@@ -655,5 +973,263 @@ class DiscussController extends GetxController {
     } finally {
       isLoadingChannels.value = false;
     }
+  }
+
+  Future<bool> sendAttachment(String fileName, Uint8List fileBytes, {String caption = ''}) async {
+    final channelId = selectedChannelId.value;
+    if (channelId == -1 || fileBytes.isEmpty) return false;
+
+    try {
+      isSendingMessage.value = true;
+      LogUtils.i('DISCUSS_SEND_ATTACH: Starting upload for $fileName (${fileBytes.length} bytes)');
+
+      // 1. Encode file content to Base64
+      final base64Content = base64Encode(fileBytes);
+
+      // 2. Upload file to ir.attachment
+      final attachResponse = await OdooRpcApiManager.create(
+        model: 'ir.attachment',
+        values: {
+          'name': fileName,
+          'datas': base64Content,
+          'res_model': channelModelName.value,
+          'res_id': channelId,
+        },
+      );
+
+      if (!attachResponse.isSuccess || attachResponse.data == null) {
+        final err = attachResponse.message.isNotEmpty ? attachResponse.message : 'Attachment upload failed';
+        showToast(err, idSuccess: false);
+        LogUtils.e('DISCUSS_SEND_ATTACH_ERROR: Upload failed: $err');
+        return false;
+      }
+
+      final attachmentId = attachResponse.data!;
+      LogUtils.i('DISCUSS_SEND_ATTACH: Uploaded successfully, attachmentId=$attachmentId. Posting message...');
+
+      // 3. Post the message with attachment_ids linked
+      final postResponse = await OdooRpcApiManager.call(
+        model: channelModelName.value,
+        method: 'message_post',
+        args: [channelId],
+        kwargs: {
+          'body': caption, // Pass the text caption as message body
+          'message_type': 'comment',
+          'subtype_xmlid': 'mail.mt_comment',
+          'attachment_ids': [attachmentId],
+        },
+      );
+
+      if (postResponse.isSuccess) {
+        LogUtils.i('DISCUSS_SEND_ATTACH: Message posted successfully. Refreshing messages...');
+        await fetchMessages(channelId, background: true);
+        return true;
+      } else {
+        final err = postResponse.message.isNotEmpty ? postResponse.message : 'Failed to post message with attachment';
+        showToast(err, idSuccess: false);
+        LogUtils.e('DISCUSS_SEND_ATTACH_ERROR: Message post failed: $err');
+        return false;
+      }
+    } catch (e) {
+      LogUtils.e('DISCUSS_SEND_ATTACH_ERROR: Exception: $e');
+      showToast('Error sending attachment: $e', idSuccess: false);
+      return false;
+    } finally {
+      isSendingMessage.value = false;
+    }
+  }
+
+  Future<void> fetchChannelMembersSeenStatus(int channelId) async {
+    try {
+      final channel = channels.firstWhereOrNull((c) => c.id == channelId);
+      if (channel == null || channel.channelType != 'chat') {
+        activeChannelOtherUserLastSeenMessageId.value = -1;
+        return;
+      }
+
+      final response = await OdooRpcApiManager.searchRead(
+        model: 'discuss.channel.member',
+        domain: [
+          ['channel_id', '=', channelId],
+          ['partner_id', '!=', partnerId.value]
+        ],
+        fields: ['last_seen_message_id'],
+        limit: 1,
+      );
+
+      if (response.isSuccess && response.data != null && response.data!.isNotEmpty) {
+        final firstMember = response.data!.first;
+        final rawSeenId = firstMember['last_seen_message_id'];
+        if (rawSeenId is List && rawSeenId.isNotEmpty) {
+          activeChannelOtherUserLastSeenMessageId.value = rawSeenId[0] as int;
+        } else if (rawSeenId is int) {
+          activeChannelOtherUserLastSeenMessageId.value = rawSeenId;
+        } else {
+          activeChannelOtherUserLastSeenMessageId.value = -1;
+        }
+        LogUtils.i('DISCUSS_TICKS: Other user last seen message ID = ${activeChannelOtherUserLastSeenMessageId.value}');
+      } else {
+        activeChannelOtherUserLastSeenMessageId.value = -1;
+      }
+    } catch (e) {
+      LogUtils.e('DISCUSS_TICKS_ERROR: $e');
+      activeChannelOtherUserLastSeenMessageId.value = -1;
+    }
+  }
+
+  MessageTickStatus getMessageTickStatus(DiscussMessageModel message) {
+    if (!message.isOutgoing) return MessageTickStatus.none;
+
+    if (message.id <= 0) {
+      return MessageTickStatus.single;
+    }
+
+    final otherSeenId = activeChannelOtherUserLastSeenMessageId.value;
+    if (otherSeenId != -1) {
+      if (message.id <= otherSeenId) {
+        return MessageTickStatus.doubleBlue;
+      } else {
+        return MessageTickStatus.single;
+      }
+    }
+
+    // Fallback simulation based on message age
+    final difference = DateTime.now().difference(message.date);
+    if (difference.inMinutes < 2) {
+      return MessageTickStatus.single;
+    } else {
+      return MessageTickStatus.doubleBlue;
+    }
+  }
+
+  void sortChannels() {
+    channels.sort((a, b) {
+      final timeA = a.lastMessageTime ?? DateTime(1970);
+      final timeB = b.lastMessageTime ?? DateTime(1970);
+      return timeB.compareTo(timeA);
+    });
+  }
+
+  void _startLongPolling() {
+    if (_isLongPollingActive) return;
+    _isLongPollingActive = true;
+    _runLongPollLoop();
+  }
+
+  Future<void> _runLongPollLoop() async {
+    LogUtils.i('DISCUSS_LONGPOLL: Starting background poll loop...');
+    int lastNotificationId = 0;
+
+    while (_isLongPollingActive && OdooRpcApiManager.isAuthenticated) {
+      if (partnerId.value == -1) {
+        await Future.delayed(const Duration(seconds: 2));
+        continue;
+      }
+
+      final channelsToListen = <dynamic>[];
+      // 1. User partner notification channel
+      channelsToListen.add('res.partner_${partnerId.value}');
+      // 2. Individual discuss channels
+      for (var c in channels) {
+        channelsToListen.add('discuss.channel_${c.id}');
+      }
+
+      if (channelsToListen.isEmpty) {
+        await Future.delayed(const Duration(seconds: 5));
+        continue;
+      }
+
+      LogUtils.i('DISCUSS_LONGPOLL: Polling Odoo server (last=$lastNotificationId)...');
+      final response = await OdooRpcApiManager.longPoll(
+        channels: channelsToListen,
+        last: lastNotificationId,
+      );
+
+      if (!_isLongPollingActive) break;
+
+      if (response.isSuccess && response.data != null) {
+        final List<dynamic> result = List<dynamic>.from(response.data);
+        LogUtils.i('DISCUSS_LONGPOLL: Received ${result.length} notifications.');
+        
+        bool messageChanged = false;
+        
+        for (var raw in result) {
+          if (raw is Map) {
+            final id = raw['id'];
+            if (id is int && id > lastNotificationId) {
+              lastNotificationId = id;
+            }
+            
+            final channel = raw['channel'];
+            final message = raw['message'];
+            LogUtils.i('DISCUSS_LONGPOLL_EVENT: Channel: $channel, message keys: ${message?.keys}');
+            
+            if (channel != null && channel.toString().contains('discuss.channel_')) {
+              messageChanged = true;
+            }
+          }
+        }
+
+        if (messageChanged) {
+          LogUtils.i('DISCUSS_LONGPOLL: Detected message updates. Fetching fresh messages...');
+          if (selectedChannelId.value != -1) {
+            await fetchMessages(selectedChannelId.value, background: true);
+          }
+          await fetchChannels();
+        }
+        
+        await Future.delayed(const Duration(milliseconds: 100));
+      } else {
+        final err = response.message;
+        if (err != null && (err.contains('404') || err.contains('not found') || err.contains('301') || err.contains('302'))) {
+          LogUtils.w('DISCUSS_LONGPOLL: Longpolling endpoint not configured/available (404/302). Falling back to Adaptive Polling...');
+          _runAdaptivePollingLoop();
+          break; // Exit long poll loop
+        }
+        LogUtils.w('DISCUSS_LONGPOLL_WARNING: Poll failed: $err. Retrying in 5 seconds...');
+        await Future.delayed(const Duration(seconds: 5));
+      }
+    }
+    
+    LogUtils.i('DISCUSS_LONGPOLL: Long polling loop terminated.');
+    _isLongPollingActive = false;
+  }
+
+  Future<void> _runAdaptivePollingLoop() async {
+    LogUtils.i('DISCUSS_POLL: Starting background adaptive polling loop...');
+    
+    while (_isLongPollingActive && OdooRpcApiManager.isAuthenticated) {
+      final isDiscussActive = Get.currentRoute == '/discuss';
+      
+      Duration delay;
+      if (isDiscussActive) {
+        // If actively looking at chat, we poll every 4 seconds for responsiveness
+        delay = const Duration(seconds: 4);
+      } else {
+        // If in dashboard, timesheets, or background, we poll very passively (every 60 seconds)
+        delay = const Duration(seconds: 60);
+      }
+
+      await Future.delayed(delay);
+
+      if (!_isLongPollingActive || !OdooRpcApiManager.isAuthenticated) break;
+
+      try {
+        if (isDiscussActive) {
+          LogUtils.i('DISCUSS_POLL: App is in chat view, fetching new messages...');
+          if (selectedChannelId.value != -1) {
+            await fetchMessages(selectedChannelId.value, background: true);
+          }
+          await fetchChannels();
+        } else {
+          LogUtils.i('DISCUSS_POLL: App is inactive/in background, passive sync channels...');
+          await fetchChannels();
+        }
+      } catch (e) {
+        LogUtils.e('DISCUSS_POLL_ERROR: Polling request failed: $e');
+      }
+    }
+    
+    LogUtils.i('DISCUSS_POLL: Adaptive polling loop terminated.');
   }
 }

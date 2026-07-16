@@ -1,5 +1,12 @@
+import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 import 'package:pi_task_watch/exports.dart';
 
 class ChannelListTile extends StatefulWidget {
@@ -221,7 +228,6 @@ class _ChannelListTileState extends State<ChannelListTile> {
     }
   }
 }
-
 class MessageBubble extends StatelessWidget {
   final DiscussMessageModel message;
 
@@ -302,14 +308,21 @@ class MessageBubble extends StatelessWidget {
                             ),
                           ),
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    child: Text(
-                      message.cleanBody,
-                      style: GoogleFonts.inter(
-                        color: isOutgoing ? Colors.white : Colors.black87,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                        height: 1.4,
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (message.cleanBody.isNotEmpty)
+                          RichText(
+                            text: TextSpan(
+                              children: _parseMessageBody(message.cleanBody, isOutgoing),
+                            ),
+                          ),
+                        if (message.cleanBody.isNotEmpty && message.attachments.isNotEmpty)
+                          const SizedBox(height: 8),
+                        if (message.attachments.isNotEmpty)
+                          ...message.attachments.map((attach) => _buildAttachmentItem(context, attach, isOutgoing)),
+                      ],
                     ),
                   ),
                 ),
@@ -325,30 +338,491 @@ class MessageBubble extends StatelessWidget {
     );
   }
 
+  Widget _buildAttachmentItem(BuildContext context, DiscussAttachmentModel attachment, bool isOutgoing) {
+    final bool isImage = attachment.mimetype.startsWith('image/');
+    
+    if (isImage) {
+      return GestureDetector(
+        onTap: () => _openAttachment(context, attachment),
+        child: Container(
+          margin: const EdgeInsets.symmetric(vertical: 4),
+          constraints: const BoxConstraints(maxHeight: 180, maxWidth: 220),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: OdooNetworkImage(
+              model: 'ir.attachment',
+              id: attachment.id,
+              field: 'datas',
+              fit: BoxFit.cover,
+              placeholder: const Center(
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primary),
+                ),
+              ),
+              errorWidget: Container(
+                color: Colors.grey.shade200,
+                padding: const EdgeInsets.all(8),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.image, color: Colors.grey),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        attachment.name,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: isOutgoing ? Colors.white70 : Colors.black54,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    } else {
+      return GestureDetector(
+        onTap: () => _openAttachment(context, attachment),
+        child: Container(
+          margin: const EdgeInsets.symmetric(vertical: 4),
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: isOutgoing ? Colors.white.withOpacity(0.15) : Colors.grey.shade100,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                _getIconForMimetype(attachment.mimetype),
+                color: isOutgoing ? Colors.white : AppTheme.primary,
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      attachment.name,
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: isOutgoing ? Colors.white : Colors.black87,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    if (attachment.fileSize > 0)
+                      Text(
+                        _formatFileSize(attachment.fileSize),
+                        style: TextStyle(
+                          fontSize: 9,
+                          color: isOutgoing ? Colors.white70 : Colors.grey.shade500,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+  }
+
+  IconData _getIconForMimetype(String mimetype) {
+    if (mimetype.contains('pdf')) return Icons.picture_as_pdf;
+    if (mimetype.contains('zip') || mimetype.contains('rar')) return Icons.archive;
+    if (mimetype.contains('excel') || mimetype.contains('sheet')) return Icons.table_chart;
+    if (mimetype.contains('word') || mimetype.contains('document')) return Icons.description;
+    return Icons.insert_drive_file_rounded;
+  }
+
+  String _formatFileSize(int bytes) {
+    if (bytes <= 0) return '0 B';
+    const suffixes = ['B', 'KB', 'MB', 'GB'];
+    var i = 0;
+    double size = bytes.toDouble();
+    while (size >= 1024 && i < suffixes.length - 1) {
+      size /= 1024;
+      i++;
+    }
+    return '${size.toStringAsFixed(1)} ${suffixes[i]}';
+  }
+
+  void _openAttachment(BuildContext context, DiscussAttachmentModel attachment) {
+    _showAttachmentPreviewDialog(context, attachment);
+  }
+
+  void _showAttachmentPreviewDialog(BuildContext context, DiscussAttachmentModel attachment) {
+    final serverUrl = OdooRpcApiManager.authenticationState['serverUrl'] as String?;
+    if (serverUrl == null || serverUrl.isEmpty) return;
+    
+    final sessionId = OdooRpcApiManager.currentSessionId ?? '';
+    final url = '$serverUrl/web/content/${attachment.id}?session_id=$sessionId';
+    final isImage = attachment.mimetype.startsWith('image/');
+    
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (BuildContext dialogContext) {
+        Uint8List? fetchedBytes;
+        bool isDownloading = false;
+        
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return Dialog(
+              backgroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              child: Container(
+                width: 500,
+                height: 500,
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    // Header row
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            attachment.name,
+                            style: GoogleFonts.inter(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black87,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close_rounded, color: Colors.grey),
+                          onPressed: () => Navigator.of(dialogContext).pop(),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    
+                    // Body Area (Preview)
+                    Expanded(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade50,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.grey.shade100),
+                        ),
+                        width: double.infinity,
+                        clipBehavior: Clip.antiAlias,
+                        child: isImage
+                            ? FutureBuilder<http.Response>(
+                                future: http.get(
+                                  Uri.parse(url),
+                                  headers: {
+                                    'Cookie': 'session_id=$sessionId',
+                                  },
+                                ),
+                                builder: (context, snapshot) {
+                                  if (snapshot.connectionState == ConnectionState.waiting) {
+                                    return const Center(
+                                      child: CircularProgressIndicator(color: AppTheme.primary),
+                                    );
+                                  }
+                                  if (snapshot.hasError || snapshot.data == null || snapshot.data!.statusCode != 200) {
+                                    return Center(
+                                      child: Column(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          const Icon(Icons.broken_image_rounded, size: 48, color: Colors.grey),
+                                          const SizedBox(height: 8),
+                                          Text('Failed to load image preview', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                                        ],
+                                      ),
+                                    );
+                                  }
+                                  fetchedBytes = snapshot.data!.bodyBytes;
+                                  return InteractiveViewer(
+                                    child: Image.memory(
+                                      fetchedBytes!,
+                                      fit: BoxFit.contain,
+                                    ),
+                                  );
+                                },
+                              )
+                            : Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      _getIconForMimetype(attachment.mimetype),
+                                      size: 72,
+                                      color: AppTheme.primary,
+                                    ),
+                                    const SizedBox(height: 16),
+                                    Text(
+                                      attachment.name,
+                                      style: GoogleFonts.inter(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.black87,
+                                      ),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      'Size: ${_formatFileSize(attachment.fileSize)}',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.grey.shade600,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'Type: ${attachment.mimetype}',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: Colors.grey.shade500,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    
+                    // Action row (Download Button)
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        if (isDownloading)
+                          const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 16),
+                            child: SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primary),
+                            ),
+                          )
+                        else
+                          ElevatedButton.icon(
+                            onPressed: () async {
+                              setState(() {
+                                isDownloading = true;
+                              });
+                              
+                              try {
+                                final bytes = fetchedBytes ?? (await http.get(
+                                  Uri.parse(url),
+                                  headers: {
+                                    'Cookie': 'session_id=$sessionId',
+                                  },
+                                )).bodyBytes;
+                                
+                                final downloadsDir = await getDownloadsDirectory();
+                                if (downloadsDir == null) {
+                                  showToast('Could not access Downloads directory', idSuccess: false);
+                                  return;
+                                }
+                                
+                                var filePath = '${downloadsDir.path}/${attachment.name}';
+                                var file = File(filePath);
+                                var counter = 1;
+                                while (await file.exists()) {
+                                  final dotIndex = attachment.name.lastIndexOf('.');
+                                  if (dotIndex != -1) {
+                                    final nameWithoutExt = attachment.name.substring(0, dotIndex);
+                                    final ext = attachment.name.substring(dotIndex);
+                                    filePath = '${downloadsDir.path}/$nameWithoutExt($counter)$ext';
+                                  } else {
+                                    filePath = '${downloadsDir.path}/${attachment.name}($counter)';
+                                  }
+                                  file = File(filePath);
+                                  counter++;
+                                }
+                                
+                                await file.writeAsBytes(bytes);
+                                showToast('Saved to Downloads: ${file.path.split('/').last}', idSuccess: true);
+                              } catch (e) {
+                                debugPrint('DOWNLOAD_ERROR: $e');
+                                showToast('Failed to download: $e', idSuccess: false);
+                              } finally {
+                                setState(() {
+                                  isDownloading = false;
+                                });
+                              }
+                            },
+                            icon: const Icon(Icons.download_rounded, size: 16, color: Colors.white),
+                            label: Text(
+                              'Download File',
+                              style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 13),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppTheme.primary,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   Widget _buildTimeText() {
     final hour = message.date.hour % 12 == 0 ? 12 : message.date.hour % 12;
     final minute = message.date.minute.toString().padLeft(2, '0');
     final period = message.date.hour >= 12 ? 'PM' : 'AM';
     return Padding(
       padding: const EdgeInsets.only(bottom: 2),
-      child: Text(
-        '$hour:$minute $period',
-        style: TextStyle(
-          fontSize: 9,
-          color: Colors.grey.shade500,
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Text(
+            '$hour:$minute $period',
+            style: TextStyle(
+              fontSize: 9,
+              color: Colors.grey.shade500,
+            ),
+          ),
+          if (message.isOutgoing) ...[
+            const SizedBox(width: 4),
+            _buildTickIcon(),
+          ],
+        ],
       ),
     );
+  }
+
+  Widget _buildTickIcon() {
+    final controller = Get.isRegistered<DiscussController>() ? Get.find<DiscussController>() : null;
+    if (controller == null) {
+      return const Icon(Icons.done_rounded, size: 11, color: Colors.grey);
+    }
+    
+    final tickStatus = controller.getMessageTickStatus(message);
+    switch (tickStatus) {
+      case MessageTickStatus.single:
+        return const Icon(
+          Icons.done_rounded,
+          size: 11,
+          color: Colors.grey,
+        );
+      case MessageTickStatus.doubleGray:
+        return const Icon(
+          Icons.done_all_rounded,
+          size: 11,
+          color: Colors.grey,
+        );
+      case MessageTickStatus.doubleBlue:
+        return const Icon(
+          Icons.done_all_rounded,
+          size: 11,
+          color: Colors.blue,
+        );
+      case MessageTickStatus.none:
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+
+  List<InlineSpan> _parseMessageBody(String text, bool isOutgoing) {
+    final List<InlineSpan> spans = [];
+    final urlRegex = RegExp(
+      r'(https?:\/\/[^\s]+|www\.[^\s]+)',
+      caseSensitive: false,
+    );
+
+    final matches = urlRegex.allMatches(text);
+    int lastMatchEnd = 0;
+
+    for (final match in matches) {
+      if (match.start > lastMatchEnd) {
+        spans.add(TextSpan(
+          text: text.substring(lastMatchEnd, match.start),
+          style: GoogleFonts.inter(
+            color: isOutgoing ? Colors.white : Colors.black87,
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+            height: 1.4,
+          ),
+        ));
+      }
+
+      final urlText = match.group(0)!;
+      String urlToLaunch = urlText;
+      if (urlText.toLowerCase().startsWith('www.')) {
+        urlToLaunch = 'https://$urlText';
+      }
+
+      spans.add(TextSpan(
+        text: urlText,
+        style: GoogleFonts.inter(
+          color: isOutgoing ? const Color(0xFF80E5FF) : Colors.blue.shade700,
+          fontSize: 13,
+          fontWeight: FontWeight.bold,
+          decoration: TextDecoration.underline,
+          height: 1.4,
+        ),
+        recognizer: TapGestureRecognizer()
+          ..onTap = () async {
+            try {
+              final uri = Uri.parse(urlToLaunch);
+              if (await canLaunchUrl(uri)) {
+                await launchUrl(uri, mode: LaunchMode.externalApplication);
+              }
+            } catch (e) {
+              debugPrint('Error launching URL: $e');
+            }
+          },
+      ));
+
+      lastMatchEnd = match.end;
+    }
+
+    if (lastMatchEnd < text.length) {
+      spans.add(TextSpan(
+        text: text.substring(lastMatchEnd),
+        style: GoogleFonts.inter(
+          color: isOutgoing ? Colors.white : Colors.black87,
+          fontSize: 13,
+          fontWeight: FontWeight.w500,
+          height: 1.4,
+        ),
+      ));
+    }
+
+    return spans;
   }
 }
 
 class ChatInputArea extends StatefulWidget {
   final Function(String) onSend;
+  final Function(String, Uint8List, String) onAttach;
   final bool isLoading;
 
   const ChatInputArea({
     super.key,
     required this.onSend,
+    required this.onAttach,
     required this.isLoading,
   });
 
@@ -359,11 +833,198 @@ class ChatInputArea extends StatefulWidget {
 class _ChatInputAreaState extends State<ChatInputArea> {
   final TextEditingController _textController = TextEditingController();
 
+  bool _isImageFile(String path) {
+    final lower = path.toLowerCase();
+    return lower.endsWith('.png') ||
+        lower.endsWith('.jpg') ||
+        lower.endsWith('.jpeg') ||
+        lower.endsWith('.gif') ||
+        lower.endsWith('.webp');
+  }
+
   void _handleSend() {
     final text = _textController.text.trim();
     if (text.isNotEmpty) {
       widget.onSend(text);
       _textController.clear();
+    }
+  }
+
+  void _showPreviewDialog(String fileName, Uint8List fileBytes) {
+    final captionController = TextEditingController(text: _textController.text);
+    final isImage = _isImageFile(fileName);
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return Dialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: Container(
+            width: 400,
+            constraints: const BoxConstraints(maxHeight: 520),
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Header
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Preview Attachment',
+                      style: GoogleFonts.inter(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded, color: Colors.grey),
+                      onPressed: () => Navigator.of(dialogContext).pop(),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                
+                // Content Preview
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey.shade100),
+                    ),
+                    width: double.infinity,
+                    clipBehavior: Clip.antiAlias,
+                    child: isImage
+                        ? InteractiveViewer(
+                            child: Image.memory(
+                              fileBytes,
+                              fit: BoxFit.contain,
+                            ),
+                          )
+                        : Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(
+                                  Icons.insert_drive_file_rounded,
+                                  size: 64,
+                                  color: AppTheme.primary,
+                                ),
+                                const SizedBox(height: 12),
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                                  child: Text(
+                                    fileName,
+                                    style: GoogleFonts.inter(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w500,
+                                      color: Colors.black87,
+                                    ),
+                                    textAlign: TextAlign.center,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Caption TextField
+                Container(
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF4F8),
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: TextField(
+                    controller: captionController,
+                    style: GoogleFonts.inter(fontSize: 13, color: Colors.black87),
+                    decoration: InputDecoration(
+                      hintText: 'Add a caption...',
+                      hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 13),
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      filled: false,
+                      contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Actions
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.of(dialogContext).pop(),
+                      child: Text(
+                        'Cancel',
+                        style: GoogleFonts.inter(
+                          color: Colors.grey.shade600,
+                          fontWeight: FontWeight.w500,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.of(dialogContext).pop();
+                        // Send the attachment with caption
+                        widget.onAttach(fileName, fileBytes, captionController.text.trim());
+                        _textController.clear();
+                      },
+                      icon: const Icon(Icons.send_rounded, size: 14, color: Colors.white),
+                      label: Text(
+                        'Send',
+                        style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 13),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.primary,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _handleAttachment() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.any,
+        withData: true,
+      );
+
+      if (result != null && result.files.isNotEmpty) {
+        final file = result.files.first;
+        final name = file.name;
+        final bytes = file.bytes;
+        if (bytes != null) {
+          _showPreviewDialog(name, bytes);
+        } else {
+          showToast('Could not read file data', idSuccess: false);
+        }
+      }
+    } catch (e) {
+      debugPrint('FILE_PICK_ERROR: $e');
+      showToast('Error picking file: $e', idSuccess: false);
     }
   }
 
@@ -376,7 +1037,6 @@ class _ChatInputAreaState extends State<ChatInputArea> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: Colors.white,
         border: Border(
@@ -387,56 +1047,69 @@ class _ChatInputAreaState extends State<ChatInputArea> {
         ),
       ),
       child: SafeArea(
-        child: Row(
-          children: [
-            Expanded(
-              child: Container(
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFF4F8),
-                  borderRadius: BorderRadius.circular(24),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Row(
+            children: [
+              IconButton(
+                onPressed: widget.isLoading ? null : _handleAttachment,
+                icon: const Icon(Icons.attach_file_rounded, size: 20, color: Colors.grey),
+                tooltip: 'Attach image or document',
+                style: IconButton.styleFrom(
+                  minimumSize: const Size(36, 36),
+                  padding: EdgeInsets.zero,
                 ),
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: TextField(
-                  controller: _textController,
-                  textInputAction: TextInputAction.send,
-                  onSubmitted: (_) => _handleSend(),
-                  style: GoogleFonts.inter(fontSize: 13, color: Colors.black87),
-                  decoration: InputDecoration(
-                    hintText: 'Write a message...',
-                    hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 13),
-                    border: InputBorder.none,
-                    enabledBorder: InputBorder.none,
-                    focusedBorder: InputBorder.none,
-                    filled: false,
-                    contentPadding: const EdgeInsets.symmetric(vertical: 10),
+              ),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF4F8),
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: TextField(
+                    controller: _textController,
+                    textInputAction: TextInputAction.send,
+                    onSubmitted: (_) => widget.isLoading ? null : _handleSend(),
+                    style: GoogleFonts.inter(fontSize: 13, color: Colors.black87),
+                    decoration: InputDecoration(
+                      hintText: 'Write a message...',
+                      hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 13),
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      filled: false,
+                      contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                    ),
                   ),
                 ),
               ),
-            ),
-            const SizedBox(width: 8),
-            widget.isLoading
-                ? const SizedBox(
-                    width: 36,
-                    height: 36,
-                    child: Padding(
-                      padding: EdgeInsets.all(8.0),
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation(AppTheme.primary),
+              const SizedBox(width: 8),
+              widget.isLoading
+                  ? const SizedBox(
+                      width: 36,
+                      height: 36,
+                      child: Padding(
+                        padding: EdgeInsets.all(8.0),
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation(AppTheme.primary),
+                        ),
+                      ),
+                    )
+                  : IconButton(
+                      onPressed: _handleSend,
+                      icon: const Icon(Icons.send_rounded, size: 20),
+                      color: Colors.white,
+                      style: IconButton.styleFrom(
+                        backgroundColor: AppTheme.primary,
+                        padding: const EdgeInsets.all(8),
+                        minimumSize: const Size(36, 36),
                       ),
                     ),
-                  )
-                : IconButton(
-                    onPressed: _handleSend,
-                    icon: const Icon(Icons.send_rounded, size: 20),
-                    color: Colors.white,
-                    style: IconButton.styleFrom(
-                      backgroundColor: AppTheme.primary,
-                      padding: const EdgeInsets.all(8),
-                      minimumSize: const Size(36, 36),
-                    ),
-                  ),
-          ],
+            ],
+          ),
         ),
       ),
     );

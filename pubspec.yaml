@@ -21,6 +21,7 @@ dependencies:
   logarte: ^0.2.3
   screen_capturer: ^0.2.3
   path_provider: ^2.1.1
+  file_picker: ^8.0.0
 
   # connectivity_plus: ^3.0.3  # For network connectivity detection
   # flutter_secure_storage: ^8.0.0  # For secure storage of sensitive data

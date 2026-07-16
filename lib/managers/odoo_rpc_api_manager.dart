@@ -1822,6 +1822,74 @@ class OdooRpcApiManager {
     }
   }
 
+  static Future<OdooResponse<dynamic>> longPoll({
+    required List<dynamic> channels,
+    required int last,
+    Duration timeout = const Duration(seconds: 60),
+  }) async {
+    final baseUrl = _effectiveServerUrl;
+    if (baseUrl.isEmpty) {
+      return OdooResponse<dynamic>.error(
+        message: 'Server URL not configured',
+        requestId: const Uuid().v4(),
+      );
+    }
+
+    final requestId = const Uuid().v4();
+    final uri = Uri.parse('$baseUrl/longpolling/poll');
+
+    final requestData = <String, dynamic>{
+      'jsonrpc': '2.0',
+      'method': 'call',
+      'id': requestId,
+      'params': {
+        'channels': channels,
+        'last': last,
+      }
+    };
+
+    try {
+      final dioInstance = await _getDio();
+      final options = dio.Options(
+        headers: _getHeaders(includeSession: true),
+        receiveTimeout: timeout + const Duration(seconds: 5),
+      );
+
+      final response = await dioInstance.post(
+        uri.toString(),
+        data: jsonEncode(requestData),
+        options: options,
+      );
+
+      if (response.statusCode == 200) {
+        final responseData = response.data;
+        if (responseData is Map && responseData.containsKey('result')) {
+          return OdooResponse<dynamic>.success(
+            data: responseData['result'],
+            message: 'Longpoll completed',
+            requestId: requestId,
+          );
+        } else if (responseData is Map && responseData.containsKey('error')) {
+          final err = responseData['error'];
+          final errMsg = err is Map ? (err['message'] ?? err.toString()) : err.toString();
+          return OdooResponse<dynamic>.error(
+            message: errMsg,
+            requestId: requestId,
+          );
+        }
+      }
+      return OdooResponse<dynamic>.error(
+        message: 'HTTP Status ${response.statusCode}',
+        requestId: requestId,
+      );
+    } catch (e) {
+      return OdooResponse<dynamic>.error(
+        message: e.toString(),
+        requestId: requestId,
+      );
+    }
+  }
+
   static Future<OdooResponse<bool>> testAuthentication({
     bool showLog = true,
   }) async {

@@ -487,6 +487,7 @@ class _DiscussScreenState extends State<DiscussScreen> {
         // Input area
         ChatInputArea(
           onSend: (text) => controller.sendMessage(text),
+          onAttach: (name, bytes, caption) => controller.sendAttachment(name, bytes, caption: caption),
           isLoading: controller.isSendingMessage.value,
         ),
       ],
