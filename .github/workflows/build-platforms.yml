@@ -113,7 +113,7 @@ jobs:
         run: python generate_fastforge_configs.py
 
       - name: Build macOS App (Release)
-        run: flutter build macos --release
+        run: flutter build macos --release --no-codesign
 
       - name: Build DMG Package (Fastforge)
         id: fastforge_pack
