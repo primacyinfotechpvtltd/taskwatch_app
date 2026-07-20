@@ -254,6 +254,43 @@ class _SigninScreenState extends State<SigninScreen>
                           child: Obx(
                             () => Column(
                               children: [
+                                // WFH warning message
+                                if (!_authController.isWfhApproved.value) ...[
+                                  Container(
+                                    width: double.infinity,
+                                    margin: const EdgeInsets.only(bottom: 20),
+                                    padding: const EdgeInsets.all(16),
+                                    decoration: BoxDecoration(
+                                      color: Colors.red.shade50,
+                                      borderRadius: BorderRadius.circular(16),
+                                      border: Border.all(
+                                        color: Colors.red.shade200,
+                                        width: 1,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          Icons.warning_amber_rounded,
+                                          color: Colors.red.shade700,
+                                          size: 20,
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Text(
+                                            'Your wfh is not approved please contact with the hr',
+                                            style: GoogleFonts.inter(
+                                              color: Colors.red.shade800,
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+
                                 // Auto-login indicator - shows when auto-login is happening
                                 if (_authController.authLoading.value ||
                                     _authController.settingsLoading.value ||

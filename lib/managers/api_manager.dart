@@ -320,6 +320,8 @@ class ApiManager {
       "X-Requested-With": "XMLHttpRequest",
       "Access-Control-Allow-Origin": "*",
       if (token != null) "Authorization": "Bearer $token",
+      if (OdooRpcApiManager.currentDatabase != null)
+        "X-Odoo-Database": OdooRpcApiManager.currentDatabase!,
       // add standers session cockie header
       // "Cookie": "session=${OdooRpcApiManager.currentSessionId}",
       // "Cookie": "session_id=${OdooRpcApiManager.currentSessionId}",

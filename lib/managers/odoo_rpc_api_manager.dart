@@ -1,9 +1,7 @@
 import 'dart:convert';
-
 import 'package:dio/dio.dart' as dio;
 import 'package:logger/logger.dart';
 import 'package:uuid/uuid.dart';
-
 import 'package:pi_task_watch/utils/get_secure_http_dio_client.dart';
 import 'package:pi_task_watch/constants/app_constants.dart';
 
@@ -501,6 +499,10 @@ class OdooRpcApiManager {
     if (includeSession && _sessionId != null && _sessionId!.isNotEmpty) {
       // Some Odoo versions expect 'session' while others expect 'session_id'
       headers['Cookie'] = 'session=$_sessionId; session_id=$_sessionId';
+    }
+
+    if (_database != null && _database!.isNotEmpty) {
+      headers['X-Odoo-Database'] = _database!;
     }
 
     return headers;
@@ -1032,6 +1034,8 @@ class OdooRpcApiManager {
 
   static String? get currentSessionId => _sessionId;
 
+  static String? get currentDatabase => _database;
+
   static int? get currentUserId => _uid;
 
   static OdooAuthMode get currentAuthMode => _authMode;
@@ -1229,8 +1233,10 @@ class OdooRpcApiManager {
     try {
       // Clean separation: positional args stay in finalArgs, keyword args in finalKwargs.
       // All callers must use the kwargs parameter — never append a Map to args.
-      final List<dynamic> finalArgs = args != null ? List<dynamic>.from(args) : [];
-      final Map<String, dynamic> finalKwargs = kwargs != null ? Map<String, dynamic>.from(kwargs) : {};
+      final List<dynamic> finalArgs =
+          args != null ? List<dynamic>.from(args) : [];
+      final Map<String, dynamic> finalKwargs =
+          kwargs != null ? Map<String, dynamic>.from(kwargs) : {};
 
       final requestData = {
         'jsonrpc': '2.0',
@@ -1260,7 +1266,8 @@ class OdooRpcApiManager {
         endpoint = '$schemaPart://$pathPart';
       }
 
-      _logger.i('SESSION_RPC: [START] $model.$method, endpoint=$endpoint, headers=${_getHeaders(includeSession: true)}, requestData=$requestData');
+      _logger.i(
+          'SESSION_RPC: [START] $model.$method, endpoint=$endpoint, headers=${_getHeaders(includeSession: true)}, requestData=$requestData');
 
       final response = await dioInstance.post(
         endpoint,
@@ -1268,7 +1275,8 @@ class OdooRpcApiManager {
         options: dio.Options(headers: _getHeaders(includeSession: true)),
       );
 
-      _logger.i('SESSION_RPC: [END] $model.$method, statusCode=${response.statusCode}, body=${response.data}');
+      _logger.i(
+          'SESSION_RPC: [END] $model.$method, statusCode=${response.statusCode}, body=${response.data}');
 
       if (response.statusCode == 200) {
         final responseData = response.data;
@@ -1285,12 +1293,19 @@ class OdooRpcApiManager {
             }
 
             // Check for session expired and attempt re-authentication
-            final isSessionExpired = errorMessage.toLowerCase().contains('session expired') ||
-                errorMessage.toLowerCase().contains('sessionexpiredexception') ||
-                errorMessage.toLowerCase().contains('not authenticated');
+            final isSessionExpired =
+                errorMessage.toLowerCase().contains('session expired') ||
+                    errorMessage
+                        .toLowerCase()
+                        .contains('sessionexpiredexception') ||
+                    errorMessage.toLowerCase().contains('not authenticated');
 
-            if (isSessionExpired && _database != null && _username != null && _password != null) {
-              _logger.w('Odoo session expired during API call. Attempting to re-authenticate...');
+            if (isSessionExpired &&
+                _database != null &&
+                _username != null &&
+                _password != null) {
+              _logger.w(
+                  'Odoo session expired during API call. Attempting to re-authenticate...');
               final authRes = await authenticate(
                 database: _database!,
                 username: _username!,
@@ -1299,11 +1314,13 @@ class OdooRpcApiManager {
               );
 
               if (authRes.isSuccess) {
-                _logger.i('Re-authentication successful. Retrying original API call...');
+                _logger.i(
+                    'Re-authentication successful. Retrying original API call...');
                 final retryResponse = await dioInstance.post(
                   endpoint,
                   data: jsonEncode(requestData),
-                  options: dio.Options(headers: _getHeaders(includeSession: true)),
+                  options:
+                      dio.Options(headers: _getHeaders(includeSession: true)),
                 );
 
                 if (retryResponse.statusCode == 200) {
@@ -1313,7 +1330,8 @@ class OdooRpcApiManager {
                       return OdooResponse<dynamic>.success(
                         data: retryData['result'],
                         message: 'Request successful after re-authentication',
-                        requestId: retryData['id']?.toString() ?? const Uuid().v4(),
+                        requestId:
+                            retryData['id']?.toString() ?? const Uuid().v4(),
                       );
                     } else {
                       final retryError = retryData['error'];
@@ -1871,7 +1889,8 @@ class OdooRpcApiManager {
           );
         } else if (responseData is Map && responseData.containsKey('error')) {
           final err = responseData['error'];
-          final errMsg = err is Map ? (err['message'] ?? err.toString()) : err.toString();
+          final errMsg =
+              err is Map ? (err['message'] ?? err.toString()) : err.toString();
           return OdooResponse<dynamic>.error(
             message: errMsg,
             requestId: requestId,

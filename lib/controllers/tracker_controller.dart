@@ -675,6 +675,7 @@ class TrackerController extends GetxController {
       final idleResult = await DialogUtils.showAppDialog(
         context: Get.context!,
         title: "Idle Time Detected",
+        canOutsideDismiss: false,
         content: IdleTimeWidget(
           idleTime: idleTime.inSeconds,
           initialNote: (startWorkData.value?.notes.isNotEmpty ?? false)

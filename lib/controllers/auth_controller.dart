@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:intl/intl.dart';
 import 'package:pi_task_watch/controllers/timesheet_controller.dart';
 import 'package:pi_task_watch/exports.dart';
 import 'package:pi_task_watch/models/timesheet_model.dart';
@@ -48,6 +49,10 @@ class AuthController extends GetxController {
   }
 
   //
+  // WFH approval status
+  final RxBool isWfhApproved = true.obs;
+  bool hasShownWfhWarningPopup = false;
+
   final Rx<UserModel?> _user = Rx<UserModel?>(null);
   Rx<UserModel?> get user => _user;
   final RxBool _authLoading = false.obs;
@@ -67,6 +72,7 @@ class AuthController extends GetxController {
   Future<void> restoreServerUrl() async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      isWfhApproved.value = prefs.getBool('is_wfh_approved') ?? true;
       final serverUrl = prefs.getString(_keyServerUrl) ?? '';
       if (serverUrl.isNotEmpty) {
         AppConstant.userGivenApiServerUrl = serverUrl;
@@ -553,6 +559,12 @@ class AuthController extends GetxController {
         _user.value = user;
         LogUtils.i('AUTH_STATE: _user.value successfully set to ${user.email}.');
 
+        hasShownWfhWarningPopup = false;
+        final isApproved = await checkWfhApproval(user.userId);
+        isWfhApproved.value = isApproved;
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('is_wfh_approved', isApproved);
+
         if (kDebugMode) print("🔧 Loading user settings...");
         _settingsLoading.value = true;
 
@@ -641,8 +653,10 @@ class AuthController extends GetxController {
       LogUtils.i('AUTH_STATE: Setting _user.value to null (logout)');
       _user.value = null;
       _settings.value = null;
+      isWfhApproved.value = true;
+      hasShownWfhWarningPopup = false;
 
-      if (kDebugMode) print('🚪 [LOGOUT] Cleared user and settings data');
+      if (kDebugMode) print('🚪 [LOGOUT] Cleared user, settings, and WFH data');
 
       // 2. Clear saved credentials from SharedPreferences
       await clearSavedCredentials();
@@ -723,6 +737,97 @@ class AuthController extends GetxController {
     } catch (e) {
       if (kDebugMode) print("❌ Error fetching settings data: $e");
       return null;
+    }
+  }
+
+  /// Checks if the user is approved for Work From Home (WFH) in Odoo for today
+  Future<bool> checkWfhApproval(int userId) async {
+    try {
+      if (kDebugMode) print("🔍 Checking WFH approval for user ID: $userId");
+      
+      int? employeeId;
+      
+      // Step 1: Find the employee ID for this user ID
+      final empResponse = await OdooRpcApiManager.searchRead(
+        model: 'hr.employee',
+        domain: [
+          ['user_id', '=', userId]
+        ],
+        fields: ['id'],
+      );
+      
+      if (empResponse.isSuccess && empResponse.data != null && empResponse.data!.isNotEmpty) {
+        employeeId = empResponse.data!.first['id'] as int?;
+      } else {
+        // Fallback to res.users read for employee_id field
+        final userResponse = await OdooRpcApiManager.read(
+          model: 'res.users',
+          ids: [userId],
+          fields: ['employee_id'],
+        );
+        if (userResponse.isSuccess && userResponse.data != null && userResponse.data!.isNotEmpty) {
+          final empField = userResponse.data!.first['employee_id'];
+          if (empField is List && empField.isNotEmpty) {
+            employeeId = empField[0] as int?;
+          }
+        }
+      }
+      
+      if (employeeId == null) {
+        if (kDebugMode) print("⚠️ Could not find employee ID for user ID $userId, defaulting to false");
+        return false;
+      }
+      
+      if (kDebugMode) print("👤 Found employee ID: $employeeId");
+      
+      final todayStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
+      
+      // Step 2: Check WFH Requests (pi.wfh.request)
+      final wfhReqResponse = await OdooRpcApiManager.searchRead(
+        model: 'pi.wfh.request',
+        domain: [
+          ['employee_id', '=', employeeId],
+          ['state', '=', 'approved'],
+          ['date_from', '<=', todayStr],
+          ['date_to', '>=', todayStr],
+        ],
+        fields: ['id'],
+      );
+      
+      bool hasApprovedRequest = wfhReqResponse.isSuccess && 
+          wfhReqResponse.data != null && 
+          wfhReqResponse.data!.isNotEmpty;
+          
+      if (hasApprovedRequest) {
+        if (kDebugMode) print("✅ Found approved WFH request for today");
+        return true;
+      }
+      
+      // Step 3: Check WFH Daily Entitlements (pi.wfh.day)
+      final wfhDayResponse = await OdooRpcApiManager.searchRead(
+        model: 'pi.wfh.day',
+        domain: [
+          ['employee_id', '=', employeeId],
+          ['date', '=', todayStr],
+          ['status', 'in', ['Planned', 'Active', 'Compliant', 'planned', 'active', 'compliant']],
+        ],
+        fields: ['id'],
+      );
+      
+      bool hasApprovedDay = wfhDayResponse.isSuccess && 
+          wfhDayResponse.data != null && 
+          wfhDayResponse.data!.isNotEmpty;
+          
+      if (hasApprovedDay) {
+        if (kDebugMode) print("✅ Found approved WFH daily entitlement for today");
+        return true;
+      }
+      
+      if (kDebugMode) print("❌ No approved WFH request or daily entitlement found for today");
+      return false;
+    } catch (e) {
+      if (kDebugMode) print("❌ Error checking WFH approval: $e");
+      return false;
     }
   }
 }

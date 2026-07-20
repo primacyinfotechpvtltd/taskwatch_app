@@ -32,6 +32,61 @@ class _DashboardScreenState extends State<DashboardScreen>
       vsync: this,
       duration: const Duration(seconds: 2),
     )..repeat(reverse: true);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkAndShowWfhPopup();
+    });
+  }
+
+  void _checkAndShowWfhPopup() {
+    if (!_authController.isWfhApproved.value && !_authController.hasShownWfhWarningPopup) {
+      _authController.hasShownWfhWarningPopup = true;
+      if (mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            title: Row(
+              children: [
+                Icon(Icons.warning_amber_rounded, color: Colors.red.shade700),
+                const SizedBox(width: 8),
+                Text(
+                  'WFH Status',
+                  style: GoogleFonts.spaceGrotesk(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.red.shade800,
+                  ),
+                ),
+              ],
+            ),
+            content: Text(
+              'Your wfh is not approved please contact with the hr',
+              style: GoogleFonts.inter(
+                fontSize: 14,
+                color: Colors.black87,
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.red.shade700,
+                ),
+                child: Text(
+                  'OK',
+                  style: GoogleFonts.inter(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -59,6 +114,47 @@ class _DashboardScreenState extends State<DashboardScreen>
               ? SingleChildScrollView(
                   child: Column(
                     children: [
+                      Obx(() {
+                        if (!_authController.isWfhApproved.value) {
+                          return Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 12,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.red.shade100,
+                              border: Border(
+                                bottom: BorderSide(
+                                  color: Colors.red.shade300,
+                                  width: 1,
+                                ),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.warning_amber_rounded,
+                                  color: Colors.red.shade900,
+                                  size: 20,
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    'Your wfh is not approved please contact with the hr',
+                                    style: GoogleFonts.inter(
+                                      color: Colors.red.shade900,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        }
+                        return const SizedBox.shrink();
+                      }),
                       _buildDashboardSection(),
                       _buildBottomSection()
                     ],
@@ -934,6 +1030,13 @@ class _DashboardScreenState extends State<DashboardScreen>
           },
         );
       } else {
+        if (!_authController.isWfhApproved.value) {
+          showToast(
+            'Your wfh is not approved please contact with the hr',
+            idSuccess: false,
+          );
+          return;
+        }
         _showTaskSelectionDialog();
       }
     } catch (e, stackTrace) {
