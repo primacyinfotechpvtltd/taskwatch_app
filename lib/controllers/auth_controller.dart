@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart';
-import 'package:intl/intl.dart';
+
 import 'package:pi_task_watch/controllers/timesheet_controller.dart';
 import 'package:pi_task_watch/exports.dart';
 import 'package:pi_task_watch/models/timesheet_model.dart';
@@ -48,11 +48,6 @@ class AuthController extends GetxController {
     return e.toString();
   }
 
-  //
-  // WFH approval status
-  final RxBool isWfhApproved = true.obs;
-  bool hasShownWfhWarningPopup = false;
-
   final Rx<UserModel?> _user = Rx<UserModel?>(null);
   Rx<UserModel?> get user => _user;
   final RxBool _authLoading = false.obs;
@@ -68,11 +63,253 @@ class AuthController extends GetxController {
   final Rx<SettingsModel?> _settings = Rx<SettingsModel?>(null);
   Rx<SettingsModel?> get settings => _settings;
 
+  // WFH Verification Reactive State
+  final RxBool isWfhApproved = true.obs;
+  final RxString wfhMessage = ''.obs;
+  bool hasShownWfhWarningPopup = false;
+
+  /// Checks if the current user has an approved WFH request in `pi.wfh.request`
+  /// Flow:
+  ///   Step 1 → UID from login result (already in _user.value.userId)
+  ///   Step 2 → hr.employee search_read with [["user_id", "=", uid]] → get employee id
+  ///   Step 3 → pi.wfh.request search_read with [] (all records) → filter by employee_id & state == 'approved'
+  Future<bool> checkWfhApprovalForCurrentUser() async {
+    LogUtils.i('==================================================');
+    LogUtils.i('🔍 [WFH CHECK] Running 3-step WFH approval flow');
+    print('==================================================');
+    print('🔍 [WFH CHECK] Running 3-step WFH approval flow');
+
+    try {
+      // ── STEP 1: Resolve logged-in user ────────────────────────────────────
+      final currentUser = _user.value;
+      if (currentUser == null) {
+        LogUtils.i(
+            '⚠️ [WFH CHECK] No logged-in user found — skipping WFH check');
+        print('⚠️ [WFH CHECK] No logged-in user found — skipping WFH check');
+        isWfhApproved.value = true;
+        wfhMessage.value = '';
+        return true;
+      }
+
+      final int userId = currentUser.userId;
+      final String userEmail = currentUser.email;
+
+      LogUtils.i('🔑 [STEP 1] UID from login: $userId | Email: $userEmail');
+      print('🔑 [STEP 1] UID from login: $userId | Email: $userEmail');
+
+      // ── STEP 2: Resolve hr.employee for this UID ──────────────────────────
+      int? empId;
+      String empName = currentUser.name;
+
+      // Try employee_id directly from login payload first (saves an API call)
+      if (currentUser.json.containsKey('employee_id') &&
+          currentUser.json['employee_id'] != null) {
+        final rawEmp = currentUser.json['employee_id'];
+        if (rawEmp is int) {
+          empId = rawEmp;
+        } else if (rawEmp is List && rawEmp.isNotEmpty && rawEmp[0] is int) {
+          empId = rawEmp[0] as int;
+          if (rawEmp.length > 1) empName = rawEmp[1].toString();
+        } else {
+          empId = int.tryParse(rawEmp.toString());
+        }
+        if (empId != null) {
+          LogUtils.i('[STEP 2] employee_id from login payload: $empId');
+          print('[STEP 2] employee_id from login payload: $empId');
+        }
+      }
+
+      // If still null, call hr.employee search_read with user_id = uid
+      if (empId == null) {
+        LogUtils.i(
+            '[STEP 2] Calling hr.employee search_read with user_id = $userId');
+        print(
+            '[STEP 2] Calling hr.employee search_read with user_id = $userId');
+
+        try {
+          final empRes = await OdooRpcApiManager.searchRead(
+            model: 'hr.employee',
+            domain: [
+              ['user_id', '=', userId]
+            ],
+            fields: ['id', 'name', 'user_id', 'work_email'],
+            limit: 1,
+          );
+
+          if (empRes.isSuccess &&
+              empRes.data is List &&
+              (empRes.data as List).isNotEmpty) {
+            final empRecord = (empRes.data as List).first;
+            empId = empRecord['id'] as int?;
+            empName = empRecord['name']?.toString() ?? empName;
+            LogUtils.i('[STEP 2] ✅ Found employee: id=$empId, name=$empName');
+            print('[STEP 2] ✅ Found employee: id=$empId, name=$empName');
+          } else {
+            LogUtils.w(
+                '[STEP 2] ⚠️ hr.employee returned empty for user_id=$userId — trying work_email fallback');
+            print(
+                '[STEP 2] ⚠️ hr.employee returned empty for user_id=$userId — trying work_email fallback');
+
+            if (userEmail.isNotEmpty) {
+              final empRes2 = await OdooRpcApiManager.searchRead(
+                model: 'hr.employee',
+                domain: [
+                  ['work_email', '=', userEmail]
+                ],
+                fields: ['id', 'name', 'user_id', 'work_email'],
+                limit: 1,
+              );
+              if (empRes2.isSuccess &&
+                  empRes2.data is List &&
+                  (empRes2.data as List).isNotEmpty) {
+                final empRecord = (empRes2.data as List).first;
+                empId = empRecord['id'] as int?;
+                empName = empRecord['name']?.toString() ?? empName;
+                LogUtils.i(
+                    '[STEP 2] ✅ Found employee via email: id=$empId, name=$empName');
+                print(
+                    '[STEP 2] ✅ Found employee via email: id=$empId, name=$empName');
+              }
+            }
+          }
+        } catch (e) {
+          LogUtils.e('[STEP 2] ❌ hr.employee lookup failed: $e');
+          print('[STEP 2] ❌ hr.employee lookup failed: $e');
+        }
+      }
+
+      if (empId == null) {
+        LogUtils.w(
+            '[STEP 2] No hr.employee found for uid=$userId — WFH check skipped (allowing access)');
+        print(
+            '[STEP 2] No hr.employee found for uid=$userId — WFH check skipped (allowing access)');
+        print('==================================================');
+        isWfhApproved.value = true;
+        wfhMessage.value = '';
+        return true;
+      }
+
+      LogUtils.i('👤 EMPLOYEE RESOLVED: id=$empId, name=$empName');
+      print('==================================================');
+      print('👤 EMPLOYEE RESOLVED: id=$empId, name=$empName');
+      print('==================================================');
+
+      // ── STEP 3: Fetch ALL pi.wfh.request records with empty domain ────────
+      LogUtils.i('[STEP 3] Fetching all pi.wfh.request records with domain []');
+      print('[STEP 3] Fetching all pi.wfh.request records with domain []');
+
+      OdooResponse<List<Map<String, dynamic>>> wfhRes =
+          await OdooRpcApiManager.searchRead(
+        model: 'pi.wfh.request',
+        domain: [],
+        fields: ['id', 'employee_id', 'name', 'state'],
+      );
+
+      // Fallback: scoped by employee_id in case the model requires auth context
+      if (!wfhRes.isSuccess ||
+          wfhRes.data == null ||
+          (wfhRes.data is List && (wfhRes.data as List).isEmpty)) {
+        LogUtils.w(
+            '[STEP 3] Empty result with [] domain — retrying with employee_id filter');
+        print(
+            '[STEP 3] Empty result with [] domain — retrying with employee_id filter');
+        wfhRes = await OdooRpcApiManager.searchRead(
+          model: 'pi.wfh.request',
+          domain: [
+            ['employee_id', '=', empId]
+          ],
+          fields: ['id', 'employee_id', 'name', 'state'],
+        );
+      }
+
+      bool foundApproved = false;
+      bool hasAnyRequestForEmployee = false;
+
+      if (wfhRes.isSuccess && wfhRes.data is List) {
+        final List<dynamic> requests = wfhRes.data as List;
+        LogUtils.i('[STEP 3] Total WFH records fetched: ${requests.length}');
+        print('[STEP 3] Total WFH records fetched: ${requests.length}');
+
+        for (final req in requests) {
+          final String reqState = req['state']?.toString() ?? '';
+
+          // Resolve employee_id from [id, name] tuple or plain int
+          int? reqEmpId;
+          final rawEmpField = req['employee_id'];
+          if (rawEmpField is List && rawEmpField.isNotEmpty) {
+            reqEmpId = rawEmpField[0] as int?;
+          } else if (rawEmpField is int) {
+            reqEmpId = rawEmpField;
+          }
+
+          LogUtils.i(
+              '   ▶ WFH #${req['id']}: employee_id=$reqEmpId, state=$reqState');
+          print(
+              '   ▶ WFH #${req['id']}: employee_id=$reqEmpId, state=$reqState');
+
+          // Only process records belonging to THIS employee
+          if (reqEmpId == empId) {
+            hasAnyRequestForEmployee = true;
+            if (reqState == 'approved') {
+              foundApproved = true;
+              LogUtils.i('   ✅ APPROVED record found for employee $empId!');
+              print('   ✅ APPROVED record found for employee $empId!');
+              break;
+            }
+          }
+        }
+
+        if (!hasAnyRequestForEmployee) {
+          LogUtils.i(
+              '[STEP 3] No WFH requests for employee $empId — allowed (not a WFH employee)');
+          print(
+              '[STEP 3] No WFH requests for employee $empId — allowed (not a WFH employee)');
+        } else if (!foundApproved) {
+          LogUtils.w(
+              '[STEP 3] Employee $empId has WFH request(s) but none approved');
+          print(
+              '[STEP 3] Employee $empId has WFH request(s) but none approved');
+        }
+      } else {
+        LogUtils.w(
+            '[STEP 3] ⚠️ pi.wfh.request query failed or returned no data: ${wfhRes.message}');
+        print(
+            '[STEP 3] ⚠️ pi.wfh.request query failed or returned no data: ${wfhRes.message}');
+      }
+
+      // ── FINAL DECISION ────────────────────────────────────────────────────
+      // • No requests for this employee → allowed (not a WFH employee)
+      // • Has request(s) + at least one approved → allowed
+      // • Has request(s) but none approved → show warning
+      final bool wfhAllowed = !hasAnyRequestForEmployee || foundApproved;
+      if (wfhAllowed) {
+        isWfhApproved.value = true;
+        wfhMessage.value = 'WFH Approved';
+        LogUtils.i('✅ FINAL WFH STATUS: APPROVED');
+        print('✅ FINAL WFH STATUS: APPROVED');
+        print('==================================================');
+        return true;
+      } else {
+        isWfhApproved.value = false;
+        wfhMessage.value =
+            'Your WFH request is not approved. Please contact with HR.';
+        LogUtils.w(
+            '❌ FINAL WFH STATUS: NOT APPROVED — WFH warning will be shown');
+        print('❌ FINAL WFH STATUS: NOT APPROVED — WFH warning will be shown');
+        print('==================================================');
+        return false;
+      }
+    } catch (e) {
+      LogUtils.e('❌ [WFH CHECK] Unexpected exception: $e');
+      print('❌ [WFH CHECK] Unexpected exception: $e');
+      return isWfhApproved.value;
+    }
+  }
+
   /// Restores only the server URL from saved preferences
   Future<void> restoreServerUrl() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      isWfhApproved.value = prefs.getBool('is_wfh_approved') ?? true;
       final serverUrl = prefs.getString(_keyServerUrl) ?? '';
       if (serverUrl.isNotEmpty) {
         AppConstant.userGivenApiServerUrl = serverUrl;
@@ -309,8 +546,9 @@ class AuthController extends GetxController {
             }
           } else if (apiResponse.body is List) {
             // If the response is directly a list
-            databases =
-                (apiResponse.body as List).map((e) => _extractDbName(e)).toList();
+            databases = (apiResponse.body as List)
+                .map((e) => _extractDbName(e))
+                .toList();
             print("   ✅ Response body is directly a list: $databases");
           }
 
@@ -447,10 +685,10 @@ class AuthController extends GetxController {
       // Get all databases for verification
       await getAllDb();
 
-      // Configure and authenticate with OdooRpcApiManager
-      // Configure OdooRpcApiManager initially
+      // Pre-configure database so ApiManager.headers() sends X-Odoo-Database.
+      // (ApiManager reads OdooRpcApiManager.currentDatabase for that header.)
+      // Auth state is overridden by setCredentialsAndUid() after login succeeds.
       OdooRpcApiManager.configure(
-        authMode: OdooAuthMode.session,
         serverUrl: AppConstant.apiServerUrl,
         database: db,
         username: email,
@@ -472,7 +710,9 @@ class AuthController extends GetxController {
         print("────────────────────────────────────────────────────────\n");
       }
 
-      if (apiResponse.statusCode != 200 || apiResponse.body == null || apiResponse.body['result'] == null) {
+      if (apiResponse.statusCode != 200 ||
+          apiResponse.body == null ||
+          apiResponse.body['result'] == null) {
         showToast(
           "Invalid credentials or database not found",
           idSuccess: false,
@@ -496,57 +736,21 @@ class AuthController extends GetxController {
         return null;
       }
 
-      // Extract session ID from cookies with proper error handling
-      String nSessionId = '';
-
-      // Get all headers and look for set-cookie
-      final headers = apiResponse.rawResponse.headers;
-
-      // Check for set-cookie header (case-insensitive)
-      String? cookieValue;
-      for (final entry in headers.entries) {
-        if (entry.key.toLowerCase() == 'set-cookie') {
-          cookieValue = entry.value;
-          break;
-        }
-      }
-
-      if (cookieValue != null && cookieValue.isNotEmpty) {
-        // Split by comma to handle multiple cookies in one header
-        final cookies = cookieValue.split(',');
-
-        for (String cookie in cookies) {
-          final trimmedCookie = cookie.trim();
-          if (trimmedCookie.startsWith('session_id=')) {
-            final parts = trimmedCookie.split('=');
-            if (parts.length >= 2) {
-              // Extract value and remove any trailing attributes (like path, domain, etc.)
-              nSessionId = parts.sublist(1).join('=').split(';')[0].trim();
-              break;
-            }
-          }
-        }
-      }
-
-      if (nSessionId.isNotEmpty) {
-        final parsedUser = UserModel.fromJson(result);
-        OdooRpcApiManager.setSession(
-          sessionId: nSessionId,
-          uid: parsedUser.userId,
-          serverUrl: AppConstant.apiServerUrl,
-          database: db,
-          username: email,
-          password: password,
-        );
-        if (kDebugMode) print("Session established in OdooRpcApiManager successfully");
-      } else {
-        if (kDebugMode) print("Warning: No valid session_id found in cookies");
-      }
-
+      // ── Set OdooRpcApiManager credentials (password-based, like Postman) ──
+      // Uses uid from login result + stored password. No session cookie needed.
+      // This permanently fixes the "Not authenticated" race condition caused by
+      // the old cookie extraction → setSession → authenticate() chain.
+      final loginUser = UserModel.fromJson(result);
+      OdooRpcApiManager.setCredentialsAndUid(
+        serverUrl: AppConstant.apiServerUrl,
+        database: db,
+        username: email,
+        password: password,
+        uid: loginUser.userId,
+      );
       if (kDebugMode) {
         print(
-          "Success value: ${result['success']} (${result['success'].runtimeType}) → converted to: $isSuccess",
-        );
+            '🔐 [OdooRpc] Password-mode auth set: uid=${loginUser.userId}, db=$db');
       }
 
       // Show toast message based on success/failure
@@ -554,16 +758,14 @@ class AuthController extends GetxController {
 
       // If login successful
       if (isSuccess) {
-        final user = UserModel.fromJson(result);
-        LogUtils.i('AUTH_STATE: Setting _user.value to user.id=${user.userId}, email=${user.email}');
+        final user = loginUser;
+        LogUtils.i(
+            'AUTH_STATE: Setting _user.value uid=${user.userId}, email=${user.email}');
         _user.value = user;
-        LogUtils.i('AUTH_STATE: _user.value successfully set to ${user.email}.');
+        LogUtils.i('AUTH_STATE: _user.value set successfully.');
 
-        hasShownWfhWarningPopup = false;
-        final isApproved = await checkWfhApproval(user.userId);
-        isWfhApproved.value = isApproved;
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setBool('is_wfh_approved', isApproved);
+        // Check WFH approval for the current logged-in user
+        await checkWfhApprovalForCurrentUser();
 
         if (kDebugMode) print("🔧 Loading user settings...");
         _settingsLoading.value = true;
@@ -654,9 +856,10 @@ class AuthController extends GetxController {
       _user.value = null;
       _settings.value = null;
       isWfhApproved.value = true;
+      wfhMessage.value = '';
       hasShownWfhWarningPopup = false;
 
-      if (kDebugMode) print('🚪 [LOGOUT] Cleared user, settings, and WFH data');
+      if (kDebugMode) print('🚪 [LOGOUT] Cleared user and settings data');
 
       // 2. Clear saved credentials from SharedPreferences
       await clearSavedCredentials();
@@ -737,97 +940,6 @@ class AuthController extends GetxController {
     } catch (e) {
       if (kDebugMode) print("❌ Error fetching settings data: $e");
       return null;
-    }
-  }
-
-  /// Checks if the user is approved for Work From Home (WFH) in Odoo for today
-  Future<bool> checkWfhApproval(int userId) async {
-    try {
-      if (kDebugMode) print("🔍 Checking WFH approval for user ID: $userId");
-      
-      int? employeeId;
-      
-      // Step 1: Find the employee ID for this user ID
-      final empResponse = await OdooRpcApiManager.searchRead(
-        model: 'hr.employee',
-        domain: [
-          ['user_id', '=', userId]
-        ],
-        fields: ['id'],
-      );
-      
-      if (empResponse.isSuccess && empResponse.data != null && empResponse.data!.isNotEmpty) {
-        employeeId = empResponse.data!.first['id'] as int?;
-      } else {
-        // Fallback to res.users read for employee_id field
-        final userResponse = await OdooRpcApiManager.read(
-          model: 'res.users',
-          ids: [userId],
-          fields: ['employee_id'],
-        );
-        if (userResponse.isSuccess && userResponse.data != null && userResponse.data!.isNotEmpty) {
-          final empField = userResponse.data!.first['employee_id'];
-          if (empField is List && empField.isNotEmpty) {
-            employeeId = empField[0] as int?;
-          }
-        }
-      }
-      
-      if (employeeId == null) {
-        if (kDebugMode) print("⚠️ Could not find employee ID for user ID $userId, defaulting to false");
-        return false;
-      }
-      
-      if (kDebugMode) print("👤 Found employee ID: $employeeId");
-      
-      final todayStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
-      
-      // Step 2: Check WFH Requests (pi.wfh.request)
-      final wfhReqResponse = await OdooRpcApiManager.searchRead(
-        model: 'pi.wfh.request',
-        domain: [
-          ['employee_id', '=', employeeId],
-          ['state', '=', 'approved'],
-          ['date_from', '<=', todayStr],
-          ['date_to', '>=', todayStr],
-        ],
-        fields: ['id'],
-      );
-      
-      bool hasApprovedRequest = wfhReqResponse.isSuccess && 
-          wfhReqResponse.data != null && 
-          wfhReqResponse.data!.isNotEmpty;
-          
-      if (hasApprovedRequest) {
-        if (kDebugMode) print("✅ Found approved WFH request for today");
-        return true;
-      }
-      
-      // Step 3: Check WFH Daily Entitlements (pi.wfh.day)
-      final wfhDayResponse = await OdooRpcApiManager.searchRead(
-        model: 'pi.wfh.day',
-        domain: [
-          ['employee_id', '=', employeeId],
-          ['date', '=', todayStr],
-          ['status', 'in', ['Planned', 'Active', 'Compliant', 'planned', 'active', 'compliant']],
-        ],
-        fields: ['id'],
-      );
-      
-      bool hasApprovedDay = wfhDayResponse.isSuccess && 
-          wfhDayResponse.data != null && 
-          wfhDayResponse.data!.isNotEmpty;
-          
-      if (hasApprovedDay) {
-        if (kDebugMode) print("✅ Found approved WFH daily entitlement for today");
-        return true;
-      }
-      
-      if (kDebugMode) print("❌ No approved WFH request or daily entitlement found for today");
-      return false;
-    } catch (e) {
-      if (kDebugMode) print("❌ Error checking WFH approval: $e");
-      return false;
     }
   }
 }

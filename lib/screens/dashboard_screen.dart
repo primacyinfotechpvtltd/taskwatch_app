@@ -1,7 +1,3 @@
-import 'dart:convert';
-import 'dart:io';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:pi_task_watch/rust/api/take_full_screenshot.dart';
 import 'package:pi_task_watch/utils/confirmation_alert.dart';
 import 'package:pi_task_watch/widgets/recent_activity_widget.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -33,13 +29,17 @@ class _DashboardScreenState extends State<DashboardScreen>
       duration: const Duration(seconds: 2),
     )..repeat(reverse: true);
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // Reset popup flag so dashboard always shows the warning on each fresh load
+      _authController.hasShownWfhWarningPopup = false;
+      await _authController.checkWfhApprovalForCurrentUser();
       _checkAndShowWfhPopup();
     });
   }
 
   void _checkAndShowWfhPopup() {
-    if (!_authController.isWfhApproved.value && !_authController.hasShownWfhWarningPopup) {
+    if (!_authController.isWfhApproved.value &&
+        !_authController.hasShownWfhWarningPopup) {
       _authController.hasShownWfhWarningPopup = true;
       if (mounted) {
         showDialog(
@@ -63,7 +63,9 @@ class _DashboardScreenState extends State<DashboardScreen>
               ],
             ),
             content: Text(
-              'Your wfh is not approved please contact with the hr',
+              _authController.wfhMessage.value.isNotEmpty
+                  ? _authController.wfhMessage.value
+                  : 'Your WFH is not approved. Please contact HR.',
               style: GoogleFonts.inter(
                 fontSize: 14,
                 color: Colors.black87,
@@ -114,6 +116,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               ? SingleChildScrollView(
                   child: Column(
                     children: [
+
                       Obx(() {
                         if (!_authController.isWfhApproved.value) {
                           return Container(
@@ -141,7 +144,9 @@ class _DashboardScreenState extends State<DashboardScreen>
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: Text(
-                                    'Your wfh is not approved please contact with the hr',
+                                    _authController.wfhMessage.value.isNotEmpty
+                                        ? _authController.wfhMessage.value
+                                        : 'Your WFH is not approved. Please contact HR.',
                                     style: GoogleFonts.inter(
                                       color: Colors.red.shade900,
                                       fontWeight: FontWeight.bold,
@@ -168,7 +173,6 @@ class _DashboardScreenState extends State<DashboardScreen>
       debugPrint('Critical error in dashboard build: $e');
       debugPrint('Stack trace: $stackTrace');
 
-      // Return a safe fallback UI
       return Scaffold(
         body: SafeArea(
           child: Center(
@@ -180,45 +184,6 @@ class _DashboardScreenState extends State<DashboardScreen>
       );
     }
   }
-
-  // Widget _buildWaylandWarning() {
-  //   return Container(
-  //     width: double.infinity,
-  //     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-  //     decoration: BoxDecoration(
-  //       color: Colors.amber.shade100,
-  //       border: Border(
-  //         bottom: BorderSide(color: Colors.amber.shade300, width: 1),
-  //       ),
-  //     ),
-  //     child: Row(
-  //       children: [
-  //         Icon(Icons.warning_amber_rounded,
-  //             color: Colors.amber.shade900, size: 20),
-  //         const SizedBox(width: 10),
-  //         Expanded(
-  //           child: Column(
-  //             crossAxisAlignment: CrossAxisAlignment.start,
-  //             children: [
-  //               Text(
-  //                 'Wayland Session Detected',
-  //                 style: TextStyle(
-  //                   fontWeight: FontWeight.bold,
-  //                   color: Colors.amber.shade900,
-  //                   fontSize: 12,
-  //                 ),
-  //               ),
-  //               const Text(
-  //                 'Global window tracking and input monitoring are restricted on Wayland. For full functionality on Zorin OS, please switch to Xorg at login.',
-  //                 style: TextStyle(fontSize: 10, color: Colors.black87),
-  //               ),
-  //             ],
-  //           ),
-  //         ),
-  //       ],
-  //     ),
-  //   );
-  // }
 
   Widget _buildDashboardSection() {
     return Container(
@@ -1032,7 +997,9 @@ class _DashboardScreenState extends State<DashboardScreen>
       } else {
         if (!_authController.isWfhApproved.value) {
           showToast(
-            'Your wfh is not approved please contact with the hr',
+            _authController.wfhMessage.value.isNotEmpty
+                ? _authController.wfhMessage.value
+                : 'Your WFH is not approved. Please contact HR.',
             idSuccess: false,
           );
           return;
@@ -1423,8 +1390,9 @@ class _DashboardScreenState extends State<DashboardScreen>
               final discController = Get.isRegistered<DiscussController>()
                   ? Get.find<DiscussController>()
                   : null;
-              final unreadTotal = discController?.channels.fold<int>(
-                    0, (sum, item) => sum + item.unreadCount) ?? 0;
+              final unreadTotal = discController?.channels
+                      .fold<int>(0, (sum, item) => sum + item.unreadCount) ??
+                  0;
               return Badge(
                 label: Text('$unreadTotal'),
                 isLabelVisible: unreadTotal > 0,
@@ -1435,8 +1403,9 @@ class _DashboardScreenState extends State<DashboardScreen>
               final discController = Get.isRegistered<DiscussController>()
                   ? Get.find<DiscussController>()
                   : null;
-              final unreadTotal = discController?.channels.fold<int>(
-                    0, (sum, item) => sum + item.unreadCount) ?? 0;
+              final unreadTotal = discController?.channels
+                      .fold<int>(0, (sum, item) => sum + item.unreadCount) ??
+                  0;
               return Badge(
                 label: Text('$unreadTotal'),
                 isLabelVisible: unreadTotal > 0,

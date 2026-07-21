@@ -1024,11 +1024,40 @@ class OdooRpcApiManager {
     _lastAuthTime = DateTime.now();
   }
 
+  /// Sets credentials + uid for password-based JSONRPC auth (no session cookie needed).
+  /// This matches the Postman flow: db + uid + password passed directly in execute_kw args.
+  static void setCredentialsAndUid({
+    required String serverUrl,
+    required String database,
+    required String username,
+    required String password,
+    required int uid,
+  }) {
+    _serverUrl = serverUrl.endsWith('/')
+        ? serverUrl.substring(0, serverUrl.length - 1)
+        : serverUrl;
+    _database = database;
+    _username = username;
+    _password = password;
+    _uid = uid;
+    _authMode = OdooAuthMode.password;
+    _lastAuthTime = DateTime.now();
+    // _sessionId intentionally NOT set — password mode doesn't need it.
+    _sessionId = null;
+  }
+
   static void setSessionId(String sessionId) {
     _sessionId = sessionId;
   }
 
-  static bool get isAuthenticated => _uid != null && _sessionId != null;
+  static bool get isAuthenticated {
+    if (_authMode == OdooAuthMode.password) {
+      // Password mode: session cookie not required — uid + credentials are enough
+      return _uid != null && _password != null && _database != null;
+    }
+    // Session mode: both uid and session cookie required
+    return _uid != null && _sessionId != null;
+  }
 
   static bool get hasValidSession => isAuthenticated;
 
@@ -1145,16 +1174,12 @@ class OdooRpcApiManager {
     }
 
     try {
-      final List<dynamic> finalArgs = [];
-      final Map<String, dynamic> finalKwargs = {};
+      final List<dynamic> finalArgs = args ?? [];
+      final Map<String, dynamic> finalKwargs = kwargs ?? {};
 
-      if (kwargs != null) {
-        finalKwargs.addAll(kwargs);
-      }
-      if (args != null) {
-        finalArgs.addAll(args);
-      }
-      final params = [
+      // Build execute_kw positional args exactly as Postman does:
+      // [db, uid, password, model, method, [domain/args], {fields/kwargs}]
+      final List<dynamic> executeArgs = [
         _database,
         _uid,
         _password,
@@ -1166,18 +1191,25 @@ class OdooRpcApiManager {
 
       final requestId = const Uuid().v4();
       final baseUrl = _effectiveServerUrl;
-      final endpoint = '$baseUrl$_xmlRpcObjectEndpoint';
+      // Use /jsonrpc endpoint (JSON-RPC), NOT /xmlrpc/2/object (XML-RPC)
+      final endpoint = '$baseUrl$_jsonRpcEndpoint';
 
       if (showLog) {
         _logger.d(
-          'Making password-based API call to $model.$method via $endpoint',
+          'Password-based JSONRPC call → $model.$method via $endpoint',
         );
       }
 
+      // Correct JSONRPC envelope matching Postman:
+      // {"jsonrpc":"2.0","method":"call","params":{"service":"object","method":"execute_kw","args":[...]}}
       final requestData = {
         'jsonrpc': '2.0',
-        'method': 'execute_kw',
-        'params': params,
+        'method': 'call',
+        'params': {
+          'service': 'object',
+          'method': 'execute_kw',
+          'args': executeArgs,
+        },
         'id': requestId,
       };
 
@@ -1209,7 +1241,7 @@ class OdooRpcApiManager {
       }
 
       return OdooResponse<dynamic>.error(
-        message: 'Invalid response from server',
+        message: 'Invalid response from server (status ${response.statusCode})',
         requestId: requestId,
       );
     } catch (e) {
