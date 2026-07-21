@@ -318,12 +318,11 @@ class TrackerController extends GetxController {
       return;
     }
 
-    // Track screenshot attempts (removed 30-second duplicate prevention for reliability)
-
     _isSessionCreationInProgress = true;
 
     try {
       if (startWorkData.value?.timesheetId == 0) {
+        _logDebug('Skipping session creation: timesheetId is 0');
         return;
       }
       if (startWorkData.value == null || lastSessionTime.value == null) {
@@ -331,17 +330,42 @@ class TrackerController extends GetxController {
         return;
       }
 
+      // Snapshot session metadata NOW (before any async work)
       final sessionEndTime = DateTime.now();
-      final sessionDuration = sessionEndTime.difference(lastSessionTime.value!);
+      final sessionStartTime = lastSessionTime.value!;
+      final sessionDuration = sessionEndTime.difference(sessionStartTime);
+      final snapshotProject = startWorkData.value!.project;
+      final snapshotTask = startWorkData.value!.task;
+      final snapshotActivities = List<UserActivityType>.from(activityList);
+      final snapshotUserId = _user.value!.userId;
+      final snapshotTimesheetId = startWorkData.value!.timesheetId;
+
       _logDebug(
         'Creating new session with duration: ${sessionDuration.inMinutes}m:${sessionDuration.inSeconds % 60}s, idle: $isIdleSession, screenshot: $takeScreenshot',
       );
 
+      // Advance the session pointer and clear activities BEFORE async work
+      // so the next session records correct time even if screenshot takes long
+      lastSessionTime.value = sessionEndTime;
+      activityList.clear();
+
+      // Release the lock so other timers are not blocked during screenshot capture
+      _isSessionCreationInProgress = false;
+
+      // Now perform the (potentially slow) screenshot capture
       String? imageBase64String;
       if (takeScreenshot) {
         try {
-          _logDebug('Attempting to capture screenshot');
-          imageBase64String = await captureScreenshot();
+          _logDebug('Attempting to capture screenshot...');
+          final captured = await captureScreenshot();
+          // Treat empty string as no screenshot
+          imageBase64String =
+              (captured.isNotEmpty) ? captured : null;
+          if (imageBase64String != null) {
+            _logDebug('Screenshot captured successfully (${imageBase64String.length} chars)');
+          } else {
+            _logDebug('Screenshot capture returned empty data');
+          }
         } catch (e) {
           _logDebug('Screenshot capture failed: $e');
           imageBase64String = null;
@@ -349,25 +373,29 @@ class TrackerController extends GetxController {
       }
 
       final session = SessionModel(
-        project: startWorkData.value!.project,
-        task: startWorkData.value!.task,
-        startTime: lastSessionTime.value!,
+        project: snapshotProject,
+        task: snapshotTask,
+        startTime: sessionStartTime,
         endTime: sessionEndTime,
         duration: sessionDuration,
-        activities: List.from(activityList),
-        screenshotImage: imageBase64String ?? '',
+        activities: snapshotActivities,
+        screenshotImage: imageBase64String, // null = no screenshot
         isSynced: false,
         isIdleSession: isIdleSession,
-        userId: _user.value!.userId,
-        timesheetId: startWorkData.value!.timesheetId,
+        userId: snapshotUserId,
+        timesheetId: snapshotTimesheetId,
       );
 
       sessionsList.add(session);
+      _logDebug(
+        'Session saved — activities: ${snapshotActivities.length}, '
+        'screenshot: ${imageBase64String != null ? "yes" : "no"}',
+      );
       syncSessions();
-      _logDebug('Session saved, activities count: ${activityList.length}');
-      lastSessionTime.value = sessionEndTime;
-      activityList.clear();
+    } catch (e, st) {
+      _logDebug('Unexpected error in _createSession: $e\n$st');
     } finally {
+      // Ensure the flag is always released
       _isSessionCreationInProgress = false;
     }
   }

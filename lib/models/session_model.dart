@@ -106,30 +106,34 @@ class SessionModel {
   }
 
   //
-  Map<String, dynamic> toJsonForAPi() => {
-        "session_id": uniqueId,
-        "timesheet_id": timesheetId,
-        "start_date": dateToSimpleString(startTime),
-        "end_date": dateToSimpleString(endTime),
-        "user_id": userId,
-        "project_id": project.id,
-        "task_id": task.id,
-        "screenshot_list": screenshotImage == null
-            ? []
-            : [
-                {
-                  "url": screenshotImage!,
-                  "timestamp": dateToSimpleString(endTime),
-                  "tracker_timestamp": "00:00:00",
-                },
-              ],
-        "mouse_click_count": activities
-            .where((activity) => activity == UserActivityType.mouseClick)
-            .length,
-        "keyboard_press_count": activities
-            .where((activity) => activity == UserActivityType.keyboardPress)
-            .length,
-        "screenshot_count": screenshotImage == null ? 0 : 1,
-      };
+  Map<String, dynamic> toJsonForAPi() {
+    final bool hasScreenshot =
+        screenshotImage != null && screenshotImage!.isNotEmpty;
+    return {
+      "session_id": uniqueId,
+      "timesheet_id": timesheetId,
+      "start_date": dateToSimpleString(startTime),
+      "end_date": dateToSimpleString(endTime),
+      "user_id": userId,
+      "project_id": project.id,
+      "task_id": task.id,
+      "screenshot_list": hasScreenshot
+          ? [
+              {
+                "url": screenshotImage!,
+                "timestamp": dateToSimpleString(endTime),
+                "tracker_timestamp": "00:00:00",
+              },
+            ]
+          : [],
+      "mouse_click_count": activities
+          .where((activity) => activity == UserActivityType.mouseClick)
+          .length,
+      "keyboard_press_count": activities
+          .where((activity) => activity == UserActivityType.keyboardPress)
+          .length,
+      "screenshot_count": hasScreenshot ? 1 : 0,
+    };
+  }
   //
 }
