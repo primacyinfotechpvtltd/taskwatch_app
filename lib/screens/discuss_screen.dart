@@ -141,8 +141,15 @@ class _DiscussScreenState extends State<DiscussScreen> {
               ? _buildColleaguesList()
               : filtered.isEmpty
                   ? _buildEmptyChannelsState()
-                  : ListView.builder(
+                  : ListView.separated(
                       itemCount: filtered.length,
+                      separatorBuilder: (context, index) => Divider(
+                        height: 1,
+                        thickness: 0.5,
+                        color: Colors.grey.shade200,
+                        indent: 64,
+                        endIndent: 12,
+                      ),
                       itemBuilder: (context, index) {
                         final chan = filtered[index];
                         return ChannelListTile(
@@ -404,6 +411,14 @@ class _DiscussScreenState extends State<DiscussScreen> {
                               fontSize: 12,
                             ),
                           ),
+                          errorWidget: Text(
+                            activeChannel.name.isNotEmpty ? activeChannel.name[0].toUpperCase() : 'C',
+                            style: GoogleFonts.spaceGrotesk(
+                              fontWeight: FontWeight.bold,
+                              color: avatarColor,
+                              fontSize: 12,
+                            ),
+                          ),
                         ),
                       )
                     : Text(
@@ -473,6 +488,7 @@ class _DiscussScreenState extends State<DiscussScreen> {
               : msgs.isEmpty
                   ? _buildEmptyConversationState()
                   : ListView.builder(
+                      controller: controller.chatScrollController,
                       reverse: true, // pin to bottom
                       padding: const EdgeInsets.symmetric(vertical: 8),
                       itemCount: msgs.length,

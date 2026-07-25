@@ -51,6 +51,15 @@ Future<String> captureScreenshot() async {
           return '';
         }
       }
+    } else if (GetPlatform.isMacOS) {
+      print('🔵 Using macOS screenshot method...');
+      try {
+        rawImage = await takeFullScreenshot();
+        print('✅ macOS screenshot captured successfully');
+      } catch (e) {
+        print('❌ macOS screenshot failed: $e');
+        return '';
+      }
     } else {
       print('🔵 Using cross-platform screenshot method...');
       rawImage = await takeFullScreenshot();

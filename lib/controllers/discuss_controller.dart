@@ -29,9 +29,28 @@ class DiscussController extends GetxController {
   final RxList<Map<String, dynamic>> usersToChat = <Map<String, dynamic>>[].obs;
   final RxBool isLoadingUsers = false.obs;
   
+  // Scroll Controller for Chat Thread
+  final ScrollController chatScrollController = ScrollController();
+  
   Timer? _refreshTimer;
   StreamSubscription? _authSubscription;
   bool _isLongPollingActive = false;
+
+  void scrollToBottom({bool animate = true}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (chatScrollController.hasClients) {
+        if (animate) {
+          chatScrollController.animateTo(
+            0.0,
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeOut,
+          );
+        } else {
+          chatScrollController.jumpTo(0.0);
+        }
+      }
+    });
+  }
 
   @override
   void onInit() {
@@ -69,6 +88,7 @@ class DiscussController extends GetxController {
     _isLongPollingActive = false;
     _refreshTimer?.cancel();
     _authSubscription?.cancel();
+    chatScrollController.dispose();
     super.onClose();
   }
 
@@ -624,6 +644,7 @@ class DiscussController extends GetxController {
       // Refresh messages
       fetchMessages(channelId, background: true);
     }
+    scrollToBottom(animate: false);
   }
 
   Future<void> fetchMessages(int channelId, {bool background = false}) async {
@@ -697,6 +718,7 @@ class DiscussController extends GetxController {
         final chronological = msgs.reversed.toList();
         
         channelMessages[channelId] = chronological;
+        scrollToBottom(animate: false);
         
         await fetchChannelMembersSeenStatus(channelId);
         
@@ -832,6 +854,7 @@ class DiscussController extends GetxController {
       } else {
         channelMessages[channelId] = [localMsg];
       }
+      scrollToBottom(animate: true);
 
       // 2. Perform remote API post
       debugPrint('DISCUSS_SEND: Posting message to channel=$channelId');

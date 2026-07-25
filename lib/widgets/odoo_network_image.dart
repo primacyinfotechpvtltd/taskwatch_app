@@ -1,8 +1,12 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:pi_task_watch/exports.dart';
 
-class OdooNetworkImage extends StatelessWidget {
+/// Cache for image bytes to avoid repeated network requests
+final Map<String, List<int>?> _imageCache = {};
+
+class OdooNetworkImage extends StatefulWidget {
   final String? model;
   final int? id;
   final String field;
@@ -11,8 +15,8 @@ class OdooNetworkImage extends StatelessWidget {
   final BoxFit? fit;
   final Widget? placeholder;
   final Widget? errorWidget;
-  final String? base64Data; // Add support for direct base64 data
-  final String? directImageUrl; // Add support for direct complete URL
+  final String? base64Data;
+  final String? directImageUrl;
 
   const OdooNetworkImage({
     super.key,
@@ -31,163 +35,154 @@ class OdooNetworkImage extends StatelessWidget {
           'Either directImageUrl must be provided, or both model and id must be provided',
         );
 
-  String get _imageUrl {
-    // If direct URL is provided, use it as-is
-    if (directImageUrl != null && directImageUrl!.isNotEmpty) {
-      debugPrint('OdooNetworkImage: Using direct URL - $directImageUrl');
-      return directImageUrl!;
+  @override
+  State<OdooNetworkImage> createState() => _OdooNetworkImageState();
+}
+
+class _OdooNetworkImageState extends State<OdooNetworkImage> {
+  List<int>? _imageBytes;
+  bool _loading = true;
+  bool _hasError = false;
+
+  String get _cacheKey => '${widget.model}_${widget.id}_${widget.field}';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadImage();
+  }
+
+  @override
+  void didUpdateWidget(OdooNetworkImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.model != widget.model ||
+        oldWidget.id != widget.id ||
+        oldWidget.field != widget.field) {
+      _loadImage();
+    }
+  }
+
+  Future<void> _loadImage() async {
+    // Only for Odoo model images (not base64 or direct URL)
+    if (widget.base64Data != null || widget.directImageUrl != null) {
+      setState(() { _loading = false; });
+      return;
     }
 
+    if (widget.model == null || widget.id == null) {
+      setState(() { _loading = false; _hasError = true; });
+      return;
+    }
+
+    // Check cache first
+    final key = _cacheKey;
+    if (_imageCache.containsKey(key)) {
+      if (mounted) {
+        setState(() {
+          _imageBytes = _imageCache[key];
+          _loading = false;
+          _hasError = _imageBytes == null || _imageBytes!.isEmpty;
+        });
+      }
+      return;
+    }
+
+    // Fetch via authenticated Dio client
     try {
-      if (!OdooRpcApiManager.isAuthenticated) {
-        debugPrint('OdooNetworkImage: Not authenticated');
-        return '';
+      final bytes = await OdooRpcApiManager.fetchImageBytes(
+        model: widget.model!,
+        id: widget.id!,
+        field: widget.field,
+      );
+      _imageCache[key] = bytes;
+      if (mounted) {
+        setState(() {
+          _imageBytes = bytes;
+          _loading = false;
+          _hasError = bytes == null || bytes.isEmpty;
+        });
       }
-
-      final state = OdooRpcApiManager.authenticationState;
-      final serverUrl = state['serverUrl'] as String?;
-
-      if (serverUrl == null || serverUrl.isEmpty) {
-        debugPrint('OdooNetworkImage: No server URL available');
-        return '';
-      }
-
-      // Ensure model and id are available for dynamic URL generation
-      if (model == null || id == null) {
-        debugPrint(
-          'OdooNetworkImage: model and id are required for dynamic URL generation',
-        );
-        return '';
-      }
-
-      // Add session_id to URL for direct access without needing headers
-      final params = <String, String>{
-        'model': model!,
-        'id': id!.toString(),
-        'field': field,
-        'session_id': OdooRpcApiManager.currentSessionId ?? '',
-      };
-
-      // Construct URL with all necessary parameters
-      final uri = Uri.parse(
-        serverUrl,
-      ).replace(path: '/web/image', queryParameters: params);
-
-      debugPrint('OdooNetworkImage: Generated URL - ${uri.toString()}');
-      return uri.toString();
     } catch (e) {
-      debugPrint('OdooNetworkImage error generating URL: $e');
-      return '';
+      _imageCache[key] = null;
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _hasError = true;
+        });
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    // If we have base64 data, use it directly
-    if (base64Data != null && base64Data!.isNotEmpty) {
+    // 1. base64 data
+    if (widget.base64Data != null && widget.base64Data!.isNotEmpty) {
       try {
         return Image.memory(
-          base64Decode(base64Data!),
-          width: width,
-          height: height,
-          fit: fit ?? BoxFit.cover,
-          errorBuilder: (context, error, stackTrace) {
-            debugPrint('OdooNetworkImage error decoding base64: $error');
-            return _buildErrorWidget();
-          },
-          frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-            if (wasSynchronouslyLoaded) return child;
-            return AnimatedSwitcher(
-              duration: const Duration(milliseconds: 200),
-              child: frame != null
-                  ? child
-                  : placeholder ??
-                      Center(
-                        child: SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Theme.of(context).primaryColor,
-                          ),
-                        ),
-                      ),
-            );
-          },
+          base64Decode(widget.base64Data!),
+          width: widget.width,
+          height: widget.height,
+          fit: widget.fit ?? BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) => _buildErrorWidget(),
         );
       } catch (e) {
-        debugPrint('OdooNetworkImage error with base64: $e');
         return _buildErrorWidget();
       }
     }
 
-    // Otherwise use URL-based image loading
-    final imageUrl = _imageUrl;
-    if (imageUrl.isEmpty) {
-      return _buildErrorWidget();
+    // 2. Direct URL (non-Odoo, e.g. public CDN)
+    if (widget.directImageUrl != null && widget.directImageUrl!.isNotEmpty) {
+      return Image.network(
+        widget.directImageUrl!,
+        width: widget.width,
+        height: widget.height,
+        fit: widget.fit ?? BoxFit.cover,
+        loadingBuilder: (context, child, loadingProgress) {
+          if (loadingProgress == null) return child;
+          return _buildPlaceholder(context);
+        },
+        errorBuilder: (context, error, stackTrace) => _buildErrorWidget(),
+      );
     }
 
-    // For direct URLs, we might not need session authentication
-    // For dynamically generated URLs, we need session authentication
-    final isDirectUrl = directImageUrl != null && directImageUrl!.isNotEmpty;
-    final sessionId = OdooRpcApiManager.currentSessionId;
+    // 3. Odoo model image via authenticated Dio (session cookie in headers)
+    if (_loading) return _buildPlaceholder(context);
+    if (_hasError || _imageBytes == null || _imageBytes!.isEmpty) return _buildErrorWidget();
 
-    // If it's not a direct URL and we don't have a session, show error
-    if (!isDirectUrl && sessionId == null) {
-      return _buildErrorWidget();
-    }
-
-    // Prepare headers - only add session cookie if we have one and it's not a direct URL
-    // or if it's a direct URL that might still need authentication
-    final headers = <String, String>{};
-    if (sessionId != null &&
-        (!isDirectUrl || imageUrl.contains('/web/image'))) {
-      headers['Cookie'] = 'session_id=$sessionId';
-    }
-
-    return Image.network(
-      imageUrl,
-      width: width,
-      height: height,
-      fit: fit ?? BoxFit.cover,
-      headers: headers.isNotEmpty ? headers : null,
-      loadingBuilder: (context, child, loadingProgress) {
-        if (loadingProgress == null) {
-          return child;
-        }
-        return placeholder ??
-            Center(
-              child: SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(
-                  value: loadingProgress.expectedTotalBytes != null
-                      ? loadingProgress.cumulativeBytesLoaded /
-                          loadingProgress.expectedTotalBytes!
-                      : null,
-                  strokeWidth: 2,
-                  color: Theme.of(context).primaryColor,
-                ),
-              ),
-            );
-      },
-      errorBuilder: (context, error, stackTrace) {
-        debugPrint('OdooNetworkImage error loading $imageUrl: $error');
-        return _buildErrorWidget();
-      },
+    return Image.memory(
+      Uint8List.fromList(_imageBytes!),
+      width: widget.width,
+      height: widget.height,
+      fit: widget.fit ?? BoxFit.cover,
+      errorBuilder: (context, error, stackTrace) => _buildErrorWidget(),
     );
   }
 
+  Widget _buildPlaceholder(BuildContext context) {
+    return widget.placeholder ??
+        Center(
+          child: SizedBox(
+            width: (widget.width ?? 24) * 0.6,
+            height: (widget.height ?? 24) * 0.6,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: Theme.of(context).primaryColor,
+            ),
+          ),
+        );
+  }
+
   Widget _buildErrorWidget() {
-    return errorWidget ??
+    return widget.errorWidget ??
+        widget.placeholder ??
         Container(
-          width: width,
-          height: height,
+          width: widget.width,
+          height: widget.height,
           decoration: BoxDecoration(
             color: Colors.grey[200],
             borderRadius: BorderRadius.circular(12),
           ),
-          child: Icon(Icons.broken_image, color: Colors.grey[400]),
+          child: Icon(Icons.person_rounded, color: Colors.grey[400]),
         );
   }
 }

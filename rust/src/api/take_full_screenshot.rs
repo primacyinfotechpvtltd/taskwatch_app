@@ -258,66 +258,73 @@ pub fn take_full_screenshot() -> Result<String> {
                 }
         }
 
-        // Non-Windows platforms: Use Screenshots crate as primary method  
-        #[cfg(not(target_os = "windows"))]
+        // Non-Windows platforms: macOS uses screencapture CLI first, Linux uses Screenshots crate
+        #[cfg(target_os = "macos")]
         {
-            println!("[SCREENSHOT] 📋 Attempting screenshot methods in priority order:");
-            println!("[SCREENSHOT] ┌─ Method 1: Screenshots crate (cross-platform primary)");
+            println!("[SCREENSHOT] 🍎 Running macOS screen capture...");
+            let has_perm = has_screen_recording_permission();
+            println!("[SCREENSHOT] 🍎 macOS Screen Recording permission check: {}", has_perm);
+
+            if !has_perm {
+                println!("[SCREENSHOT] ⚠️ Screen Recording permission NOT detected for current process. Triggering macOS system prompt...");
+                let _ = request_screen_recording_permission();
+            }
+
+            // Method 1 for macOS: Apple native /usr/sbin/screencapture CLI
+            println!("\n[SCREENSHOT] 🎬 Method 1: Apple native screencapture CLI...");
+            match take_screenshot_macos_fallback() {
+                Ok(base64_string) => {
+                    let elapsed = start_time.elapsed();
+                    println!("[SCREENSHOT] ✅ SUCCESS: Captured via macOS screencapture CLI in {:.2?}", elapsed);
+                    return Ok(base64_string);
+                },
+                Err(cli_err) => {
+                    println!("[SCREENSHOT] ⚠️ macOS screencapture CLI failed ({}), falling back to screenshots crate...", cli_err);
+                    match take_screenshot_with_screenshots_crate() {
+                        Ok(base64_string) => {
+                            let elapsed = start_time.elapsed();
+                            println!("[SCREENSHOT] ✅ SUCCESS: Captured via screenshots crate in {:.2?}", elapsed);
+                            return Ok(base64_string);
+                        },
+                        Err(crate_err) => {
+                            return Err(crate_err).context("All macOS screenshot methods failed - please grant Screen Recording permission in System Settings -> Privacy & Security -> Screen Recording");
+                        }
+                    }
+                }
+            }
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            println!("[SCREENSHOT] 📋 Attempting Linux screenshot methods in priority order:");
+            println!("[SCREENSHOT] ┌─ Method 1: Screenshots crate (primary)");
             println!("[SCREENSHOT] └─ Platform-specific fallbacks");
 
-            // Method 1: Primary cross-platform method for non-Windows
-            println!("\n[SCREENSHOT] 🎬 Method 1: Screenshots crate (primary cross-platform)...");
-            println!("[SCREENSHOT] ┌─ Attempting primary screenshot method");
-            println!("[SCREENSHOT] ├─ Cross-platform compatibility: macOS/Linux");  
-            println!("[SCREENSHOT] ├─ Performance: Fastest native capture");
-            println!("[SCREENSHOT] └─ Reliability: Direct OS integration");
-            
             match take_screenshot_with_screenshots_crate() {
                 Ok(base64_string) => {
                     let elapsed = start_time.elapsed();
                     println!("[SCREENSHOT] ✅ SUCCESS: Primary method completed successfully!");
-                    println!("[SCREENSHOT] 📊 Performance: Screenshot captured in {:.2?}", elapsed);
-                    println!("[SCREENSHOT] 🎯 Method used: Screenshots crate (primary)");
-                    println!("[SCREENSHOT] 💾 Output: Base64 string ({} chars)", base64_string.len());
                     return Ok(base64_string);
                 },
-                Err(primary_error) => {
-                    println!("[SCREENSHOT] ❌ FAILED: Primary method failed - {}", primary_error);
-                    println!("[SCREENSHOT] 🔄 Falling back to platform-specific methods...");
-                    println!("[SCREENSHOT] 📊 Failure reason: {}", primary_error);
-                    
-                    // Linux fallback methods
-                    #[cfg(target_os = "linux")]
-                    {
-                        println!("[SCREENSHOT] Method 2: Linux fallback tools...");
-                        return match take_screenshot_linux_fallback() {
-                            Ok(base64_string) => {
-                                let elapsed = start_time.elapsed();
-                                println!("[SCREENSHOT] SUCCESS: Screenshot captured with Linux tools in {:.2?}", elapsed);
-                                Ok(base64_string)
-                            },
-                            Err(fallback_error) => {
-                                println!("[SCREENSHOT] FAILED: All Linux screenshot methods failed");
-                                Err(fallback_error).context("Both primary and Linux fallback methods failed")
-                            }
-                        };
-                    }
-                    
-                    // macOS uses primary method only (no additional fallbacks needed)
-                    #[cfg(target_os = "macos")]
-                    {
-                        println!("[SCREENSHOT] FAILED: No additional macOS fallback methods available");
-                        return Err(primary_error).context("Primary screenshot method failed on macOS - check permissions");
-                    }
-                    
-                    // If no platform-specific fallbacks worked or no platform detected (other platforms)
-                    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-                    {
-                        println!("[SCREENSHOT] FAILED: No fallback methods available for this platform");
-                        return Err(primary_error).context("All available screenshot methods failed");
-                    }
+                Err(_primary_error) => {
+                    println!("[SCREENSHOT] Method 2: Linux fallback tools...");
+                    return match take_screenshot_linux_fallback() {
+                        Ok(base64_string) => {
+                            let elapsed = start_time.elapsed();
+                            println!("[SCREENSHOT] SUCCESS: Screenshot captured with Linux tools in {:.2?}", elapsed);
+                            Ok(base64_string)
+                        },
+                        Err(fallback_error) => {
+                            Err(fallback_error).context("Both primary and Linux fallback methods failed")
+                        }
+                    };
                 }
             }
+        }
+
+        #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+        {
+            return Err(anyhow!("All available screenshot methods failed on unsupported platform"));
         }
 }
 
@@ -443,12 +450,86 @@ pub fn take_screenshot_linux_fallback() -> Result<String> {
 
 #[cfg(target_os = "macos")]
 pub fn has_screen_recording_permission() -> bool {
-    // This is a simple check - better options exist using Objective-C or Swift FFI
-    if let Ok(output) = Command::new("tccutil").args(["reset", "ScreenCapture"]).output() {
-        !output.stderr.is_empty()
-    } else {
-        true // Assume permission exists if tccutil isn't available
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" {
+        fn CGPreflightScreenCaptureAccess() -> bool;
     }
+    unsafe {
+        CGPreflightScreenCaptureAccess()
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub fn request_screen_recording_permission() -> bool {
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" {
+        fn CGRequestScreenCaptureAccess() -> bool;
+    }
+    unsafe {
+        CGRequestScreenCaptureAccess()
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub fn take_screenshot_macos_fallback() -> Result<String> {
+    let start_time = Instant::now();
+    let temp_dir = std::env::temp_dir();
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs();
+    let temp_file = temp_dir.join(format!("screenshot_mac_{}.png", timestamp));
+
+    println!("[SCREENSHOT][macos-fallback] Hiding PI Task Watch window before capture...");
+
+    // Step 1: Hide the PI Task Watch app window so work windows behind are visible
+    // We use osascript to hide the app, wait for animation, then screenshot, then show again
+    let hide_result = Command::new("osascript")
+        .arg("-e")
+        .arg("tell application \"System Events\" to set visible of process \"PI Task Watch\" to false")
+        .status();
+
+    if let Ok(s) = &hide_result {
+        println!("[SCREENSHOT][macos-fallback] Hide command status: {:?}", s.code());
+    }
+
+    // Step 2: Wait for the hide animation to complete (200ms is enough)
+    std::thread::sleep(std::time::Duration::from_millis(300));
+
+    // Step 3: Capture the full screen with -x (silent) and -C (with cursor)
+    println!("[SCREENSHOT][macos-fallback] Executing /usr/sbin/screencapture -x -C {}", temp_file.display());
+
+    let status = Command::new("/usr/sbin/screencapture")
+        .arg("-x") // Silent mode: no shutter sound
+        .arg("-C") // Include cursor position
+        .arg("-t")
+        .arg("png")
+        .arg(&temp_file)
+        .status()?;
+
+    // Step 4: Show the PI Task Watch app window again regardless of capture result
+    let _ = Command::new("osascript")
+        .arg("-e")
+        .arg("tell application \"System Events\" to set visible of process \"PI Task Watch\" to true")
+        .status();
+
+    if !status.success() {
+        return Err(anyhow!("macOS screencapture command failed with status code: {:?}", status.code()));
+    }
+
+    let img_data = std::fs::read(&temp_file)
+        .map_err(|e| anyhow!("Failed to read macOS screenshot file: {}", e))?;
+
+    let _ = std::fs::remove_file(&temp_file);
+
+    if img_data.is_empty() {
+        return Err(anyhow!("macOS screencapture generated 0-byte file"));
+    }
+
+    let base64_string = general_purpose::STANDARD.encode(&img_data);
+    let elapsed = start_time.elapsed();
+    println!("[SCREENSHOT][macos-fallback] SUCCESS: Generated screenshot via screencapture CLI in {:.2?}", elapsed);
+
+    Ok(base64_string)
 }
 
 #[cfg(target_os = "windows")]
