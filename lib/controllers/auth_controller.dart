@@ -194,33 +194,21 @@ class AuthController extends GetxController {
       print('👤 EMPLOYEE RESOLVED: id=$empId, name=$empName');
       print('==================================================');
 
-      // ── STEP 3: Fetch ALL pi.wfh.request records with empty domain ────────
-      LogUtils.i('[STEP 3] Fetching all pi.wfh.request records with domain []');
-      print('[STEP 3] Fetching all pi.wfh.request records with domain []');
+      // ── STEP 3: Fetch this employee's WFH records only ────────────────────
+      // Reading every pi.wfh.request can fail for normal employee users due to
+      // Odoo record rules, so keep the query scoped to the resolved employee.
+      LogUtils.i(
+          '[STEP 3] Fetching pi.wfh.request records for employee_id=$empId');
+      print('[STEP 3] Fetching pi.wfh.request records for employee_id=$empId');
 
-      OdooResponse<List<Map<String, dynamic>>> wfhRes =
+      final OdooResponse<List<Map<String, dynamic>>> wfhRes =
           await OdooRpcApiManager.searchRead(
         model: 'pi.wfh.request',
-        domain: [],
+        domain: [
+          ['employee_id', '=', empId]
+        ],
         fields: ['id', 'employee_id', 'name', 'state'],
       );
-
-      // Fallback: scoped by employee_id in case the model requires auth context
-      if (!wfhRes.isSuccess ||
-          wfhRes.data == null ||
-          (wfhRes.data is List && (wfhRes.data as List).isEmpty)) {
-        LogUtils.w(
-            '[STEP 3] Empty result with [] domain — retrying with employee_id filter');
-        print(
-            '[STEP 3] Empty result with [] domain — retrying with employee_id filter');
-        wfhRes = await OdooRpcApiManager.searchRead(
-          model: 'pi.wfh.request',
-          domain: [
-            ['employee_id', '=', empId]
-          ],
-          fields: ['id', 'employee_id', 'name', 'state'],
-        );
-      }
 
       bool foundApproved = false;
       bool hasAnyRequestForEmployee = false;
@@ -271,10 +259,24 @@ class AuthController extends GetxController {
               '[STEP 3] Employee $empId has WFH request(s) but none approved');
         }
       } else {
-        LogUtils.w(
-            '[STEP 3] ⚠️ pi.wfh.request query failed or returned no data: ${wfhRes.message}');
-        print(
-            '[STEP 3] ⚠️ pi.wfh.request query failed or returned no data: ${wfhRes.message}');
+        final message = wfhRes.message;
+        if (message.contains('not allowed to access') ||
+            message.contains('AccessError')) {
+          LogUtils.w(
+              '[STEP 3] WFH request access denied for employee $empId. Allowing login; ask admin to add WFH access group.');
+          print('==================================================');
+          print('[WFH CHECK] WFH ACCESS DENIED');
+          print('User cannot read pi.wfh.request records.');
+          print(
+              'Ask admin to add this user to Work From Home Access/Employee / User.');
+          print('Login will continue without WFH enforcement.');
+          print('==================================================');
+        } else {
+          LogUtils.w(
+              '[STEP 3] ⚠️ pi.wfh.request query failed or returned no data: $message');
+          print(
+              '[STEP 3] ⚠️ pi.wfh.request query failed or returned no data: $message');
+        }
       }
 
       // ── FINAL DECISION ────────────────────────────────────────────────────
