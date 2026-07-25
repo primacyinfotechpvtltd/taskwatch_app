@@ -68,6 +68,10 @@ if %errorlevel% neq 0 (
 )
 
 echo.
+echo 📦 Bundling MSVC C++ Runtime DLLs for Windows 10/11 compatibility...
+powershell -Command "$ReleaseDir = 'build\windows\x64\runner\Release'; $RequiredDlls = @('msvcp140.dll', 'msvcp140_1.dll', 'msvcp140_2.dll', 'vcruntime140.dll', 'vcruntime140_1.dll', 'vcruntime140_threads.dll', 'vcomp140.dll'); foreach ($dll in $RequiredDlls) { $sysPath = 'C:\Windows\System32\' + $dll; if (Test-Path $sysPath) { Copy-Item -Path $sysPath -Destination (Join-Path $ReleaseDir $dll) -Force } }"
+
+echo.
 echo 🎉 Build successful!
 echo.
 echo 📂 Release folder is located at:
@@ -76,6 +80,7 @@ echo.
 echo 💡 Inside this folder you will find:
 echo    - pi_task_watch.exe (The application executable)
 echo    - flutter_windows.dll
+echo    - msvcp140.dll, vcruntime140.dll (Bundled C++ Runtimes for clean Windows 10/11 installs)
 echo    - data/ (Application assets)
 echo.
 echo ⚠️  Note: When distributing, make sure to send the entire Release folder, not just the .exe!
