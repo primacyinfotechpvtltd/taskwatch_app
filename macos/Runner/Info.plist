@@ -33,5 +33,7 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>PI Task Watch needs screen recording permission to take periodic work screenshots for employee time tracking.</string>
 </dict>
 </plist>
