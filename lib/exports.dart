@@ -14,4 +14,5 @@ export './widgets/start_work_dialog.dart';
 export './widgets/widgets.dart';
 export 'utils/dialog_utils.dart';
 export 'utils/format_utils.dart';
+export 'utils/permission_utils.dart';
 export './theme/app_theme.dart';

@@ -1030,6 +1030,6 @@ class TrackerController extends GetxController {
 
   // Logging methods
   void _logDebug(String message) {
-    LogUtils.i('[TrackerController] $message');
+   // LogUtils.i('[TrackerController] $message');
   }
 }

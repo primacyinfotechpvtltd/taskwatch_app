@@ -14,30 +14,30 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // Initialize logging first
-  await LogUtils.init();
-  LogUtils.i('App starting...');
+  // await LogUtils.init();
+  // LogUtils.i('App starting...');
 
   try {
     // Initialize Rust library
-    LogUtils.i('Initializing Rust library...');
+    // LogUtils.i('Initializing Rust library...');
     await RustLib.init();
-    LogUtils.i('Rust library initialized successfully');
+    // LogUtils.i('Rust library initialized successfully');
 
     if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-      LogUtils.i('Initializing Window Manager...');
+      // LogUtils.i('Initializing Window Manager...');
       await WindowManager.instance.ensureInitialized();
-      LogUtils.i('Window Manager initialized');
+      // LogUtils.i('Window Manager initialized');
     }
 
     // Initialize controllers before the app starts
-    LogUtils.i('Setting up controllers...');
+    // LogUtils.i('Setting up controllers...');
     setAllController();
-    LogUtils.i('Controllers setup complete');
+    // LogUtils.i('Controllers setup complete');
 
     // Initialize lifecycle service to prevent freezing during system sleep/idle
-    LogUtils.i('Initializing AppLifecycleService...');
+    // LogUtils.i('Initializing AppLifecycleService...');
     await AppLifecycleService().initialize();
-    LogUtils.i('AppLifecycleService initialized');
+    // LogUtils.i('AppLifecycleService initialized');
 
     // Start user activity monitoring
     LogUtils.i('Starting UserActivityService...');
@@ -49,24 +49,24 @@ void main() async {
       final isWayland = Platform.environment['XDG_SESSION_TYPE'] == 'wayland' ||
           Platform.environment['WAYLAND_DISPLAY'] != null;
       if (isWayland) {
-        LogUtils.w(
-            'DETECTED WAYLAND SESSION: Global input monitoring and window tracking may be limited by system security.');
-        LogUtils.w(
-            'For full functionality on Zorin OS/Ubuntu, switching to Xorg (X11) at login is recommended.');
+        // LogUtils.w(
+        //     'DETECTED WAYLAND SESSION: Global input monitoring and window tracking may be limited by system security.');
+        // LogUtils.w(
+        //     'For full functionality on Zorin OS/Ubuntu, switching to Xorg (X11) at login is recommended.');
       } else {
-        LogUtils.i('Detected X11 session');
+        // LogUtils.i('Detected X11 session');
       }
     }
 
     if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-      LogUtils.i('Setting up window size...');
+      // LogUtils.i('Setting up window size...');
       setupWindowSize();
     }
 
     runApp(const MyApp());
-    LogUtils.i('App running');
+    // LogUtils.i('App running');
   } catch (e, stackTrace) {
-    LogUtils.e('FATAL ERROR DURING INITIALIZATION', e, stackTrace);
+    // LogUtils.e('FATAL ERROR DURING INITIALIZATION', e, stackTrace);
 
     // Show a simple error app if initialization fails
     runApp(MaterialApp(
@@ -89,10 +89,10 @@ void main() async {
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 16),
-                Text(
-                  'Log file: ${LogUtils.logFilePath}',
-                  style: const TextStyle(fontSize: 12, color: Colors.grey),
-                ),
+                // Text(
+                //   'Log file: ${LogUtils.logFilePath}',
+                //   style: const TextStyle(fontSize: 12, color: Colors.grey),
+                // ),
                 const SizedBox(height: 24),
                 ElevatedButton(
                   onPressed: () => exit(1),

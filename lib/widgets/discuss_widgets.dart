@@ -236,7 +236,17 @@ class MessageBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isOutgoing = message.isOutgoing;
-    
+    final nameHash = message.authorName.hashCode.abs();
+    final avatarColors = [
+      const Color(0xFFE2165F),
+      const Color(0xFF006D37),
+      const Color(0xFF0F52BA),
+      const Color(0xFFD4AF37),
+      const Color(0xFF8A2BE2),
+      const Color(0xFFE65C00),
+    ];
+    final avatarColor = avatarColors[nameHash % avatarColors.length];
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 16),
       child: Align(
@@ -249,7 +259,7 @@ class MessageBubble extends StatelessWidget {
             // Author name for group chats if incoming
             if (!isOutgoing) ...[
               Padding(
-                padding: const EdgeInsets.only(left: 6, bottom: 3),
+                padding: const EdgeInsets.only(left: 42, bottom: 3),
                 child: Text(
                   message.authorName,
                   style: GoogleFonts.inter(
@@ -261,11 +271,16 @@ class MessageBubble extends StatelessWidget {
               ),
             ],
             
-            // Message Card
+            // Message Card with User Profile Picture Avatar
             Row(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
+                // Incoming User Avatar (Left)
+                if (!isOutgoing) ...[
+                  _buildUserAvatar(avatarColor),
+                  const SizedBox(width: 8),
+                ],
                 if (isOutgoing) ...[
                   _buildTimeText(),
                   const SizedBox(width: 6),
@@ -330,9 +345,64 @@ class MessageBubble extends StatelessWidget {
                   const SizedBox(width: 6),
                   _buildTimeText(),
                 ],
+                // Outgoing User Avatar (Right)
+                if (isOutgoing) ...[
+                  const SizedBox(width: 8),
+                  _buildUserAvatar(avatarColor),
+                ],
               ],
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildUserAvatar(Color avatarColor) {
+    final String initial = message.authorName.isNotEmpty
+        ? message.authorName[0].toUpperCase()
+        : 'U';
+
+    if (message.authorId <= 0) {
+      return CircleAvatar(
+        radius: 14,
+        backgroundColor: avatarColor.withOpacity(0.15),
+        child: Text(
+          initial,
+          style: GoogleFonts.spaceGrotesk(
+            fontWeight: FontWeight.bold,
+            color: avatarColor,
+            fontSize: 11,
+          ),
+        ),
+      );
+    }
+
+    return CircleAvatar(
+      radius: 14,
+      backgroundColor: avatarColor.withOpacity(0.15),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: OdooNetworkImage(
+          model: 'res.partner',
+          id: message.authorId,
+          field: 'image_128',
+          placeholder: Text(
+            initial,
+            style: GoogleFonts.spaceGrotesk(
+              fontWeight: FontWeight.bold,
+              color: avatarColor,
+              fontSize: 11,
+            ),
+          ),
+          errorWidget: Text(
+            initial,
+            style: GoogleFonts.spaceGrotesk(
+              fontWeight: FontWeight.bold,
+              color: avatarColor,
+              fontSize: 11,
+            ),
+          ),
         ),
       ),
     );

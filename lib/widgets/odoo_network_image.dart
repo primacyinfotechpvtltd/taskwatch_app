@@ -22,7 +22,7 @@ class OdooNetworkImage extends StatefulWidget {
     super.key,
     this.model,
     this.id,
-    this.field = 'image_128',
+    this.field = 'image_1920',
     this.width,
     this.height,
     this.fit,

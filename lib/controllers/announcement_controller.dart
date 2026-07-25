@@ -33,22 +33,14 @@ class AnnouncementController extends GetxController {
   Future<void> fetchAnnouncements() async {
     try {
       isLoading.value = true;
-      debugPrint('ANNOUNCEMENT_FETCH_START: Querying hr.announcement...');
       final response = await OdooRpcApiManager.searchRead(
         model: 'hr.announcement',
         domain: [], // Retrieve all announcements
         order: 'create_date desc',
       );
 
-      debugPrint('ANNOUNCEMENT_RESPONSE_STATUS: isSuccess=${response.isSuccess}, message=${response.message}');
-
       if (response.isSuccess && response.data != null) {
         final records = response.data!;
-        debugPrint('ANNOUNCEMENT_LOG_START: Received ${records.length} records');
-        for (var rec in records) {
-          debugPrint('ANNOUNCEMENT_REC: $rec');
-        }
-        debugPrint('ANNOUNCEMENT_LOG_END');
         announcements.value = records
             .map((json) => AnnouncementModel.fromJson(Map<String, dynamic>.from(json)))
             .toList();

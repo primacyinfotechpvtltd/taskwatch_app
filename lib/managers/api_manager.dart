@@ -34,10 +34,10 @@ class ApiManager {
     // Validate URL doesn't contain "null" string as a segment
     // This often happens if some dynamic variable was null during concatenation
     if (url.contains("/null") || url.endsWith("/null")) {
-      LogUtils.e("URL contains 'null' segment: $url");
+      //LogUtils.e("URL contains 'null' segment: $url");
       // Fix the URL by removing the "null" segment correctly
       final cleanUrl = url.replaceAll("/null", "");
-      LogUtils.i("Cleaned URL: $cleanUrl");
+      //LogUtils.i("Cleaned URL: $cleanUrl");
 
       if (queryParameters != null && queryParameters.isNotEmpty) {
         // Convert all values to strings for the URI builder
@@ -91,16 +91,16 @@ class ApiManager {
           data != null && data.isNotEmpty ? jsonEncode(data) : null;
 
       if (showLog) {
-        LogUtils.i("\n" + "=" * 80);
-        LogUtils.i("🌐 [API REQUEST] ${type.name.toUpperCase()}");
-        LogUtils.i("🔗 URL: $requestUrl");
+        //LogUtils.i("\n" + "=" * 80);
+        //LogUtils.i("🌐 [API REQUEST] ${type.name.toUpperCase()}");
+        //LogUtils.i("🔗 URL: $requestUrl");
         if (queryParameters != null && queryParameters.isNotEmpty) {
-          LogUtils.i("❓ QUERY PARAMS: $queryParameters");
+          //LogUtils.i("❓ QUERY PARAMS: $queryParameters");
         }
         if (jsonBody != null) {
-          LogUtils.i("📤 BODY: $jsonBody");
+          //LogUtils.i("📤 BODY: $jsonBody");
         }
-        LogUtils.i("-" * 80);
+        //LogUtils.i("-" * 80);
       }
 
       late http.Response rawResponse;
@@ -168,10 +168,10 @@ class ApiManager {
       }
 
       if (showLog) {
-        LogUtils.i("📥 [API RESPONSE] ${apiResponse.statusCode}");
-        LogUtils.i("🕒 DURATION: ${duration.inMilliseconds}ms");
-        LogUtils.i("📦 BODY: ${apiResponse.body}");
-        LogUtils.i("=" * 80 + "\n");
+        //LogUtils.i("📥 [API RESPONSE] ${apiResponse.statusCode}");
+        //LogUtils.i("🕒 DURATION: ${duration.inMilliseconds}ms");
+        //LogUtils.i("📦 BODY: ${apiResponse.body}");
+        //LogUtils.i("=" * 80 + "\n");
       }
 
       return apiResponse;
@@ -179,7 +179,7 @@ class ApiManager {
       if (showLoader) {
         LoadingManager.dismissLoading();
       }
-      LogUtils.e("API REQUEST EXCEPTION: ${e.toString()}");
+      //LogUtils.e("API REQUEST EXCEPTION: ${e.toString()}");
       throw Exception(e);
     }
   }

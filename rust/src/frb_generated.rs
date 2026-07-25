@@ -37,7 +37,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.11.1";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1874832048;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 49497732;
 
 // Section: executor
 
@@ -435,6 +435,74 @@ fn wire__crate__api__simple__greet_impl(
         },
     )
 }
+fn wire__crate__api__take_full_screenshot__has_screen_recording_permission_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "has_screen_recording_permission",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Result::<_, ()>::Ok(
+                        crate::api::take_full_screenshot::has_screen_recording_permission(),
+                    )?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__take_full_screenshot__hide_macos_app_native_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "hide_macos_app_native",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Result::<_, ()>::Ok({
+                        crate::api::take_full_screenshot::hide_macos_app_native();
+                    })?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 fn wire__crate__api__simple__init_app_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -631,6 +699,40 @@ fn wire__crate__api__desktop_notification__register_module_impl(
                     let output_ok = Result::<_, ()>::Ok({
                         crate::api::desktop_notification::register_module();
                     })?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__take_full_screenshot__request_screen_recording_permission_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "request_screen_recording_permission",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Result::<_, ()>::Ok(
+                        crate::api::take_full_screenshot::request_screen_recording_permission(),
+                    )?;
                     Ok(output_ok)
                 })())
             }
@@ -961,6 +1063,41 @@ fn wire__crate__api__take_full_screenshot__take_screenshot_linux_fallback_impl(
                     (move || {
                         let output_ok =
                             crate::api::take_full_screenshot::take_screenshot_linux_fallback()?;
+                        Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__take_full_screenshot__take_screenshot_macos_fallback_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "take_screenshot_macos_fallback",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok =
+                            crate::api::take_full_screenshot::take_screenshot_macos_fallback()?;
                         Ok(output_ok)
                     })(),
                 )
@@ -1434,6 +1571,40 @@ fn wire__crate__api__take_full_screenshot__test_linux_fallback_methods_impl(
                         Ok(output_ok)
                     })(),
                 )
+            }
+        },
+    )
+}
+fn wire__crate__api__take_full_screenshot__test_macos_permissions_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "test_macos_permissions",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Result::<_, ()>::Ok(
+                        crate::api::take_full_screenshot::test_macos_permissions(),
+                    )?;
+                    Ok(output_ok)
+                })())
             }
         },
     )
@@ -1927,6 +2098,40 @@ fn wire__crate__api__take_full_screenshot__test_windows_method_9_vbscript_impl(
         },
     )
 }
+fn wire__crate__api__take_full_screenshot__unhide_macos_app_native_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "unhide_macos_app_native",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Result::<_, ()>::Ok({
+                        crate::api::take_full_screenshot::unhide_macos_app_native();
+                    })?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 
 // Section: dart2rust
 
@@ -2260,227 +2465,263 @@ fn pde_ffi_dispatcher_primary_impl(
             rust_vec_len,
             data_len,
         ),
-        13 => wire__crate__api__simple__init_app_impl(port, ptr, rust_vec_len, data_len),
-        14 => {
+        13 => wire__crate__api__take_full_screenshot__has_screen_recording_permission_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        14 => wire__crate__api__take_full_screenshot__hide_macos_app_native_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        15 => wire__crate__api__simple__init_app_impl(port, ptr, rust_vec_len, data_len),
+        16 => {
             wire__crate__api__take_full_screenshot__init_app_impl(port, ptr, rust_vec_len, data_len)
         }
-        15 => wire__crate__api__take_full_screenshot__is_nircmd_available_impl(
+        17 => wire__crate__api__take_full_screenshot__is_nircmd_available_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        17 => wire__crate__api__get_all_process_list__kill_process_impl(
+        19 => wire__crate__api__get_all_process_list__kill_process_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        18 => wire__crate__api__desktop_notification__register_module_impl(
+        20 => wire__crate__api__desktop_notification__register_module_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        19 => wire__crate__api__desktop_notification__send_notification_impl(
+        21 => wire__crate__api__take_full_screenshot__request_screen_recording_permission_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        20 => wire__crate__api__desktop_notification__send_notification_with_options_impl(
+        22 => wire__crate__api__desktop_notification__send_notification_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        21 => wire__crate__api__keyboard_listener__start_keyboard_listener_impl(
+        23 => wire__crate__api__desktop_notification__send_notification_with_options_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        22 => wire__crate__api__mouse_listener__start_mouse_listener_impl(
+        24 => wire__crate__api__keyboard_listener__start_keyboard_listener_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        26 => wire__crate__api__take_full_screenshot__take_full_screenshot_impl(
+        25 => wire__crate__api__mouse_listener__start_mouse_listener_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        27 => wire__crate__api__take_full_screenshot__take_screenshot_linux_fallback_impl(
+        29 => wire__crate__api__take_full_screenshot__take_full_screenshot_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        28 => wire__crate__api__take_full_screenshot__take_screenshot_windows_csharp_impl(
+        30 => wire__crate__api__take_full_screenshot__take_screenshot_linux_fallback_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        29 => wire__crate__api__take_full_screenshot__take_screenshot_windows_directshow_impl(
+        31 => wire__crate__api__take_full_screenshot__take_screenshot_macos_fallback_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        30 => wire__crate__api__take_full_screenshot__take_screenshot_windows_ffmpeg_impl(
+        32 => wire__crate__api__take_full_screenshot__take_screenshot_windows_csharp_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        31 => wire__crate__api__take_full_screenshot__take_screenshot_windows_memory_impl(
+        33 => wire__crate__api__take_full_screenshot__take_screenshot_windows_directshow_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        32 => wire__crate__api__take_full_screenshot__take_screenshot_windows_nircmd_impl(
+        34 => wire__crate__api__take_full_screenshot__take_screenshot_windows_ffmpeg_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        33 => wire__crate__api__take_full_screenshot__take_screenshot_windows_powershell_impl(
+        35 => wire__crate__api__take_full_screenshot__take_screenshot_windows_memory_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        34 => wire__crate__api__take_full_screenshot__take_screenshot_windows_vbscript_impl(
+        36 => wire__crate__api__take_full_screenshot__take_screenshot_windows_nircmd_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        35 => wire__crate__api__take_full_screenshot__take_screenshot_windows_win32_impl(
+        37 => wire__crate__api__take_full_screenshot__take_screenshot_windows_powershell_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        36 => wire__crate__api__take_full_screenshot__take_screenshot_windows_wmi_impl(
+        38 => wire__crate__api__take_full_screenshot__take_screenshot_windows_vbscript_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        37 => wire__crate__api__take_full_screenshot__take_screenshot_with_screenshots_crate_impl(
+        39 => wire__crate__api__take_full_screenshot__take_screenshot_windows_win32_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        38 => wire__crate__api__take_full_screenshot__test_all_available_methods_impl(
+        40 => wire__crate__api__take_full_screenshot__take_screenshot_windows_wmi_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        39 => wire__crate__api__take_full_screenshot__test_bundled_nircmd_extraction_impl(
+        41 => wire__crate__api__take_full_screenshot__take_screenshot_with_screenshots_crate_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        40 => wire__crate__api__take_full_screenshot__test_linux_environment_check_impl(
+        42 => wire__crate__api__take_full_screenshot__test_all_available_methods_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        41 => wire__crate__api__take_full_screenshot__test_linux_fallback_methods_impl(
+        43 => wire__crate__api__take_full_screenshot__test_bundled_nircmd_extraction_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        42 => wire__crate__api__take_full_screenshot__test_nircmd_availability_impl(
+        44 => wire__crate__api__take_full_screenshot__test_linux_environment_check_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        43 => wire__crate__api__take_full_screenshot__test_nircmd_capabilities_impl(
+        45 => wire__crate__api__take_full_screenshot__test_linux_fallback_methods_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        44 => wire__crate__api__take_full_screenshot__test_nircmd_screenshot_simple_impl(
+        46 => wire__crate__api__take_full_screenshot__test_macos_permissions_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        45 => wire__crate__api__take_full_screenshot__test_screenshots_crate_method_impl(
+        47 => wire__crate__api__take_full_screenshot__test_nircmd_availability_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        46 => wire__crate__api__take_full_screenshot__test_windows_environment_check_impl(
+        48 => wire__crate__api__take_full_screenshot__test_nircmd_capabilities_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        47 => wire__crate__api__take_full_screenshot__test_windows_method_1_nircmd_impl(
+        49 => wire__crate__api__take_full_screenshot__test_nircmd_screenshot_simple_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        48 => wire__crate__api__take_full_screenshot__test_windows_method_2_powershell_impl(
+        50 => wire__crate__api__take_full_screenshot__test_screenshots_crate_method_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        49 => wire__crate__api__take_full_screenshot__test_windows_method_3_memory_impl(
+        51 => wire__crate__api__take_full_screenshot__test_windows_environment_check_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        50 => wire__crate__api__take_full_screenshot__test_windows_method_4_directshow_impl(
+        52 => wire__crate__api__take_full_screenshot__test_windows_method_1_nircmd_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        51 => wire__crate__api__take_full_screenshot__test_windows_method_5_win32_impl(
+        53 => wire__crate__api__take_full_screenshot__test_windows_method_2_powershell_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        52 => wire__crate__api__take_full_screenshot__test_windows_method_6_wmi_impl(
+        54 => wire__crate__api__take_full_screenshot__test_windows_method_3_memory_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        53 => wire__crate__api__take_full_screenshot__test_windows_method_7_ffmpeg_impl(
+        55 => wire__crate__api__take_full_screenshot__test_windows_method_4_directshow_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        54 => wire__crate__api__take_full_screenshot__test_windows_method_8_csharp_impl(
+        56 => wire__crate__api__take_full_screenshot__test_windows_method_5_win32_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        55 => wire__crate__api__take_full_screenshot__test_windows_method_9_vbscript_impl(
+        57 => wire__crate__api__take_full_screenshot__test_windows_method_6_wmi_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        58 => wire__crate__api__take_full_screenshot__test_windows_method_7_ffmpeg_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        59 => wire__crate__api__take_full_screenshot__test_windows_method_8_csharp_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        60 => wire__crate__api__take_full_screenshot__test_windows_method_9_vbscript_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        61 => wire__crate__api__take_full_screenshot__unhide_macos_app_native_impl(
             port,
             ptr,
             rust_vec_len,
@@ -2519,22 +2760,22 @@ fn pde_ffi_dispatcher_sync_impl(
             data_len,
         ),
         12 => wire__crate__api__simple__greet_impl(ptr, rust_vec_len, data_len),
-        16 => wire__crate__api__active_window_listener__is_platform_supported_impl(
+        18 => wire__crate__api__active_window_listener__is_platform_supported_impl(
             ptr,
             rust_vec_len,
             data_len,
         ),
-        23 => wire__crate__api__active_window_listener__start_window_listener_impl(
+        26 => wire__crate__api__active_window_listener__start_window_listener_impl(
             ptr,
             rust_vec_len,
             data_len,
         ),
-        24 => wire__crate__api__active_window_listener__start_window_listener_stream_impl(
+        27 => wire__crate__api__active_window_listener__start_window_listener_stream_impl(
             ptr,
             rust_vec_len,
             data_len,
         ),
-        25 => wire__crate__api__active_window_listener__stop_window_listener_impl(
+        28 => wire__crate__api__active_window_listener__stop_window_listener_impl(
             ptr,
             rust_vec_len,
             data_len,

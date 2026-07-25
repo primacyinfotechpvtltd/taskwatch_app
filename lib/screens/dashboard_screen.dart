@@ -33,7 +33,9 @@ class _DashboardScreenState extends State<DashboardScreen>
       // Reset popup flag so dashboard always shows the warning on each fresh load
       _authController.hasShownWfhWarningPopup = false;
       await _authController.checkWfhApprovalForCurrentUser();
-      _checkAndShowWfhPopup();
+      if (mounted) {
+        _checkAndShowWfhPopup();
+      }
     });
   }
 

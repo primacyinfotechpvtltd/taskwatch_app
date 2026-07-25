@@ -55,18 +55,18 @@ class DiscussController extends GetxController {
   @override
   void onInit() {
     super.onInit();
-    LogUtils.i('DISCUSS_LIFECYCLE: DiscussController onInit started');
+    //LogUtils.i('DISCUSS_LIFECYCLE: DiscussController onInit started');
     
     // Watch auth state to load or clear discuss module
     final authController = Get.find<AuthController>();
-    LogUtils.i('DISCUSS_LIFECYCLE: Found AuthController, initial user = ${authController.user.value}');
+    //LogUtils.i('DISCUSS_LIFECYCLE: Found AuthController, initial user = ${authController.user.value}');
     if (authController.user.value != null) {
-      LogUtils.i('DISCUSS_LIFECYCLE: User already logged in onInit, starting discuss...');
+      //LogUtils.i('DISCUSS_LIFECYCLE: User already logged in onInit, starting discuss...');
       initDiscuss();
     }
     
     _authSubscription = authController.user.listen((user) {
-      LogUtils.i('DISCUSS_LIFECYCLE: AuthController.user listener triggered. New user: $user');
+      //LogUtils.i('DISCUSS_LIFECYCLE: AuthController.user listener triggered. New user: $user');
       if (user != null) {
         initDiscuss();
       } else {
@@ -80,7 +80,7 @@ class DiscussController extends GetxController {
         refreshActiveChannel();
       }
     });
-    LogUtils.i('DISCUSS_LIFECYCLE: DiscussController onInit complete');
+    //LogUtils.i('DISCUSS_LIFECYCLE: DiscussController onInit complete');
   }
 
   @override
@@ -103,13 +103,13 @@ class DiscussController extends GetxController {
   Future<void> initDiscuss() async {
     try {
       isLoadingChannels.value = true;
-      LogUtils.i('DISCUSS_INIT: Starting initialization...');
+      //LogUtils.i('DISCUSS_INIT: Starting initialization...');
       
       // 1. Fetch user's partner ID
       await _fetchPartnerId();
       
       if (partnerId.value == -1) {
-        LogUtils.e('DISCUSS_INIT: Failed to resolve partner ID.');
+        //LogUtils.e('DISCUSS_INIT: Failed to resolve partner ID.');
         return;
       }
       
@@ -126,7 +126,7 @@ class DiscussController extends GetxController {
       _startLongPolling();
       
     } catch (e) {
-      LogUtils.e('DISCUSS_INIT_ERROR: $e');
+      //LogUtils.e('DISCUSS_INIT_ERROR: $e');
     } finally {
       isLoadingChannels.value = false;
     }
@@ -137,7 +137,7 @@ class DiscussController extends GetxController {
       final uid = OdooRpcApiManager.currentUserId;
       if (uid == null) return;
 
-      LogUtils.i('DISCUSS_PARTNER: Querying res.users for uid=$uid');
+      //LogUtils.i('DISCUSS_PARTNER: Querying res.users for uid=$uid');
       final response = await OdooRpcApiManager.read(
         model: 'res.users',
         ids: [uid],
@@ -148,10 +148,10 @@ class DiscussController extends GetxController {
         final partnerField = response.data![0]['partner_id'];
         if (partnerField is List && partnerField.isNotEmpty) {
           partnerId.value = partnerField[0] as int;
-          LogUtils.i('DISCUSS_PARTNER: Resolved partner ID to ${partnerId.value}');
+          //LogUtils.i('DISCUSS_PARTNER: Resolved partner ID to ${partnerId.value}');
         } else if (partnerField is int) {
           partnerId.value = partnerField;
-          LogUtils.i('DISCUSS_PARTNER: Resolved partner ID to ${partnerId.value}');
+          //LogUtils.i('DISCUSS_PARTNER: Resolved partner ID to ${partnerId.value}');
         }
       }
 
@@ -159,7 +159,7 @@ class DiscussController extends GetxController {
       if (partnerId.value == -1) {
         final email = Get.find<AuthController>().user.value?.email;
         if (email != null && email.isNotEmpty) {
-          LogUtils.i('DISCUSS_PARTNER: Fallback searching res.partner by email: $email');
+          //LogUtils.i('DISCUSS_PARTNER: Fallback searching res.partner by email: $email');
           final partnerRes = await OdooRpcApiManager.searchRead(
             model: 'res.partner',
             domain: [['email', '=', email]],
@@ -168,7 +168,7 @@ class DiscussController extends GetxController {
           );
           if (partnerRes.isSuccess && partnerRes.data != null && partnerRes.data!.isNotEmpty) {
             partnerId.value = partnerRes.data![0]['id'] as int;
-            LogUtils.i('DISCUSS_PARTNER: Fallback resolved partner ID by email to ${partnerId.value}');
+            //LogUtils.i('DISCUSS_PARTNER: Fallback resolved partner ID by email to ${partnerId.value}');
           }
         }
       }
@@ -177,7 +177,7 @@ class DiscussController extends GetxController {
       if (partnerId.value == -1) {
         final email = Get.find<AuthController>().user.value?.email;
         if (email != null && email.isNotEmpty) {
-          LogUtils.i('DISCUSS_PARTNER: Fallback searching res.users by login/email: $email');
+          //LogUtils.i('DISCUSS_PARTNER: Fallback searching res.users by login/email: $email');
           final userRes = await OdooRpcApiManager.searchRead(
             model: 'res.users',
             domain: ['|', ['login', '=', email], ['email', '=', email]],
@@ -191,18 +191,18 @@ class DiscussController extends GetxController {
             } else if (pField is int) {
               partnerId.value = pField;
             }
-            LogUtils.i('DISCUSS_PARTNER: Fallback resolved partner ID from res.users search to ${partnerId.value}');
+            //LogUtils.i('DISCUSS_PARTNER: Fallback resolved partner ID from res.users search to ${partnerId.value}');
           }
         }
       }
     } catch (e) {
-      LogUtils.e('DISCUSS_PARTNER_ERROR: $e');
+      //LogUtils.e('DISCUSS_PARTNER_ERROR: $e');
     }
   }
 
   Future<void> _resolveChannelModel() async {
     try {
-      LogUtils.i('DISCUSS_MODEL: Testing mail.channel...');
+      //LogUtils.i('DISCUSS_MODEL: Testing mail.channel...');
       // Try a simple search on mail.channel to check if it exists
       final testMail = await OdooRpcApiManager.searchRead(
         model: 'mail.channel',
@@ -213,15 +213,15 @@ class DiscussController extends GetxController {
       
       if (testMail.isSuccess) {
         channelModelName.value = 'mail.channel';
-        LogUtils.i('DISCUSS_MODEL: Resolved to mail.channel');
+        //LogUtils.i('DISCUSS_MODEL: Resolved to mail.channel');
         return;
       }
     } catch (e) {
-      LogUtils.e('DISCUSS_MODEL: mail.channel test failed: $e');
+      //LogUtils.e('DISCUSS_MODEL: mail.channel test failed: $e');
     }
 
     try {
-      LogUtils.i('DISCUSS_MODEL: Testing discuss.channel...');
+      //LogUtils.i('DISCUSS_MODEL: Testing discuss.channel...');
       // Try a simple search on discuss.channel to check if it exists
       final testDiscuss = await OdooRpcApiManager.searchRead(
         model: 'discuss.channel',
@@ -232,23 +232,23 @@ class DiscussController extends GetxController {
       
       if (testDiscuss.isSuccess) {
         channelModelName.value = 'discuss.channel';
-        LogUtils.i('DISCUSS_MODEL: Resolved to discuss.channel');
+        //LogUtils.i('DISCUSS_MODEL: Resolved to discuss.channel');
         return;
       }
     } catch (e) {
-      LogUtils.e('DISCUSS_MODEL: discuss.channel test failed: $e');
+      //LogUtils.e('DISCUSS_MODEL: discuss.channel test failed: $e');
     }
 
     // Default fallback
     channelModelName.value = 'discuss.channel';
-    LogUtils.i('DISCUSS_MODEL: Defaulting to discuss.channel');
+    //LogUtils.i('DISCUSS_MODEL: Defaulting to discuss.channel');
   }
 
   Future<void> fetchChannels() async {
     if (partnerId.value == -1) return;
     try {
       isLoadingChannels.value = true;
-      LogUtils.i('DISCUSS_CHANNELS: Fetching channels from Odoo...');
+      //LogUtils.i('DISCUSS_CHANNELS: Fetching channels from Odoo...');
       
       // Try querying with channel_partner_ids first
       var response = await OdooRpcApiManager.searchRead(
@@ -262,7 +262,7 @@ class DiscussController extends GetxController {
 
       // Fallback: If querying with channel_partner_ids fails, try querying with partner_ids
       if (!response.isSuccess) {
-        LogUtils.i('DISCUSS_CHANNELS: searchRead with channel_partner_ids failed. Retrying with partner_ids...');
+        //LogUtils.i('DISCUSS_CHANNELS: searchRead with channel_partner_ids failed. Retrying with partner_ids...');
         response = await OdooRpcApiManager.searchRead(
           model: channelModelName.value,
           domain: [
@@ -275,7 +275,7 @@ class DiscussController extends GetxController {
 
       // Final fallback if both failed (unrestricted query)
       if (!response.isSuccess) {
-        LogUtils.w('DISCUSS_CHANNELS: member filters failed. Falling back to unrestricted query...');
+        //LogUtils.w('DISCUSS_CHANNELS: member filters failed. Falling back to unrestricted query...');
         response = await OdooRpcApiManager.searchRead(
           model: channelModelName.value,
           domain: [],
@@ -314,7 +314,7 @@ class DiscussController extends GetxController {
             }
           }
         } catch (e) {
-          LogUtils.w('DISCUSS_CHANNELS: Failed to fetch unread counts from discuss.channel.member: $e');
+          //LogUtils.w('DISCUSS_CHANNELS: Failed to fetch unread counts from discuss.channel.member: $e');
         }
 
         final List<DiscussChannelModel> fetched = [];
@@ -329,7 +329,7 @@ class DiscussController extends GetxController {
               currentPartnerId: partnerId.value,
             ));
           } catch (e) {
-            LogUtils.e('DISCUSS_CHANNEL_PARSE_ERROR: $e on raw=$raw');
+            //LogUtils.e('DISCUSS_CHANNEL_PARSE_ERROR: $e on raw=$raw');
           }
         }
 
@@ -337,7 +337,7 @@ class DiscussController extends GetxController {
         if (fetched.isNotEmpty) {
           try {
             final channelIds = fetched.map((c) => c.id).toList();
-            LogUtils.i('DISCUSS_LAST_MSG: Querying mail.message for channels: $channelIds under model: ${channelModelName.value}');
+            //LogUtils.i('DISCUSS_LAST_MSG: Querying mail.message for channels: $channelIds under model: ${channelModelName.value}');
             final msgResponse = await OdooRpcApiManager.searchRead(
               model: 'mail.message',
               domain: [
@@ -350,7 +350,7 @@ class DiscussController extends GetxController {
               limit: 500,
             );
 
-            LogUtils.i('DISCUSS_LAST_MSG: msgResponse success=${msgResponse.isSuccess}, dataLength=${msgResponse.data?.length}');
+            //LogUtils.i('DISCUSS_LAST_MSG: msgResponse success=${msgResponse.isSuccess}, dataLength=${msgResponse.data?.length}');
 
             if (msgResponse.isSuccess && msgResponse.data != null) {
               final Map<int, DiscussMessageModel> latestMessages = {};
@@ -367,7 +367,7 @@ class DiscussController extends GetxController {
                     latestMessages[channelId] = msg;
                   }
                 } catch (e) {
-                  LogUtils.e('DISCUSS_CHANNEL_MSG_PARSE_ERROR: $e on raw=$raw');
+                  //LogUtils.e('DISCUSS_CHANNEL_MSG_PARSE_ERROR: $e on raw=$raw');
                 }
               }
 
@@ -407,23 +407,23 @@ class DiscussController extends GetxController {
                     }
                   }
                 } catch (e) {
-                  LogUtils.e('DISCUSS_LAST_MSG_ATTACH_ERROR: $e');
+                  //LogUtils.e('DISCUSS_LAST_MSG_ATTACH_ERROR: $e');
                 }
               }
 
-              LogUtils.i('DISCUSS_LAST_MSG: Resolved latestMessages keys: ${latestMessages.keys.toList()}');
+              //LogUtils.i('DISCUSS_LAST_MSG: Resolved latestMessages keys: ${latestMessages.keys.toList()}');
 
               for (var i = 0; i < fetched.length; i++) {
                 final c = fetched[i];
                 if (latestMessages.containsKey(c.id)) {
                   final last = latestMessages[c.id]!;
-                  LogUtils.i('DISCUSS_LAST_MSG: Mapping lastMessage for channel id=${c.id} name=${c.name} -> "${last.displayBody}"');
+                 // LogUtils.i('DISCUSS_LAST_MSG: Mapping lastMessage for channel id=${c.id} name=${c.name} -> "${last.displayBody}"');
                   fetched[i] = c.copyWith(
                     lastMessage: last.displayBody,
                     lastMessageTime: last.date,
                   );
                 } else {
-                  LogUtils.i('DISCUSS_LAST_MSG: No message found in query for channel id=${c.id} name=${c.name}');
+                 // LogUtils.i('DISCUSS_LAST_MSG: No message found in query for channel id=${c.id} name=${c.name}');
                 }
               }
 
@@ -434,7 +434,7 @@ class DiscussController extends GetxController {
                   .toList();
               
               if (missingChannelIds.isNotEmpty) {
-                LogUtils.i('DISCUSS_LAST_MSG: Fetching last message for ${missingChannelIds.length} missing channels individually');
+                //LogUtils.i('DISCUSS_LAST_MSG: Fetching last message for ${missingChannelIds.length} missing channels individually');
                 final List<Future<void>> tasks = [];
                 for (var id in missingChannelIds) {
                   tasks.add(() async {
@@ -478,21 +478,21 @@ class DiscussController extends GetxController {
                             lastMessage: msg.displayBody,
                             lastMessageTime: msg.date,
                           );
-                          LogUtils.i('DISCUSS_LAST_MSG: Mapped missing channel id=$id -> "${msg.displayBody}"');
+                          //LogUtils.i('DISCUSS_LAST_MSG: Mapped missing channel id=$id -> "${msg.displayBody}"');
                         }
                       }
                     } catch (e) {
-                      LogUtils.e('DISCUSS_LAST_MSG_ERROR individually for channel id=$id: $e');
+                      //LogUtils.e('DISCUSS_LAST_MSG_ERROR individually for channel id=$id: $e');
                     }
                   }());
                 }
                 await Future.wait(tasks);
               }
             } else {
-              LogUtils.w('DISCUSS_LAST_MSG: msgResponse failed or null data: error=${msgResponse.message}');
+               //LogUtils.w('DISCUSS_LAST_MSG: msgResponse failed or null data: error=${msgResponse.message}');
             }
           } catch (e) {
-            LogUtils.e('DISCUSS_CHANNELS_LAST_MSG_ERROR: $e');
+            //LogUtils.e('DISCUSS_CHANNELS_LAST_MSG_ERROR: $e');
           }
         }
         
@@ -509,7 +509,7 @@ class DiscussController extends GetxController {
         }
       }
     } catch (e) {
-      LogUtils.e('DISCUSS_CHANNELS_ERROR: $e');
+     // LogUtils.e('DISCUSS_CHANNELS_ERROR: $e');
     } finally {
       isLoadingChannels.value = false;
     }
@@ -748,7 +748,7 @@ class DiscussController extends GetxController {
   Future<void> markChannelAsSeen(int channelId) async {
     final memberId = channelMemberIds[channelId];
     if (memberId == null) {
-      LogUtils.w('DISCUSS_SEEN: Cannot mark channel $channelId as seen - member ID not found in mapping.');
+      //LogUtils.w('DISCUSS_SEEN: Cannot mark channel $channelId as seen - member ID not found in mapping.');
       return;
     }
 
@@ -757,7 +757,7 @@ class DiscussController extends GetxController {
 
     final latestMessageId = messages.last.id;
 
-    LogUtils.i('DISCUSS_SEEN: Marking channel $channelId as seen (member=$memberId, msg=$latestMessageId)');
+    //LogUtils.i('DISCUSS_SEEN: Marking channel $channelId as seen (member=$memberId, msg=$latestMessageId)');
     try {
       final response = await OdooRpcApiManager.write(
         model: 'discuss.channel.member',
@@ -769,12 +769,12 @@ class DiscussController extends GetxController {
         },
       );
       if (response.isSuccess) {
-        LogUtils.i('DISCUSS_SEEN: Server updated successfully for member=$memberId');
+        //LogUtils.i('DISCUSS_SEEN: Server updated successfully for member=$memberId');
       } else {
-        LogUtils.w('DISCUSS_SEEN_FAILED: Server returned error: ${response.message}');
+        //LogUtils.w('DISCUSS_SEEN_FAILED: Server returned error: ${response.message}');
       }
     } catch (e) {
-      LogUtils.w('DISCUSS_SEEN_ERROR: Failed to write seen status: $e');
+      //LogUtils.w('DISCUSS_SEEN_ERROR: Failed to write seen status: $e');
     }
   }
 
@@ -1004,7 +1004,7 @@ class DiscussController extends GetxController {
 
     try {
       isSendingMessage.value = true;
-      LogUtils.i('DISCUSS_SEND_ATTACH: Starting upload for $fileName (${fileBytes.length} bytes)');
+     // LogUtils.i('DISCUSS_SEND_ATTACH: Starting upload for $fileName (${fileBytes.length} bytes)');
 
       // 1. Encode file content to Base64
       final base64Content = base64Encode(fileBytes);
@@ -1023,12 +1023,12 @@ class DiscussController extends GetxController {
       if (!attachResponse.isSuccess || attachResponse.data == null) {
         final err = attachResponse.message.isNotEmpty ? attachResponse.message : 'Attachment upload failed';
         showToast(err, idSuccess: false);
-        LogUtils.e('DISCUSS_SEND_ATTACH_ERROR: Upload failed: $err');
+        //LogUtils.e('DISCUSS_SEND_ATTACH_ERROR: Upload failed: $err');
         return false;
       }
 
       final attachmentId = attachResponse.data!;
-      LogUtils.i('DISCUSS_SEND_ATTACH: Uploaded successfully, attachmentId=$attachmentId. Posting message...');
+      //LogUtils.i('DISCUSS_SEND_ATTACH: Uploaded successfully, attachmentId=$attachmentId. Posting message...');
 
       // 3. Post the message with attachment_ids linked
       final postResponse = await OdooRpcApiManager.call(
@@ -1044,17 +1044,17 @@ class DiscussController extends GetxController {
       );
 
       if (postResponse.isSuccess) {
-        LogUtils.i('DISCUSS_SEND_ATTACH: Message posted successfully. Refreshing messages...');
+        //LogUtils.i('DISCUSS_SEND_ATTACH: Message posted successfully. Refreshing messages...');
         await fetchMessages(channelId, background: true);
         return true;
       } else {
         final err = postResponse.message.isNotEmpty ? postResponse.message : 'Failed to post message with attachment';
         showToast(err, idSuccess: false);
-        LogUtils.e('DISCUSS_SEND_ATTACH_ERROR: Message post failed: $err');
+        //LogUtils.e('DISCUSS_SEND_ATTACH_ERROR: Message post failed: $err');
         return false;
       }
     } catch (e) {
-      LogUtils.e('DISCUSS_SEND_ATTACH_ERROR: Exception: $e');
+      //LogUtils.e('DISCUSS_SEND_ATTACH_ERROR: Exception: $e');
       showToast('Error sending attachment: $e', idSuccess: false);
       return false;
     } finally {
@@ -1090,12 +1090,12 @@ class DiscussController extends GetxController {
         } else {
           activeChannelOtherUserLastSeenMessageId.value = -1;
         }
-        LogUtils.i('DISCUSS_TICKS: Other user last seen message ID = ${activeChannelOtherUserLastSeenMessageId.value}');
+        //LogUtils.i('DISCUSS_TICKS: Other user last seen message ID = ${activeChannelOtherUserLastSeenMessageId.value}');
       } else {
         activeChannelOtherUserLastSeenMessageId.value = -1;
       }
     } catch (e) {
-      LogUtils.e('DISCUSS_TICKS_ERROR: $e');
+      //LogUtils.e('DISCUSS_TICKS_ERROR: $e');
       activeChannelOtherUserLastSeenMessageId.value = -1;
     }
   }
@@ -1140,7 +1140,7 @@ class DiscussController extends GetxController {
   }
 
   Future<void> _runLongPollLoop() async {
-    LogUtils.i('DISCUSS_LONGPOLL: Starting background poll loop...');
+    //LogUtils.i('DISCUSS_LONGPOLL: Starting background poll loop...');
     int lastNotificationId = 0;
 
     while (_isLongPollingActive && OdooRpcApiManager.isAuthenticated) {
@@ -1162,7 +1162,7 @@ class DiscussController extends GetxController {
         continue;
       }
 
-      LogUtils.i('DISCUSS_LONGPOLL: Polling Odoo server (last=$lastNotificationId)...');
+      //LogUtils.i('DISCUSS_LONGPOLL: Polling Odoo server (last=$lastNotificationId)...');
       final response = await OdooRpcApiManager.longPoll(
         channels: channelsToListen,
         last: lastNotificationId,
@@ -1172,7 +1172,7 @@ class DiscussController extends GetxController {
 
       if (response.isSuccess && response.data != null) {
         final List<dynamic> result = List<dynamic>.from(response.data);
-        LogUtils.i('DISCUSS_LONGPOLL: Received ${result.length} notifications.');
+        //LogUtils.i('DISCUSS_LONGPOLL: Received ${result.length} notifications.');
         
         bool messageChanged = false;
         
@@ -1185,7 +1185,7 @@ class DiscussController extends GetxController {
             
             final channel = raw['channel'];
             final message = raw['message'];
-            LogUtils.i('DISCUSS_LONGPOLL_EVENT: Channel: $channel, message keys: ${message?.keys}');
+            //LogUtils.i('DISCUSS_LONGPOLL_EVENT: Channel: $channel, message keys: ${message?.keys}');
             
             if (channel != null && channel.toString().contains('discuss.channel_')) {
               messageChanged = true;
@@ -1194,7 +1194,7 @@ class DiscussController extends GetxController {
         }
 
         if (messageChanged) {
-          LogUtils.i('DISCUSS_LONGPOLL: Detected message updates. Fetching fresh messages...');
+          //LogUtils.i('DISCUSS_LONGPOLL: Detected message updates. Fetching fresh messages...');
           if (selectedChannelId.value != -1) {
             await fetchMessages(selectedChannelId.value, background: true);
           }
@@ -1205,21 +1205,21 @@ class DiscussController extends GetxController {
       } else {
         final err = response.message;
         if (err != null && (err.contains('404') || err.contains('not found') || err.contains('301') || err.contains('302'))) {
-          LogUtils.w('DISCUSS_LONGPOLL: Longpolling endpoint not configured/available (404/302). Falling back to Adaptive Polling...');
+          //LogUtils.w('DISCUSS_LONGPOLL: Longpolling endpoint not configured/available (404/302). Falling back to Adaptive Polling...');
           _runAdaptivePollingLoop();
           break; // Exit long poll loop
         }
-        LogUtils.w('DISCUSS_LONGPOLL_WARNING: Poll failed: $err. Retrying in 5 seconds...');
+        //LogUtils.w('DISCUSS_LONGPOLL_WARNING: Poll failed: $err. Retrying in 5 seconds...');
         await Future.delayed(const Duration(seconds: 5));
       }
     }
     
-    LogUtils.i('DISCUSS_LONGPOLL: Long polling loop terminated.');
+    //LogUtils.i('DISCUSS_LONGPOLL: Long polling loop terminated.');
     _isLongPollingActive = false;
   }
 
   Future<void> _runAdaptivePollingLoop() async {
-    LogUtils.i('DISCUSS_POLL: Starting background adaptive polling loop...');
+    //LogUtils.i('DISCUSS_POLL: Starting background adaptive polling loop...');
     
     while (_isLongPollingActive && OdooRpcApiManager.isAuthenticated) {
       final isDiscussActive = Get.currentRoute == '/discuss';
@@ -1239,20 +1239,20 @@ class DiscussController extends GetxController {
 
       try {
         if (isDiscussActive) {
-          LogUtils.i('DISCUSS_POLL: App is in chat view, fetching new messages...');
+          //LogUtils.i('DISCUSS_POLL: App is in chat view, fetching new messages...');
           if (selectedChannelId.value != -1) {
             await fetchMessages(selectedChannelId.value, background: true);
           }
           await fetchChannels();
         } else {
-          LogUtils.i('DISCUSS_POLL: App is inactive/in background, passive sync channels...');
+          //.i('DISCUSS_POLL: App is inactive/in background, passive sync channels...');
           await fetchChannels();
         }
       } catch (e) {
-        LogUtils.e('DISCUSS_POLL_ERROR: Polling request failed: $e');
+        //LogUtils.e('DISCUSS_POLL_ERROR: Polling request failed: $e');
       }
     }
     
-    LogUtils.i('DISCUSS_POLL: Adaptive polling loop terminated.');
+    //LogUtils.i('DISCUSS_POLL: Adaptive polling loop terminated.');
   }
 }

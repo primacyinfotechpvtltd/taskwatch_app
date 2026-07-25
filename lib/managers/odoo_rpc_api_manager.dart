@@ -1075,23 +1075,26 @@ class OdooRpcApiManager {
 
   static bool get isUsingFullUrl => useFullUrl;
 
-  /// Fetches an Odoo model image as raw bytes using the authenticated Dio client.
-  /// This ensures session cookies are correctly sent, unlike Image.network.
+  /// Fetches an Odoo model profile image as raw bytes via HTTP GET /web/image?model=&id=&field=
   static Future<List<int>?> fetchImageBytes({
     required String model,
     required int id,
-    String field = 'image_128',
+    String field = 'image_1920',
   }) async {
     try {
       if (!isAuthenticated) return null;
       final baseUrl = _effectiveServerUrl;
       final dioInstance = await _getDio();
+
       final params = <String, String>{
         'model': model,
         'id': id.toString(),
         'field': field,
+        if (_sessionId != null && _sessionId!.isNotEmpty) 'session_id': _sessionId!,
       };
+
       final uri = Uri.parse(baseUrl).replace(path: '/web/image', queryParameters: params);
+      
       final response = await dioInstance.get<List<int>>(
         uri.toString(),
         options: dio.Options(
@@ -1099,12 +1102,13 @@ class OdooRpcApiManager {
           headers: _getHeaders(includeSession: true),
         ),
       );
+
       if (response.statusCode == 200 && response.data != null && response.data!.isNotEmpty) {
         return response.data!;
       }
       return null;
     } catch (e) {
-      _logger.w('OdooRpcApiManager.fetchImageBytes error: $e');
+      _logger.w('OdooRpcApiManager.fetchImageBytes error for $model id=$id: $e');
       return null;
     }
   }

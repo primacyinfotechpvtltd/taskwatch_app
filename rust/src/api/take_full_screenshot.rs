@@ -259,6 +259,7 @@ pub fn take_full_screenshot() -> Result<String> {
         }
 
         // Non-Windows platforms: macOS uses screencapture CLI first, Linux uses Screenshots crate
+        // macOS platform screenshot logic
         #[cfg(target_os = "macos")]
         {
             println!("[SCREENSHOT] 🍎 Running macOS screen capture...");
@@ -266,28 +267,28 @@ pub fn take_full_screenshot() -> Result<String> {
             println!("[SCREENSHOT] 🍎 macOS Screen Recording permission check: {}", has_perm);
 
             if !has_perm {
-                println!("[SCREENSHOT] ⚠️ Screen Recording permission NOT detected for current process. Triggering macOS system prompt...");
+                println!("[SCREENSHOT] ⚠️ Screen Recording permission NOT detected. Triggering macOS system prompt...");
                 let _ = request_screen_recording_permission();
             }
 
-            // Method 1 for macOS: Apple native /usr/sbin/screencapture CLI
-            println!("\n[SCREENSHOT] 🎬 Method 1: Apple native screencapture CLI...");
-            match take_screenshot_macos_fallback() {
+            // Method 1 for macOS: Screenshots crate (direct CoreGraphics API inside app process)
+            println!("\n[SCREENSHOT] 🎬 Method 1: Screenshots crate (CoreGraphics)...");
+            match take_screenshot_with_screenshots_crate() {
                 Ok(base64_string) => {
                     let elapsed = start_time.elapsed();
-                    println!("[SCREENSHOT] ✅ SUCCESS: Captured via macOS screencapture CLI in {:.2?}", elapsed);
+                    println!("[SCREENSHOT] ✅ SUCCESS: Captured via Screenshots crate in {:.2?}", elapsed);
                     return Ok(base64_string);
                 },
-                Err(cli_err) => {
-                    println!("[SCREENSHOT] ⚠️ macOS screencapture CLI failed ({}), falling back to screenshots crate...", cli_err);
-                    match take_screenshot_with_screenshots_crate() {
+                Err(crate_err) => {
+                    println!("[SCREENSHOT] ⚠️ Screenshots crate failed ({}), trying screencapture CLI fallback...", crate_err);
+                    match take_screenshot_macos_fallback() {
                         Ok(base64_string) => {
                             let elapsed = start_time.elapsed();
-                            println!("[SCREENSHOT] ✅ SUCCESS: Captured via screenshots crate in {:.2?}", elapsed);
+                            println!("[SCREENSHOT] ✅ SUCCESS: Captured via macOS screencapture CLI in {:.2?}", elapsed);
                             return Ok(base64_string);
                         },
-                        Err(crate_err) => {
-                            return Err(crate_err).context("All macOS screenshot methods failed - please grant Screen Recording permission in System Settings -> Privacy & Security -> Screen Recording");
+                        Err(cli_err) => {
+                            return Err(cli_err).context("All macOS screenshot methods failed - please ensure Screen Recording permission is granted in System Settings -> Privacy & Security -> Screen Recording");
                         }
                     }
                 }
@@ -448,25 +449,93 @@ pub fn take_screenshot_linux_fallback() -> Result<String> {
     Ok(base64_string)
 }
 
-#[cfg(target_os = "macos")]
 pub fn has_screen_recording_permission() -> bool {
-    #[link(name = "CoreGraphics", kind = "framework")]
-    extern "C" {
-        fn CGPreflightScreenCaptureAccess() -> bool;
+    #[cfg(target_os = "macos")]
+    {
+        #[link(name = "CoreGraphics", kind = "framework")]
+        extern "C" {
+            fn CGPreflightScreenCaptureAccess() -> bool;
+        }
+        unsafe {
+            CGPreflightScreenCaptureAccess()
+        }
     }
-    unsafe {
-        CGPreflightScreenCaptureAccess()
+    #[cfg(not(target_os = "macos"))]
+    {
+        true
+    }
+}
+
+pub fn request_screen_recording_permission() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        #[link(name = "CoreGraphics", kind = "framework")]
+        extern "C" {
+            fn CGRequestScreenCaptureAccess() -> bool;
+        }
+        unsafe {
+            CGRequestScreenCaptureAccess()
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        true
     }
 }
 
 #[cfg(target_os = "macos")]
-pub fn request_screen_recording_permission() -> bool {
-    #[link(name = "CoreGraphics", kind = "framework")]
-    extern "C" {
-        fn CGRequestScreenCaptureAccess() -> bool;
-    }
+pub fn hide_macos_app_native() {
     unsafe {
-        CGRequestScreenCaptureAccess()
+        #[link(name = "objc", kind = "dylib")]
+        extern "C" {
+            fn objc_getClass(name: *const std::os::raw::c_char) -> *mut std::ffi::c_void;
+            fn sel_registerName(name: *const std::os::raw::c_char) -> *mut std::ffi::c_void;
+            fn objc_msgSend() -> *mut std::ffi::c_void;
+        }
+
+        type MsgSendFn = unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void) -> *mut std::ffi::c_void;
+        type MsgSendArgFn = unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void, *mut std::ffi::c_void) -> *mut std::ffi::c_void;
+
+        let msg_send: MsgSendFn = std::mem::transmute(objc_msgSend as *const ());
+        let msg_send_arg: MsgSendArgFn = std::mem::transmute(objc_msgSend as *const ());
+
+        let ns_app_class = objc_getClass(b"NSApplication\0".as_ptr() as *const _);
+        if !ns_app_class.is_null() {
+            let shared_app_sel = sel_registerName(b"sharedApplication\0".as_ptr() as *const _);
+            let app_instance = msg_send(ns_app_class, shared_app_sel);
+            if !app_instance.is_null() {
+                let hide_sel = sel_registerName(b"hide:\0".as_ptr() as *const _);
+                msg_send_arg(app_instance, hide_sel, std::ptr::null_mut());
+                println!("[SCREENSHOT][macos-native] Native Cocoa NSApp hide: succeeded");
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub fn unhide_macos_app_native() {
+    unsafe {
+        #[link(name = "objc", kind = "dylib")]
+        extern "C" {
+            fn objc_getClass(name: *const std::os::raw::c_char) -> *mut std::ffi::c_void;
+            fn sel_registerName(name: *const std::os::raw::c_char) -> *mut std::ffi::c_void;
+            fn objc_msgSend() -> *mut std::ffi::c_void;
+        }
+
+        type MsgSendFn = unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void) -> *mut std::ffi::c_void;
+
+        let msg_send: MsgSendFn = std::mem::transmute(objc_msgSend as *const ());
+
+        let ns_app_class = objc_getClass(b"NSApplication\0".as_ptr() as *const _);
+        if !ns_app_class.is_null() {
+            let shared_app_sel = sel_registerName(b"sharedApplication\0".as_ptr() as *const _);
+            let app_instance = msg_send(ns_app_class, shared_app_sel);
+            if !app_instance.is_null() {
+                let unhide_sel = sel_registerName(b"unhideWithoutActivation\0".as_ptr() as *const _);
+                msg_send(app_instance, unhide_sel);
+                println!("[SCREENSHOT][macos-native] Native Cocoa NSApp unhideWithoutActivation succeeded");
+            }
+        }
     }
 }
 
@@ -479,23 +548,6 @@ pub fn take_screenshot_macos_fallback() -> Result<String> {
         .as_secs();
     let temp_file = temp_dir.join(format!("screenshot_mac_{}.png", timestamp));
 
-    println!("[SCREENSHOT][macos-fallback] Hiding PI Task Watch window before capture...");
-
-    // Step 1: Hide the PI Task Watch app window so work windows behind are visible
-    // We use osascript to hide the app, wait for animation, then screenshot, then show again
-    let hide_result = Command::new("osascript")
-        .arg("-e")
-        .arg("tell application \"System Events\" to set visible of process \"PI Task Watch\" to false")
-        .status();
-
-    if let Ok(s) = &hide_result {
-        println!("[SCREENSHOT][macos-fallback] Hide command status: {:?}", s.code());
-    }
-
-    // Step 2: Wait for the hide animation to complete (200ms is enough)
-    std::thread::sleep(std::time::Duration::from_millis(300));
-
-    // Step 3: Capture the full screen with -x (silent) and -C (with cursor)
     println!("[SCREENSHOT][macos-fallback] Executing /usr/sbin/screencapture -x -C {}", temp_file.display());
 
     let status = Command::new("/usr/sbin/screencapture")
@@ -505,12 +557,6 @@ pub fn take_screenshot_macos_fallback() -> Result<String> {
         .arg("png")
         .arg(&temp_file)
         .status()?;
-
-    // Step 4: Show the PI Task Watch app window again regardless of capture result
-    let _ = Command::new("osascript")
-        .arg("-e")
-        .arg("tell application \"System Events\" to set visible of process \"PI Task Watch\" to true")
-        .status();
 
     if !status.success() {
         return Err(anyhow!("macOS screencapture command failed with status code: {:?}", status.code()));

@@ -56,11 +56,55 @@ Future<String> takeFullScreenshot() =>
 Future<String> takeScreenshotWithScreenshotsCrate() => RustLib.instance.api
     .crateApiTakeFullScreenshotTakeScreenshotWithScreenshotsCrate();
 
+Future<bool> hasScreenRecordingPermission() => RustLib.instance.api
+    .crateApiTakeFullScreenshotHasScreenRecordingPermission();
+
+Future<bool> requestScreenRecordingPermission() => RustLib.instance.api
+    .crateApiTakeFullScreenshotRequestScreenRecordingPermission();
+
+Future<void> hideMacosAppNative() =>
+    RustLib.instance.api.crateApiTakeFullScreenshotHideMacosAppNative();
+
+Future<void> unhideMacosAppNative() =>
+    RustLib.instance.api.crateApiTakeFullScreenshotUnhideMacosAppNative();
+
+Future<String> takeScreenshotMacosFallback() => RustLib.instance.api
+    .crateApiTakeFullScreenshotTakeScreenshotMacosFallback();
+
+/// Test the primary screenshots crate method (cross-platform)
+/// This is the fastest and most reliable method for all platforms
+Future<String> testScreenshotsCrateMethod() =>
+    RustLib.instance.api.crateApiTakeFullScreenshotTestScreenshotsCrateMethod();
+
+/// Test macOS screen recording permission check
+Future<bool> testMacosPermissions() =>
+    RustLib.instance.api.crateApiTakeFullScreenshotTestMacosPermissions();
+
+/// Run all available screenshot methods for current platform
+/// Returns a comprehensive test report
+Future<List<String>> testAllAvailableMethods() =>
+    RustLib.instance.api.crateApiTakeFullScreenshotTestAllAvailableMethods();
+
 Future<void> checkWindowsEnvironment() =>
     RustLib.instance.api.crateApiTakeFullScreenshotCheckWindowsEnvironment();
 
+Future<String> extractBundledNircmd() =>
+    RustLib.instance.api.crateApiTakeFullScreenshotExtractBundledNircmd();
+
 Future<bool> isNircmdAvailable() =>
     RustLib.instance.api.crateApiTakeFullScreenshotIsNircmdAvailable();
+
+Future<String> takeScreenshotWindowsCsharp() => RustLib.instance.api
+    .crateApiTakeFullScreenshotTakeScreenshotWindowsCsharp();
+
+Future<String> takeScreenshotWindowsDirectshow() => RustLib.instance.api
+    .crateApiTakeFullScreenshotTakeScreenshotWindowsDirectshow();
+
+Future<String> takeScreenshotWindowsFfmpeg() => RustLib.instance.api
+    .crateApiTakeFullScreenshotTakeScreenshotWindowsFfmpeg();
+
+Future<String> takeScreenshotWindowsMemory() => RustLib.instance.api
+    .crateApiTakeFullScreenshotTakeScreenshotWindowsMemory();
 
 Future<String> takeScreenshotWindowsNircmd() => RustLib.instance.api
     .crateApiTakeFullScreenshotTakeScreenshotWindowsNircmd();
@@ -68,135 +112,56 @@ Future<String> takeScreenshotWindowsNircmd() => RustLib.instance.api
 Future<String> takeScreenshotWindowsPowershell() => RustLib.instance.api
     .crateApiTakeFullScreenshotTakeScreenshotWindowsPowershell();
 
-Future<String> takeScreenshotWindowsWin32() =>
-    RustLib.instance.api.crateApiTakeFullScreenshotTakeScreenshotWindowsWin32();
-
-Future<String> takeScreenshotWindowsFfmpeg() => RustLib.instance.api
-    .crateApiTakeFullScreenshotTakeScreenshotWindowsFfmpeg();
-
 Future<String> takeScreenshotWindowsVbscript() => RustLib.instance.api
     .crateApiTakeFullScreenshotTakeScreenshotWindowsVbscript();
 
-Future<String> takeScreenshotWindowsCsharp() => RustLib.instance.api
-    .crateApiTakeFullScreenshotTakeScreenshotWindowsCsharp();
+Future<String> takeScreenshotWindowsWin32() =>
+    RustLib.instance.api.crateApiTakeFullScreenshotTakeScreenshotWindowsWin32();
 
 Future<String> takeScreenshotWindowsWmi() =>
     RustLib.instance.api.crateApiTakeFullScreenshotTakeScreenshotWindowsWmi();
 
-Future<String> takeScreenshotWindowsDirectshow() => RustLib.instance.api
-    .crateApiTakeFullScreenshotTakeScreenshotWindowsDirectshow();
-
-Future<String> takeScreenshotWindowsMemory() => RustLib.instance.api
-    .crateApiTakeFullScreenshotTakeScreenshotWindowsMemory();
-
-/// Smart extraction of bundled NirCmd from Flutter assets
-/// Returns the path to extracted executable if successful
-Future<String> extractBundledNircmd() =>
-    RustLib.instance.api.crateApiTakeFullScreenshotExtractBundledNircmd();
-
-/// Test NirCmd capabilities and available commands
-/// Returns information about what NirCmd commands are supported
-Future<String> testNircmdCapabilities() =>
-    RustLib.instance.api.crateApiTakeFullScreenshotTestNircmdCapabilities();
-
-/// Test a simple NirCmd screenshot with detailed diagnostics
-/// This function helps debug what exactly is happening with NirCmd
-Future<String> testNircmdScreenshotSimple() =>
-    RustLib.instance.api.crateApiTakeFullScreenshotTestNircmdScreenshotSimple();
-
-/// Test the primary screenshots crate method (cross-platform)
-/// This is the fastest and most reliable method for all platforms
-Future<String> testScreenshotsCrateMethod() =>
-    RustLib.instance.api.crateApiTakeFullScreenshotTestScreenshotsCrateMethod();
-
-/// Test Windows Method #1: NirCmd Professional Utility
-/// - Uses bundled NirCmd assets for zero-dependency operation
-/// - Professional Windows utility with maximum stealth
-/// - Priority method for Windows systems
-Future<String> testWindowsMethod1Nircmd() =>
-    RustLib.instance.api.crateApiTakeFullScreenshotTestWindowsMethod1Nircmd();
-
-/// Test Windows Method #2: PowerShell Standard
-/// - Uses System.Windows.Forms and System.Drawing
-/// - Most compatible Windows method
-/// - Fallback for when NirCmd is unavailable
-Future<String> testWindowsMethod2Powershell() => RustLib.instance.api
-    .crateApiTakeFullScreenshotTestWindowsMethod2Powershell();
-
-/// Test Windows Method #3: Memory-Based Ultra-Stealth
-/// - Zero file operations, works entirely in memory
-/// - Hubstaff-style implementation
-/// - Ultimate stealth mode with no traces
-Future<String> testWindowsMethod3Memory() =>
-    RustLib.instance.api.crateApiTakeFullScreenshotTestWindowsMethod3Memory();
-
-/// Test Windows Method #4: DirectShow Professional
-/// - Low-level Windows multimedia framework
-/// - Enterprise-grade capture method
-/// - Professional-quality output
-Future<String> testWindowsMethod4Directshow() => RustLib.instance.api
-    .crateApiTakeFullScreenshotTestWindowsMethod4Directshow();
-
-/// Test Windows Method #5: Win32 API Direct Calls
-/// - Direct Windows GDI calls via PowerShell
-/// - Maximum compatibility across Windows versions
-/// - Low-level system API access
-Future<String> testWindowsMethod5Win32() =>
-    RustLib.instance.api.crateApiTakeFullScreenshotTestWindowsMethod5Win32();
-
-/// Test Windows Method #6: WMI Enterprise
-/// - Windows Management Instrumentation
-/// - Enterprise monitoring approach
-/// - System administration grade capture
-Future<String> testWindowsMethod6Wmi() =>
-    RustLib.instance.api.crateApiTakeFullScreenshotTestWindowsMethod6Wmi();
-
-/// Test Windows Method #7: FFmpeg Professional
-/// - Professional video/screen capture tool
-/// - High-quality output if FFmpeg is installed
-/// - Uses Windows GDI grabber
-Future<String> testWindowsMethod7Ffmpeg() =>
-    RustLib.instance.api.crateApiTakeFullScreenshotTestWindowsMethod7Ffmpeg();
-
-/// Test Windows Method #8: C# Inline Compilation
-/// - Dynamic C# compilation and execution
-/// - Reliable on .NET systems
-/// - Native Windows development approach
-Future<String> testWindowsMethod8Csharp() =>
-    RustLib.instance.api.crateApiTakeFullScreenshotTestWindowsMethod8Csharp();
-
-/// Test Windows Method #9: VBScript Legacy
-/// - Windows Scripting Host approach
-/// - Legacy fallback method
-/// - Last resort compatibility method
-Future<String> testWindowsMethod9Vbscript() =>
-    RustLib.instance.api.crateApiTakeFullScreenshotTestWindowsMethod9Vbscript();
-
-/// Test Windows environment assessment
-/// - Checks all available screenshot methods
-/// - Provides capability scoring
-/// - Enterprise-grade assessment
-Future<void> testWindowsEnvironmentCheck() => RustLib.instance.api
-    .crateApiTakeFullScreenshotTestWindowsEnvironmentCheck();
-
-/// Test NirCmd availability detection
-/// - Checks system installations
-/// - Verifies bundled assets
-/// - Professional utility detection
-Future<bool> testNircmdAvailability() =>
-    RustLib.instance.api.crateApiTakeFullScreenshotTestNircmdAvailability();
-
-/// Test bundled NirCmd asset extraction
-/// - Smart Flutter asset detection
-/// - Secure extraction process
-/// - Zero-dependency method setup
 Future<String> testBundledNircmdExtraction() => RustLib.instance.api
     .crateApiTakeFullScreenshotTestBundledNircmdExtraction();
 
-/// Run all available screenshot methods for current platform
-/// Returns a comprehensive test report
-Future<List<String>> testAllAvailableMethods() =>
-    RustLib.instance.api.crateApiTakeFullScreenshotTestAllAvailableMethods();
+Future<bool> testNircmdAvailability() =>
+    RustLib.instance.api.crateApiTakeFullScreenshotTestNircmdAvailability();
+
+Future<String> testNircmdCapabilities() =>
+    RustLib.instance.api.crateApiTakeFullScreenshotTestNircmdCapabilities();
+
+Future<String> testNircmdScreenshotSimple() =>
+    RustLib.instance.api.crateApiTakeFullScreenshotTestNircmdScreenshotSimple();
+
+Future<void> testWindowsEnvironmentCheck() => RustLib.instance.api
+    .crateApiTakeFullScreenshotTestWindowsEnvironmentCheck();
+
+Future<String> testWindowsMethod1Nircmd() =>
+    RustLib.instance.api.crateApiTakeFullScreenshotTestWindowsMethod1Nircmd();
+
+Future<String> testWindowsMethod2Powershell() => RustLib.instance.api
+    .crateApiTakeFullScreenshotTestWindowsMethod2Powershell();
+
+Future<String> testWindowsMethod3Memory() =>
+    RustLib.instance.api.crateApiTakeFullScreenshotTestWindowsMethod3Memory();
+
+Future<String> testWindowsMethod4Directshow() => RustLib.instance.api
+    .crateApiTakeFullScreenshotTestWindowsMethod4Directshow();
+
+Future<String> testWindowsMethod5Win32() =>
+    RustLib.instance.api.crateApiTakeFullScreenshotTestWindowsMethod5Win32();
+
+Future<String> testWindowsMethod6Wmi() =>
+    RustLib.instance.api.crateApiTakeFullScreenshotTestWindowsMethod6Wmi();
+
+Future<String> testWindowsMethod7Ffmpeg() =>
+    RustLib.instance.api.crateApiTakeFullScreenshotTestWindowsMethod7Ffmpeg();
+
+Future<String> testWindowsMethod8Csharp() =>
+    RustLib.instance.api.crateApiTakeFullScreenshotTestWindowsMethod8Csharp();
+
+Future<String> testWindowsMethod9Vbscript() =>
+    RustLib.instance.api.crateApiTakeFullScreenshotTestWindowsMethod9Vbscript();
 
 Future<void> checkLinuxEnvironment() =>
     RustLib.instance.api.crateApiTakeFullScreenshotCheckLinuxEnvironment();

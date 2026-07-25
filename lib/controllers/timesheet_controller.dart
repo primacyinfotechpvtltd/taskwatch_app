@@ -46,22 +46,22 @@ class TimesheetController extends GetxController {
   //
   Future<bool> updateSyncIdle({required IdleTimeData idleData}) async {
     try {
-      LogUtils.i('📤 [IDLE SYNC] Sending idle time data to API:');
-      LogUtils.i('📤 [IDLE SYNC] Full JSON: ${jsonEncode(idleData.toJson())}');
-      LogUtils.i('📤 [IDLE SYNC] Note field: "${idleData.note}"');
-      LogUtils.i('📤 [IDLE SYNC] Idle type: ${idleData.idleType}');
+      //LogUtils.i('📤 [IDLE SYNC] Sending idle time data to API:');
+      //LogUtils.i('📤 [IDLE SYNC] Full JSON: ${jsonEncode(idleData.toJson())}');
+      //LogUtils.i('📤 [IDLE SYNC] Note field: "${idleData.note}"');
+      //LogUtils.i('📤 [IDLE SYNC] Idle type: ${idleData.idleType}');
       
       final response = await ApiManager.postRequest(
         endPoint: "taskwatch_idle",
         data: idleData.toJson(),
       );
       
-      LogUtils.i('📥 [IDLE SYNC] API Response: ${response.isSuccess}');
-      LogUtils.i('📥 [IDLE SYNC] Response body: ${jsonEncode(response.body)}');
+      //LogUtils.i('📥 [IDLE SYNC] API Response: ${response.isSuccess}');
+      //LogUtils.i('📥 [IDLE SYNC] Response body: ${jsonEncode(response.body)}');
       
       return response.isSuccess;
     } catch (e) {
-      LogUtils.e('❌ [IDLE SYNC] Error sending idle time data', e);
+      //LogUtils.e('❌ [IDLE SYNC] Error sending idle time data', e);
       return false;
     }
   }
