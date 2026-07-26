@@ -74,18 +74,18 @@ class AuthController extends GetxController {
   ///   Step 2 → hr.employee search_read with [["user_id", "=", uid]] → get employee id
   ///   Step 3 → pi.wfh.request search_read with [] (all records) → filter by employee_id & state == 'approved'
   Future<bool> checkWfhApprovalForCurrentUser() async {
-    LogUtils.i('==================================================');
-    LogUtils.i('🔍 [WFH CHECK] Running 3-step WFH approval flow');
-    print('==================================================');
-    print('🔍 [WFH CHECK] Running 3-step WFH approval flow');
+    // LogUtils.i('==================================================');
+    // LogUtils.i('🔍 [WFH CHECK] Running 3-step WFH approval flow');
+    // print('==================================================');
+    // print('🔍 [WFH CHECK] Running 3-step WFH approval flow');
 
     try {
       // ── STEP 1: Resolve logged-in user ────────────────────────────────────
       final currentUser = _user.value;
       if (currentUser == null) {
-        LogUtils.i(
-            '⚠️ [WFH CHECK] No logged-in user found — skipping WFH check');
-        print('⚠️ [WFH CHECK] No logged-in user found — skipping WFH check');
+        // LogUtils.i(
+        //     '⚠️ [WFH CHECK] No logged-in user found — skipping WFH check');
+        // print('⚠️ [WFH CHECK] No logged-in user found — skipping WFH check');
         isWfhApproved.value = true;
         wfhMessage.value = '';
         return true;
@@ -94,8 +94,8 @@ class AuthController extends GetxController {
       final int userId = currentUser.userId;
       final String userEmail = currentUser.email;
 
-      LogUtils.i('🔑 [STEP 1] UID from login: $userId | Email: $userEmail');
-      print('🔑 [STEP 1] UID from login: $userId | Email: $userEmail');
+      // LogUtils.i('🔑 [STEP 1] UID from login: $userId | Email: $userEmail');
+      // print('🔑 [STEP 1] UID from login: $userId | Email: $userEmail');
 
       // ── STEP 2: Resolve hr.employee for this UID ──────────────────────────
       int? empId;
@@ -114,17 +114,17 @@ class AuthController extends GetxController {
           empId = int.tryParse(rawEmp.toString());
         }
         if (empId != null) {
-          LogUtils.i('[STEP 2] employee_id from login payload: $empId');
-          print('[STEP 2] employee_id from login payload: $empId');
+          // LogUtils.i('[STEP 2] employee_id from login payload: $empId');
+          // print('[STEP 2] employee_id from login payload: $empId');
         }
       }
 
       // If still null, call hr.employee search_read with user_id = uid
       if (empId == null) {
-        LogUtils.i(
-            '[STEP 2] Calling hr.employee search_read with user_id = $userId');
-        print(
-            '[STEP 2] Calling hr.employee search_read with user_id = $userId');
+        // LogUtils.i(
+        //     '[STEP 2] Calling hr.employee search_read with user_id = $userId');
+        // print(
+        //     '[STEP 2] Calling hr.employee search_read with user_id = $userId');
 
         try {
           final empRes = await OdooRpcApiManager.searchRead(
@@ -142,13 +142,12 @@ class AuthController extends GetxController {
             final empRecord = (empRes.data as List).first;
             empId = empRecord['id'] as int?;
             empName = empRecord['name']?.toString() ?? empName;
-            LogUtils.i('[STEP 2] ✅ Found employee: id=$empId, name=$empName');
-            print('[STEP 2] ✅ Found employee: id=$empId, name=$empName');
-          } else {
-            LogUtils.w(
-                '[STEP 2] ⚠️ hr.employee returned empty for user_id=$userId — trying work_email fallback');
-            print(
-                '[STEP 2] ⚠️ hr.employee returned empty for user_id=$userId — trying work_email fallback');
+            // LogUtils.i('[STEP 2] ✅ Found employee: id=$empId, name=$empName');
+            // print('[STEP 2] ✅ Found employee: id=$empId, name=$empName');
+            // LogUtils.w(
+            //     '[STEP 2] ⚠️ hr.employee returned empty for user_id=$userId — trying work_email fallback');
+            // print(
+            //     '[STEP 2] ⚠️ hr.employee returned empty for user_id=$userId — trying work_email fallback');
 
             if (userEmail.isNotEmpty) {
               final empRes2 = await OdooRpcApiManager.searchRead(
@@ -165,41 +164,41 @@ class AuthController extends GetxController {
                 final empRecord = (empRes2.data as List).first;
                 empId = empRecord['id'] as int?;
                 empName = empRecord['name']?.toString() ?? empName;
-                LogUtils.i(
-                    '[STEP 2] ✅ Found employee via email: id=$empId, name=$empName');
-                print(
-                    '[STEP 2] ✅ Found employee via email: id=$empId, name=$empName');
+                // LogUtils.i(
+                //     '[STEP 2] ✅ Found employee via email: id=$empId, name=$empName');
+                // print(
+                //     '[STEP 2] ✅ Found employee via email: id=$empId, name=$empName');
               }
             }
           }
         } catch (e) {
-          LogUtils.e('[STEP 2] ❌ hr.employee lookup failed: $e');
-          print('[STEP 2] ❌ hr.employee lookup failed: $e');
+         //LogUtils.e('[STEP 2] ❌ hr.employee lookup failed: $e');
+          //print('[STEP 2] ❌ hr.employee lookup failed: $e');
         }
       }
 
       if (empId == null) {
-        LogUtils.w(
-            '[STEP 2] No hr.employee found for uid=$userId — WFH check skipped (allowing access)');
-        print(
-            '[STEP 2] No hr.employee found for uid=$userId — WFH check skipped (allowing access)');
-        print('==================================================');
+        // LogUtils.w(
+        //     '[STEP 2] No hr.employee found for uid=$userId — WFH check skipped (allowing access)');
+        // print(
+        //     '[STEP 2] No hr.employee found for uid=$userId — WFH check skipped (allowing access)');
+        // print('==================================================');
         isWfhApproved.value = true;
         wfhMessage.value = '';
         return true;
       }
 
-      LogUtils.i('👤 EMPLOYEE RESOLVED: id=$empId, name=$empName');
-      print('==================================================');
-      print('👤 EMPLOYEE RESOLVED: id=$empId, name=$empName');
-      print('==================================================');
+      //LogUtils.i('👤 EMPLOYEE RESOLVED: id=$empId, name=$empName');
+      //print('==================================================');
+      //print('👤 EMPLOYEE RESOLVED: id=$empId, name=$empName');
+      //print('==================================================');
 
       // ── STEP 3: Fetch this employee's WFH records only ────────────────────
       // Reading every pi.wfh.request can fail for normal employee users due to
       // Odoo record rules, so keep the query scoped to the resolved employee.
-      LogUtils.i(
-          '[STEP 3] Fetching pi.wfh.request records for employee_id=$empId');
-      print('[STEP 3] Fetching pi.wfh.request records for employee_id=$empId');
+      // LogUtils.i(
+      //     '[STEP 3] Fetching pi.wfh.request records for employee_id=$empId');
+      // print('[STEP 3] Fetching pi.wfh.request records for employee_id=$empId');
 
       final OdooResponse<List<Map<String, dynamic>>> wfhRes =
           await OdooRpcApiManager.searchRead(
@@ -215,8 +214,8 @@ class AuthController extends GetxController {
 
       if (wfhRes.isSuccess && wfhRes.data is List) {
         final List<dynamic> requests = wfhRes.data as List;
-        LogUtils.i('[STEP 3] Total WFH records fetched: ${requests.length}');
-        print('[STEP 3] Total WFH records fetched: ${requests.length}');
+        // LogUtils.i('[STEP 3] Total WFH records fetched: ${requests.length}');
+        // print('[STEP 3] Total WFH records fetched: ${requests.length}');
 
         for (final req in requests) {
           final String reqState = req['state']?.toString() ?? '';
@@ -230,52 +229,52 @@ class AuthController extends GetxController {
             reqEmpId = rawEmpField;
           }
 
-          LogUtils.i(
-              '   ▶ WFH #${req['id']}: employee_id=$reqEmpId, state=$reqState');
-          print(
-              '   ▶ WFH #${req['id']}: employee_id=$reqEmpId, state=$reqState');
+          //LogUtils.i(
+          //    '   ▶ WFH #${req['id']}: employee_id=$reqEmpId, state=$reqState');
+          //print(
+          //    '   ▶ WFH #${req['id']}: employee_id=$reqEmpId, state=$reqState');
 
           // Only process records belonging to THIS employee
           if (reqEmpId == empId) {
             hasAnyRequestForEmployee = true;
             if (reqState == 'approved') {
               foundApproved = true;
-              LogUtils.i('   ✅ APPROVED record found for employee $empId!');
-              print('   ✅ APPROVED record found for employee $empId!');
+              //LogUtils.i('   ✅ APPROVED record found for employee $empId!');
+              //print('   ✅ APPROVED record found for employee $empId!');
               break;
             }
           }
         }
 
         if (!hasAnyRequestForEmployee) {
-          LogUtils.i(
-              '[STEP 3] No WFH requests for employee $empId — allowed (not a WFH employee)');
-          print(
-              '[STEP 3] No WFH requests for employee $empId — allowed (not a WFH employee)');
+          //LogUtils.i(
+          //    '[STEP 3] No WFH requests for employee $empId — allowed (not a WFH employee)');
+          //print(
+          //    '[STEP 3] No WFH requests for employee $empId — allowed (not a WFH employee)');
         } else if (!foundApproved) {
-          LogUtils.w(
-              '[STEP 3] Employee $empId has WFH request(s) but none approved');
-          print(
-              '[STEP 3] Employee $empId has WFH request(s) but none approved');
+          //LogUtils.w(
+          //    '[STEP 3] Employee $empId has WFH request(s) but none approved');
+          //print(
+          //    '[STEP 3] Employee $empId has WFH request(s) but none approved');
         }
       } else {
         final message = wfhRes.message;
         if (message.contains('not allowed to access') ||
             message.contains('AccessError')) {
-          LogUtils.w(
-              '[STEP 3] WFH request access denied for employee $empId. Allowing login; ask admin to add WFH access group.');
-          print('==================================================');
-          print('[WFH CHECK] WFH ACCESS DENIED');
-          print('User cannot read pi.wfh.request records.');
-          print(
-              'Ask admin to add this user to Work From Home Access/Employee / User.');
-          print('Login will continue without WFH enforcement.');
-          print('==================================================');
+          //LogUtils.w(
+          //    '[STEP 3] WFH request access denied for employee $empId. Allowing login; ask admin to add WFH access group.');
+          //print('==================================================');
+          //print('[WFH CHECK] WFH ACCESS DENIED');
+          //print('User cannot read pi.wfh.request records.');
+          //print(
+          //    'Ask admin to add this user to Work From Home Access/Employee / User.');
+          //print('Login will continue without WFH enforcement.');
+          //print('==================================================');
         } else {
-          LogUtils.w(
-              '[STEP 3] ⚠️ pi.wfh.request query failed or returned no data: $message');
-          print(
-              '[STEP 3] ⚠️ pi.wfh.request query failed or returned no data: $message');
+          //LogUtils.w(
+          //    '[STEP 3] ⚠️ pi.wfh.request query failed or returned no data: $message');
+          //print(
+          //    '[STEP 3] ⚠️ pi.wfh.request query failed or returned no data: $message');
         }
       }
 
@@ -287,23 +286,23 @@ class AuthController extends GetxController {
       if (wfhAllowed) {
         isWfhApproved.value = true;
         wfhMessage.value = 'WFH Approved';
-        LogUtils.i('✅ FINAL WFH STATUS: APPROVED');
-        print('✅ FINAL WFH STATUS: APPROVED');
-        print('==================================================');
+        //LogUtils.i('✅ FINAL WFH STATUS: APPROVED');
+        //print('✅ FINAL WFH STATUS: APPROVED');
+        //print('==================================================');
         return true;
       } else {
         isWfhApproved.value = false;
         wfhMessage.value =
             'Your WFH request is not approved. Please contact with HR.';
-        LogUtils.w(
-            '❌ FINAL WFH STATUS: NOT APPROVED — WFH warning will be shown');
-        print('❌ FINAL WFH STATUS: NOT APPROVED — WFH warning will be shown');
-        print('==================================================');
+        //LogUtils.w(
+        //    '❌ FINAL WFH STATUS: NOT APPROVED — WFH warning will be shown');
+        //print('❌ FINAL WFH STATUS: NOT APPROVED — WFH warning will be shown');
+        //print('==================================================');
         return false;
       }
     } catch (e) {
-      LogUtils.e('❌ [WFH CHECK] Unexpected exception: $e');
-      print('❌ [WFH CHECK] Unexpected exception: $e');
+      //LogUtils.e('❌ [WFH CHECK] Unexpected exception: $e');
+      //print('❌ [WFH CHECK] Unexpected exception: $e');
       return isWfhApproved.value;
     }
   }
@@ -761,10 +760,10 @@ class AuthController extends GetxController {
       // If login successful
       if (isSuccess) {
         final user = loginUser;
-        LogUtils.i(
-            'AUTH_STATE: Setting _user.value uid=${user.userId}, email=${user.email}');
+        //LogUtils.i(
+        //    'AUTH_STATE: Setting _user.value uid=${user.userId}, email=${user.email}');
         _user.value = user;
-        LogUtils.i('AUTH_STATE: _user.value set successfully.');
+        //LogUtils.i('AUTH_STATE: _user.value set successfully.');
 
         // Check WFH approval for the current logged-in user
         await checkWfhApprovalForCurrentUser();
@@ -854,7 +853,7 @@ class AuthController extends GetxController {
       if (kDebugMode) print('🚪 [LOGOUT] Starting logout process...');
 
       // 1. Clear user data
-      LogUtils.i('AUTH_STATE: Setting _user.value to null (logout)');
+      //LogUtils.i('AUTH_STATE: Setting _user.value to null (logout)');
       _user.value = null;
       _settings.value = null;
       isWfhApproved.value = true;
