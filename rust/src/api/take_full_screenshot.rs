@@ -148,8 +148,8 @@ pub fn take_full_screenshot() -> Result<String> {
         }
     }
 
-        // Non-Windows platforms: macOS uses screencapture CLI first, Linux uses Screenshots crate
-        // macOS platform screenshot logic
+        // Non-Windows platforms: macOS uses the system screencapture tool first,
+        // Linux uses the screenshots crate.
         #[cfg(target_os = "macos")]
         {
             println!("[SCREENSHOT] 🍎 Running macOS screen capture...");
@@ -161,24 +161,25 @@ pub fn take_full_screenshot() -> Result<String> {
                 let _ = request_screen_recording_permission();
             }
 
-            // Method 1 for macOS: Screenshots crate (direct CoreGraphics API inside app process)
-            println!("\n[SCREENSHOT] 🎬 Method 1: Screenshots crate (CoreGraphics)...");
-            match take_screenshot_with_screenshots_crate() {
+            // CGDisplay capture can return the desktop without other apps even after
+            // TCC permission is granted. The system tool captures the composited display.
+            println!("\n[SCREENSHOT] 🎬 Method 1: macOS screencapture...");
+            match take_screenshot_macos_fallback() {
                 Ok(base64_string) => {
                     let elapsed = start_time.elapsed();
-                    println!("[SCREENSHOT] ✅ SUCCESS: Captured via Screenshots crate in {:.2?}", elapsed);
+                    println!("[SCREENSHOT] ✅ SUCCESS: Captured via macOS screencapture in {:.2?}", elapsed);
                     return Ok(base64_string);
                 },
-                Err(crate_err) => {
-                    println!("[SCREENSHOT] ⚠️ Screenshots crate failed ({}), trying screencapture CLI fallback...", crate_err);
-                    match take_screenshot_macos_fallback() {
+                Err(cli_err) => {
+                    println!("[SCREENSHOT] ⚠️ macOS screencapture failed ({}), trying CoreGraphics fallback...", cli_err);
+                    match take_screenshot_with_screenshots_crate() {
                         Ok(base64_string) => {
                             let elapsed = start_time.elapsed();
-                            println!("[SCREENSHOT] ✅ SUCCESS: Captured via macOS screencapture CLI in {:.2?}", elapsed);
+                            println!("[SCREENSHOT] ✅ SUCCESS: Captured via Screenshots crate in {:.2?}", elapsed);
                             return Ok(base64_string);
                         },
-                        Err(cli_err) => {
-                            return Err(cli_err).context("All macOS screenshot methods failed - please ensure Screen Recording permission is granted in System Settings -> Privacy & Security -> Screen Recording");
+                        Err(crate_err) => {
+                            return Err(crate_err).context("All macOS screenshot methods failed - please ensure Screen Recording permission is granted in System Settings -> Privacy & Security -> Screen Recording");
                         }
                     }
                 }
