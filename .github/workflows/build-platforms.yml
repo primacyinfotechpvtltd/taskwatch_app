@@ -30,10 +30,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.x'
 
@@ -58,8 +58,7 @@ jobs:
         run: python generate_fastforge_configs.py
 
       - name: Import Code Signing Certificate (optional)
-        if: ${{ env.HAS_WINDOWS_CERTS }}
-        continue-on-error: true
+        if: env.HAS_WINDOWS_CERTS == 'true'
         shell: powershell
         run: |
           $securePfxBytes = [Convert]::FromBase64String("${{ secrets.WINDOWS_CERT_PFX }}")
@@ -80,7 +79,7 @@ jobs:
         run: flutter build windows --release
 
       - name: Sign Windows Executables (optional)
-        if: ${{ env.HAS_WINDOWS_CERTS && env.HAS_WINDOWS_SIGNING_SUBJECT }}
+        if: env.HAS_WINDOWS_CERTS == 'true' && env.HAS_WINDOWS_SIGNING_SUBJECT == 'true'
         shell: powershell
         env:
           SIGNING_SUBJECT: ${{ secrets.WINDOWS_SIGNING_SUBJECT }}
@@ -141,7 +140,7 @@ jobs:
       - name: Create ZIP Fallback Artifact
         run: |
           mkdir -p dist/zip
-          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath dist\zip\PI_Task_Watch_Windows_v1.0.34.zip
+          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath dist\zip\PI_Task_Watch_Windows_v1.0.35.zip
 
       - name: Upload Windows Installer (.exe)
         uses: actions/upload-artifact@v4
@@ -162,13 +161,14 @@ jobs:
 
     env:
       HAS_MACOS_CERTS: ${{ secrets.MACOS_CERT_P12 != '' && secrets.MACOS_CERT_PASSWORD != '' && secrets.MACOS_SIGNING_IDENTITY != '' }}
+      HAS_MACOS_NOTARIZATION: ${{ secrets.APPLE_ID != '' && secrets.APPLE_APP_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.x'
 
@@ -194,8 +194,7 @@ jobs:
         run: python generate_fastforge_configs.py
 
       - name: Import Code Signing Certificate (optional)
-        if: ${{ env.HAS_MACOS_CERTS }}
-        continue-on-error: true
+        if: env.HAS_MACOS_CERTS == 'true'
         env:
           CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
           CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
@@ -221,7 +220,7 @@ jobs:
         run: flutter build macos --release
 
       - name: Notarize macOS App (optional)
-        if: ${{ env.HAS_MACOS_CERTS }}
+        if: env.HAS_MACOS_CERTS == 'true' && env.HAS_MACOS_NOTARIZATION == 'true'
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
@@ -249,7 +248,7 @@ jobs:
         run: |
           mkdir -p "$GITHUB_WORKSPACE/dist/zip"
           cd "$GITHUB_WORKSPACE/build/macos/Build/Products/Release/"
-          zip -r "$GITHUB_WORKSPACE/dist/zip/PI_Task_Watch_macOS_v1.0.34.zip" "PI Task Watch.app"
+          zip -r "$GITHUB_WORKSPACE/dist/zip/PI_Task_Watch_macOS_v1.0.35.zip" "PI Task Watch.app"
 
       - name: Upload macOS DMG Installer
         uses: actions/upload-artifact@v4
@@ -266,14 +265,14 @@ jobs:
 
   build-linux:
     name: Build & Package Linux App
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.x'
 
@@ -317,7 +316,7 @@ jobs:
         run: |
           mkdir -p dist/zip
           cd build/linux/x64/release/bundle/
-          zip -r ../../../../../dist/zip/PI_Task_Watch_Linux_v1.0.34.zip .
+          zip -r ../../../../../dist/zip/PI_Task_Watch_Linux_v1.0.35.zip .
 
       - name: Upload Linux DEB Package
         uses: actions/upload-artifact@v4
@@ -334,6 +333,7 @@ jobs:
 
   publish-release:
     name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
     needs:
       - build-windows
       - build-macos
@@ -350,22 +350,8 @@ jobs:
           path: release
           merge-multiple: true
 
-      - name: Determine Release Tag
-        id: tag_info
-        shell: bash
-        run: |
-          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            echo "TAG=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
-          else
-            VERSION=$(grep 'version:' pubspec.yaml | sed 's/version: //' | cut -d'+' -f1)
-            echo "TAG=v${VERSION}" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Create or update GitHub Release
+      - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="${{ steps.tag_info.outputs.TAG }}"
-          echo "Publishing release for tag: $TAG"
-          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "PI Task Watch $TAG" --generate-notes
-          gh release upload "$TAG" release/* --repo "$GITHUB_REPOSITORY" --clobber
+          gh release create "$GITHUB_REF_NAME" release/* --repo "$GITHUB_REPOSITORY" --title "PI Task Watch $GITHUB_REF_NAME" --generate-notes

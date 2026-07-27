@@ -1,19 +1,21 @@
-import 'dart:convert';
-import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pi_task_watch/models/task_details_model.dart';
 
 void main() {
   test('TaskDetailsModel.fromJson should parse sample task response correctly',
       () {
-    // Read the sample JSON file
-    final file = File('task_6048.json');
-    final jsonString = file.readAsStringSync();
-    final jsonMap = jsonDecode(jsonString);
-    final data = jsonMap['data'];
-
-    // Parse the model
-    final model = TaskDetailsModel.fromJson(data);
+    final model = TaskDetailsModel.fromJson({
+      'id': 6048,
+      'name': 'Team meeting & project management',
+      'project_id': [170, 'primacy inhouse'],
+      'stage_id': [804, 'Meeting'],
+      'date_start': '2026-01-22 10:30:00',
+      'date_deadline': '2026-01-22 11:00:00',
+      'allocated_time_in_hours': '0:00',
+      'used_time': '801:26',
+      'task_url':
+          'http://192.168.1.17:8098/web#id=6048&model=project.task&view_type=form',
+    });
 
     // Verify fields
     expect(model.id, 6048);

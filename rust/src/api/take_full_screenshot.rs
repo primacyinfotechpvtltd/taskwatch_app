@@ -1519,3 +1519,22 @@ pub fn test_linux_environment_check() -> Result<()> {
 pub fn test_linux_fallback_methods() -> Result<String> {
     Err(anyhow!("Linux-specific function not available on this platform"))
 }
+
+// Stubs for macOS-specific functions on non-macOS platforms.
+// Required because Flutter Rust Bridge exposes all public functions.
+
+#[cfg(not(target_os = "macos"))]
+pub fn hide_macos_app_native() {}
+
+#[cfg(not(target_os = "macos"))]
+pub fn unhide_macos_app_native() {}
+
+#[cfg(not(target_os = "macos"))]
+pub fn take_screenshot_macos_fallback() -> Result<String> {
+    Err(anyhow!("macOS-specific function not available on this platform"))
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn test_macos_permissions() -> bool {
+    false
+}
