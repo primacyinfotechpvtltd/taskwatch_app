@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:pi_task_watch/exports.dart';
 import 'package:pi_task_watch/rust/api/take_full_screenshot.dart';
 import 'package:pi_task_watch/utils/compress_image.dart';
@@ -7,7 +8,23 @@ Future<String> captureScreenshot() async {
     print('🔵 Skipping screenshot on mobile platform');
     return '';
   }
-  //
+
+  // macOS: pre-flight permission check — ask once, guide user, retry next tick
+  if (GetPlatform.isMacOS) {
+    final hasPerm = await hasScreenRecordingPermission();
+    if (!hasPerm) {
+      print('⚠️ macOS screen recording permission not granted — requesting...');
+      // Trigger the system permission dialog (may not appear if unsigned)
+      await requestScreenRecordingPermission();
+      await Future.delayed(const Duration(milliseconds: 500));
+      // Show UI guiding user to System Settings → Privacy & Security → Screen Recording
+      checkAndPromptScreenRecordingPermission(Get.context!);
+      print('⚠️ Returning empty — will retry on next 10-minute timer tick');
+      return '';
+    }
+    print('✅ macOS screen recording permission verified');
+  }
+
   print('🔵 Starting screenshot capture process...');
 
   String? rawImage;
@@ -43,6 +60,10 @@ Future<String> captureScreenshot() async {
         print('✅ Linux screenshot captured successfully');
       } catch (e) {
         print('❌ Linux primary screenshot failed: $e, trying fallback...');
+        // Surface Wayland issue — user can't see stderr
+        if (Platform.environment.containsKey('WAYLAND_DISPLAY')) {
+          print('⚠️ Wayland session detected. Screen capture may require xdg-desktop-portal or switching to X11 (Login → Gear icon → "Ubuntu on Xorg").');
+        }
         try {
           rawImage = await takeScreenshotLinuxFallback();
           print('✅ Linux fallback screenshot captured successfully');

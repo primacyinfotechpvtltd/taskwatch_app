@@ -3,7 +3,7 @@
 Employee monitoring application with Odoo integration
 
 ## Version
-1.0.23+23
+1.0.34+34
 
 ## Description
 PI Task Watch is an employee monitoring application that integrates with Odoo for comprehensive task tracking and productivity monitoring.
@@ -44,7 +44,7 @@ To build the Linux application locally inside your workspace, ensure you have th
 The script will automate the package setup, compile the Linux release binary, and generate the Debian (.deb) package.
 
 *   **Release Executable Path**: `build/linux/x64/release/bundle/pi_task_watch`
-*   **DEB Package Path**: `dist/linux/deb/pi-task-watch_1.0.29_amd64.deb`
+*   **DEB Package Path**: `dist/linux/deb/pi-task-watch_1.0.34_amd64.deb`
 
 ### Cloud Build (GitHub Actions)
 
@@ -59,8 +59,8 @@ This repository includes a GitHub Actions workflow that builds all desktop platf
 To publish a release after updating the version in `pubspec.yaml`:
 
 ```bash
-git tag v1.0.29
-git push origin v1.0.29
+git tag v1.0.34
+git push origin v1.0.34
 ```
 
 The workflow automatically compiles and publishes:
@@ -68,16 +68,43 @@ The workflow automatically compiles and publishes:
 - ✅ macOS ZIP Release & DMG Installer (.dmg)
 - ✅ Linux ZIP Release & Debian Package (.deb)
 
+### Code Signing Secrets (Optional but Recommended)
+
+To produce signed, notarized binaries that install without warnings:
+
+#### macOS — Required secrets
+
+| Secret | Value |
+|--------|-------|
+| `MACOS_CERT_P12` | Base64-encoded `.p12` certificate from your Apple Developer account |
+| `MACOS_CERT_PASSWORD` | Password protecting the `.p12` file |
+| `MACOS_SIGNING_IDENTITY` | e.g. `Developer ID Application: Your Name (TEAM_ID)` |
+| `APPLE_ID` | Your Apple ID email |
+| `APPLE_APP_PASSWORD` | App-specific password from appleid.apple.com |
+| `APPLE_TEAM_ID` | Your Apple Developer Team ID |
+
+Generate the `.p12` from Xcode: Keychain Access → Certificate Assistant → Request a Certificate from a Certificate Authority.
+
+#### Windows — Required secrets
+
+| Secret | Value |
+|--------|-------|
+| `WINDOWS_CERT_PFX` | Base64-encoded `.pfx` code signing certificate |
+| `WINDOWS_CERT_PASSWORD` | Password protecting the `.pfx` file |
+| `WINDOWS_SIGNING_SUBJECT` | Certificate subject name (e.g. `"Your Company Ltd"`) |
+
+If signing secrets are not configured, the workflow still builds successfully and produces unsigned artifacts.
+
 ## Distribution Files
 
 ### For macOS Users
-Send them: `PI_Task_Watch_macOS_v1.0.29.dmg`
+Send them: `PI_Task_Watch_macOS_v1.0.34.dmg`
 
 ### For Windows Users
-Send them: `PI_Task_Watch_Windows_v1.0.29.zip` or the Installer executable
+Send them: `PI_Task_Watch_Windows_v1.0.34.zip` or the Installer executable
 
 ### For Linux Users
-Send them: `pi-task-watch_1.0.29_amd64.deb` or `PI_Task_Watch_Linux_v1.0.29.zip`
+Send them: `pi-task-watch_1.0.34_amd64.deb` or `PI_Task_Watch_Linux_v1.0.34.zip`
 
 ## Installation
 
@@ -85,7 +112,7 @@ Send them: `pi-task-watch_1.0.29_amd64.deb` or `PI_Task_Watch_Linux_v1.0.29.zip`
 1. Download the DMG file
 2. Double-click to mount
 3. Drag the app to Applications folder
-4. Right-click and select "Open" (first time only, due to unsigned app)
+4. Right-click and select "Open" (first time only, due to unsigned app). **Signed builds skip this step.**
 
 ### Windows
 1. Download the ZIP file

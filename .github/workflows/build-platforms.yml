@@ -16,6 +16,9 @@ on:
 permissions:
   contents: read
 
+env:
+  APP_IDENTIFIER: com.primacyinfotech.pitaskwatch
+
 jobs:
   build-windows:
     name: Build & Package Windows App
@@ -50,18 +53,51 @@ jobs:
       - name: Generate Fastforge configs
         run: python generate_fastforge_configs.py
 
+      - name: Import Code Signing Certificate (optional)
+        if: secrets.WINDOWS_CERT_PFX != '' && secrets.WINDOWS_CERT_PASSWORD != ''
+        shell: powershell
+        run: |
+          $securePfxBytes = [Convert]::FromBase64String("${{ secrets.WINDOWS_CERT_PFX }}")
+          $securePfxPath = "$env:TEMP\signing-cert.pfx"
+          [IO.File]::WriteAllBytes($securePfxPath, $securePfxBytes)
+          $pwd = ConvertTo-SecureString "${{ secrets.WINDOWS_CERT_PASSWORD }}" -AsPlainText -Force
+          $store = New-Object System.Security.Cryptography.X509Certificates.X509Store "My", "CurrentUser"
+          $store.Open("ReadWrite")
+          $store.Add((New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($securePfxPath, $pwd, "Exportable,PersistKeySet")))
+          $store.Close()
+          Remove-Item $securePfxPath
+          Write-Host "Certificate imported"
+
       - name: Build Windows App (Release)
         env:
           CMAKE_GENERATOR: "Visual Studio 17 2022"
           RUSTFLAGS: "-C target-feature=+crt-static"
         run: flutter build windows --release
 
+      - name: Sign Windows Executables (optional)
+        if: secrets.WINDOWS_CERT_PFX != '' && secrets.WINDOWS_CERT_PASSWORD != '' && secrets.WINDOWS_SIGNING_SUBJECT != ''
+        shell: powershell
+        env:
+          SIGNING_SUBJECT: ${{ secrets.WINDOWS_SIGNING_SUBJECT }}
+        run: |
+          $exe = Get-ChildItem "build\windows\x64\runner\Release" -Filter "*.exe" -Recurse
+          $dlls = Get-ChildItem "build\windows\x64\runner\Release" -Filter "*.dll" -Recurse
+          foreach ($file in ($exe + $dlls)) {
+              Write-Host "Signing $($file.Name)..."
+              $signResult = & signtool.exe sign /n "$env:SIGNING_SUBJECT" /t http://timestamp.digicert.com $file.FullName 2>&1
+              if ($LASTEXITCODE -ne 0) {
+                  Write-Host "  Timestamp failed, trying without timestamp..."
+                  signtool.exe sign /n "$env:SIGNING_SUBJECT" $file.FullName
+              }
+              Write-Host "  Signed: $($file.Name)"
+          }
+
       - name: Bundle MSVC C++ Runtime DLLs for Universal Windows 10/11 Compatibility
         shell: powershell
         run: |
           $ReleaseDir = "build\windows\x64\runner\Release"
           Write-Host "Copying MSVC Runtime DLLs to $ReleaseDir for Windows 10/11 clean install compatibility..."
-          
+
           # Find VC Redist DLL directory on GitHub Actions Windows-2022 runner
           $VcRedistDirs = Get-ChildItem -Path "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Redist\MSVC" -Directory -ErrorAction SilentlyContinue
           if ($VcRedistDirs) {
@@ -100,7 +136,7 @@ jobs:
       - name: Create ZIP Fallback Artifact
         run: |
           mkdir -p dist/zip
-          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath dist\zip\PI_Task_Watch_Windows_v1.0.29.zip
+          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath dist\zip\PI_Task_Watch_Windows_v1.0.34.zip
 
       - name: Upload Windows Installer (.exe)
         uses: actions/upload-artifact@v4
@@ -152,13 +188,46 @@ jobs:
       - name: Generate Fastforge configs
         run: python generate_fastforge_configs.py
 
+      - name: Import Code Signing Certificate (optional)
+        if: secrets.MACOS_CERT_P12 != '' && secrets.MACOS_CERT_PASSWORD != '' && secrets.MACOS_SIGNING_IDENTITY != ''
+        env:
+          CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          # Create keychain and import certificate
+          security create-keychain -p "" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "" build.keychain
+          security set-keychain-settings -t 3600 -u build.keychain
+          security import /dev/stdin -f pkcs12 -k build.keychain -P "$CERT_PASSWORD" <<< "$CERT_P12"
+          security list-keychains -s build.keychain
+          echo "imported"
+
       - name: Build macOS App (Release)
         env:
-          # Disable Xcode code signing - CI runners don't have developer certificates
-          CODE_SIGNING_ALLOWED: "NO"
-          CODE_SIGNING_REQUIRED: "NO"
-          CODE_SIGN_IDENTITY: "-"
+          # Use hardened runtime when signing is available
+          CODE_SIGNING_ALLOWED: ${{ secrets.MACOS_CERT_P12 != '' && 'YES' || 'NO' }}
+          CODE_SIGNING_REQUIRED: ${{ secrets.MACOS_CERT_P12 != '' && 'YES' || 'NO' }}
+          CODE_SIGN_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY || '-' }}
+          EXPANDED_CODE_SIGN_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY || '-' }}
         run: flutter build macos --release
+
+      - name: Notarize macOS App (optional)
+        if: secrets.MACOS_CERT_P12 != '' && secrets.MACOS_SIGNING_IDENTITY != ''
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          APP_PATH="build/macos/Build/Products/Release/PI Task Watch.app"
+          # Staple notarization ticket to the app
+          xcrun notarytool submit "$APP_PATH" \
+            --apple-id "$APPLE_ID" \
+            --password "$APP_PASSWORD" \
+            --team-id "$TEAM_ID" \
+            --wait
+          xcrun stapler staple "$APP_PATH"
+          echo "Notarization complete"
 
       - name: Build DMG Package (Fastforge)
         id: fastforge_pack
@@ -172,7 +241,7 @@ jobs:
         run: |
           mkdir -p "$GITHUB_WORKSPACE/dist/zip"
           cd "$GITHUB_WORKSPACE/build/macos/Build/Products/Release/"
-          zip -r "$GITHUB_WORKSPACE/dist/zip/PI_Task_Watch_macOS_v1.0.29.zip" "PI Task Watch.app"
+          zip -r "$GITHUB_WORKSPACE/dist/zip/PI_Task_Watch_macOS_v1.0.34.zip" "PI Task Watch.app"
 
       - name: Upload macOS DMG Installer
         uses: actions/upload-artifact@v4
@@ -240,7 +309,7 @@ jobs:
         run: |
           mkdir -p dist/zip
           cd build/linux/x64/release/bundle/
-          zip -r ../../../../../dist/zip/PI_Task_Watch_Linux_v1.0.29.zip .
+          zip -r ../../../../../dist/zip/PI_Task_Watch_Linux_v1.0.34.zip .
 
       - name: Upload Linux DEB Package
         uses: actions/upload-artifact@v4
@@ -280,7 +349,8 @@ jobs:
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
             echo "TAG=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
           else
-            echo "TAG=v1.0.29" >> $GITHUB_OUTPUT
+            VERSION=$(grep 'version:' pubspec.yaml | sed 's/version: //' | cut -d'+' -f1)
+            echo "TAG=v${VERSION}" >> $GITHUB_OUTPUT
           fi
 
       - name: Create or update GitHub Release
