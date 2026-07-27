@@ -189,25 +189,27 @@ pub fn take_full_screenshot() -> Result<String> {
         #[cfg(target_os = "linux")]
         {
             println!("[SCREENSHOT] 📋 Attempting Linux screenshot methods in priority order:");
-            println!("[SCREENSHOT] ┌─ Method 1: Screenshots crate (primary)");
-            println!("[SCREENSHOT] └─ Platform-specific fallbacks");
+            println!("[SCREENSHOT] ┌─ Method 1: desktop screenshot tools");
+            println!("[SCREENSHOT] └─ Method 2: direct display capture fallback");
 
-            match take_screenshot_with_screenshots_crate() {
+            // Root-display captures can omit composited app windows and leave only
+            // the wallpaper. Prefer the desktop's screenshot tool when available.
+            match take_screenshot_linux_fallback() {
                 Ok(base64_string) => {
                     let elapsed = start_time.elapsed();
-                    println!("[SCREENSHOT] ✅ SUCCESS: Primary method completed successfully!");
+                    println!("[SCREENSHOT] ✅ SUCCESS: Captured via Linux desktop tool in {:.2?}", elapsed);
                     return Ok(base64_string);
                 },
-                Err(_primary_error) => {
-                    println!("[SCREENSHOT] Method 2: Linux fallback tools...");
-                    return match take_screenshot_linux_fallback() {
+                Err(tool_error) => {
+                    println!("[SCREENSHOT] Linux desktop tools failed ({}), trying direct display capture...", tool_error);
+                    return match take_screenshot_with_screenshots_crate() {
                         Ok(base64_string) => {
                             let elapsed = start_time.elapsed();
-                            println!("[SCREENSHOT] SUCCESS: Screenshot captured with Linux tools in {:.2?}", elapsed);
+                            println!("[SCREENSHOT] SUCCESS: Screenshot captured with direct display capture in {:.2?}", elapsed);
                             Ok(base64_string)
                         },
-                        Err(fallback_error) => {
-                            Err(fallback_error).context("Both primary and Linux fallback methods failed")
+                        Err(crate_error) => {
+                            Err(crate_error).context("Both Linux screenshot methods failed")
                         }
                     };
                 }
@@ -301,13 +303,12 @@ pub fn take_screenshot_linux_fallback() -> Result<String> {
     let (tool_name, status) = if Command::new("sh").arg("-c").arg("command -v gnome-screenshot").status()?.success() {
         println!("[SCREENSHOT][linux-fallback] Using gnome-screenshot");
         ("gnome-screenshot", Command::new("gnome-screenshot").arg("-f").arg(&temp_file).status()?)
-    } else if Command::new("sh").arg("-c").arg("command -v import").status()?.success() {
-        println!("[SCREENSHOT][linux-fallback] Using ImageMagick import");
-        // ImageMagick's import command
-        ("import", Command::new("import").arg("-window").arg("root").arg(&temp_file).status()?)
     } else if Command::new("sh").arg("-c").arg("command -v scrot").status()?.success() {
         println!("[SCREENSHOT][linux-fallback] Using scrot");
         ("scrot", Command::new("scrot").arg(&temp_file).status()?)
+    } else if Command::new("sh").arg("-c").arg("command -v import").status()?.success() {
+        println!("[SCREENSHOT][linux-fallback] Using ImageMagick import as the last fallback");
+        ("import", Command::new("import").arg("-window").arg("root").arg(&temp_file).status()?)
     } else {
         return Err(anyhow!("No fallback screenshot tools found (gnome-screenshot, import, or scrot)"));
     };

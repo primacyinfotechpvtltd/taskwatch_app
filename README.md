@@ -3,7 +3,7 @@
 Employee monitoring application with Odoo integration
 
 ## Version
-1.0.37+37
+1.0.38+38
 
 ## Description
 PI Task Watch is an employee monitoring application that integrates with Odoo for comprehensive task tracking and productivity monitoring.
@@ -59,8 +59,8 @@ This repository includes a GitHub Actions workflow that builds all desktop platf
 To publish a release after updating the version in `pubspec.yaml`:
 
 ```bash
-git tag v1.0.37
-git push origin v1.0.37
+git tag v1.0.38
+git push origin v1.0.38
 ```
 
 The workflow automatically compiles and publishes:
@@ -98,13 +98,13 @@ If signing secrets are not configured, the workflow still builds successfully an
 ## Distribution Files
 
 ### For macOS Users
-Send them: `PI_Task_Watch_macOS_v1.0.37.dmg`
+Send them: `PI_Task_Watch_macOS_v1.0.38.dmg`
 
 ### For Windows Users
-Send them: `PI_Task_Watch_Windows_v1.0.37.zip` or the Installer executable
+Send them: `PI_Task_Watch_Windows_v1.0.38.zip` or the Installer executable
 
 ### For Linux Users
-Send them: `pi-task-watch_1.0.37_amd64.deb` or `PI_Task_Watch_Linux_v1.0.37.zip`
+Send them: `pi-task-watch_1.0.38_amd64.deb` or `PI_Task_Watch_Linux_v1.0.38.zip`
 
 ## Installation
 
