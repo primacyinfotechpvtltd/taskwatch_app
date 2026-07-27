@@ -75,7 +75,6 @@ jobs:
       - name: Build Windows App (Release)
         env:
           CMAKE_GENERATOR: "Visual Studio 17 2022"
-          RUSTFLAGS: "-C target-feature=+crt-static"
         run: flutter build windows --release
 
       - name: Sign Windows Executables (optional)
@@ -140,7 +139,7 @@ jobs:
       - name: Create ZIP Fallback Artifact
         run: |
           mkdir -p dist/zip
-          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath dist\zip\PI_Task_Watch_Windows_v1.0.35.zip
+          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath dist\zip\PI_Task_Watch_Windows_v1.0.36.zip
 
       - name: Upload Windows Installer (.exe)
         uses: actions/upload-artifact@v4
@@ -248,7 +247,7 @@ jobs:
         run: |
           mkdir -p "$GITHUB_WORKSPACE/dist/zip"
           cd "$GITHUB_WORKSPACE/build/macos/Build/Products/Release/"
-          zip -r "$GITHUB_WORKSPACE/dist/zip/PI_Task_Watch_macOS_v1.0.35.zip" "PI Task Watch.app"
+          zip -r "$GITHUB_WORKSPACE/dist/zip/PI_Task_Watch_macOS_v1.0.36.zip" "PI Task Watch.app"
 
       - name: Upload macOS DMG Installer
         uses: actions/upload-artifact@v4
@@ -316,7 +315,7 @@ jobs:
         run: |
           mkdir -p dist/zip
           cd build/linux/x64/release/bundle/
-          zip -r ../../../../../dist/zip/PI_Task_Watch_Linux_v1.0.35.zip .
+          zip -r ../../../../../dist/zip/PI_Task_Watch_Linux_v1.0.36.zip .
 
       - name: Upload Linux DEB Package
         uses: actions/upload-artifact@v4
