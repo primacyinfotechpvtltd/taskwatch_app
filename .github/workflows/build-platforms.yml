@@ -78,7 +78,7 @@ jobs:
       - name: Build Windows App (Release)
         env:
           CMAKE_GENERATOR: "Visual Studio 17 2022"
-        run: flutter build windows --release -v
+        run: flutter build windows --release
 
       - name: Sign Windows Executables (optional)
         if: env.HAS_WINDOWS_CERTS == 'true' && env.HAS_WINDOWS_SIGNING_SUBJECT == 'true'

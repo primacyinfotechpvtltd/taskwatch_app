@@ -1357,6 +1357,92 @@ pub fn test_all_available_methods() -> Result<Vec<String>> {
 // Stubs for Windows-specific functions on non-Windows platforms
 // Required because Flutter Rust Bridge exposes all public functions
 
+// Legacy FRB entry points use the two maintained Windows capture implementations.
+#[cfg(target_os = "windows")]
+pub fn take_screenshot_windows_powershell() -> Result<String> {
+    take_screenshot_windows_memory()
+}
+
+#[cfg(target_os = "windows")]
+pub fn take_screenshot_windows_win32() -> Result<String> {
+    take_screenshot_windows_memory()
+}
+
+#[cfg(target_os = "windows")]
+pub fn take_screenshot_windows_ffmpeg() -> Result<String> {
+    take_screenshot_windows_memory()
+}
+
+#[cfg(target_os = "windows")]
+pub fn take_screenshot_windows_csharp() -> Result<String> {
+    take_screenshot_windows_memory()
+}
+
+#[cfg(target_os = "windows")]
+pub fn take_screenshot_windows_directshow() -> Result<String> {
+    take_screenshot_windows_memory()
+}
+
+#[cfg(target_os = "windows")]
+pub fn take_screenshot_windows_vbscript() -> Result<String> {
+    take_screenshot_windows_memory()
+}
+
+#[cfg(target_os = "windows")]
+pub fn take_screenshot_windows_wmi() -> Result<String> {
+    take_screenshot_windows_memory()
+}
+
+#[cfg(target_os = "windows")]
+pub fn test_windows_method_1_nircmd() -> Result<String> {
+    take_screenshot_windows_nircmd()
+}
+
+#[cfg(target_os = "windows")]
+pub fn test_windows_method_2_powershell() -> Result<String> {
+    take_screenshot_windows_powershell()
+}
+
+#[cfg(target_os = "windows")]
+pub fn test_windows_method_3_memory() -> Result<String> {
+    take_screenshot_windows_memory()
+}
+
+#[cfg(target_os = "windows")]
+pub fn test_windows_method_4_directshow() -> Result<String> {
+    take_screenshot_windows_directshow()
+}
+
+#[cfg(target_os = "windows")]
+pub fn test_windows_method_5_win32() -> Result<String> {
+    take_screenshot_windows_win32()
+}
+
+#[cfg(target_os = "windows")]
+pub fn test_windows_method_6_wmi() -> Result<String> {
+    take_screenshot_windows_wmi()
+}
+
+#[cfg(target_os = "windows")]
+pub fn test_windows_method_7_ffmpeg() -> Result<String> {
+    take_screenshot_windows_ffmpeg()
+}
+
+#[cfg(target_os = "windows")]
+pub fn test_windows_method_8_csharp() -> Result<String> {
+    take_screenshot_windows_csharp()
+}
+
+#[cfg(target_os = "windows")]
+pub fn test_windows_method_9_vbscript() -> Result<String> {
+    take_screenshot_windows_vbscript()
+}
+
+#[cfg(target_os = "windows")]
+pub fn test_windows_environment_check() -> Result<()> {
+    check_windows_environment()
+}
+
 #[cfg(not(target_os = "windows"))]
 pub fn check_windows_environment() -> Result<()> {
     Err(anyhow!("Windows-specific function not available on this platform"))
