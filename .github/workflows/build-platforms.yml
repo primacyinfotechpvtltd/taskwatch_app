@@ -173,10 +173,7 @@ jobs:
           python-version: '3.x'
 
       - name: Set up Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          toolchain: stable
-          rustflags: ""  # disable -D warnings so platform-gated imports don't break CI
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Install Rust targets for macOS universal build
         run: |
