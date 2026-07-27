@@ -59,6 +59,7 @@ jobs:
 
       - name: Import Code Signing Certificate (optional)
         if: ${{ env.HAS_WINDOWS_CERTS }}
+        continue-on-error: true
         shell: powershell
         run: |
           $securePfxBytes = [Convert]::FromBase64String("${{ secrets.WINDOWS_CERT_PFX }}")
