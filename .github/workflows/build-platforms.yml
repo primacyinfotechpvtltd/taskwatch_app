@@ -72,10 +72,13 @@ jobs:
           Remove-Item $securePfxPath
           Write-Host "Certificate imported"
 
+      - name: Check Windows Rust Library
+        run: cargo check --manifest-path rust/Cargo.toml --target x86_64-pc-windows-msvc
+
       - name: Build Windows App (Release)
         env:
           CMAKE_GENERATOR: "Visual Studio 17 2022"
-        run: flutter build windows --release
+        run: flutter build windows --release -v
 
       - name: Sign Windows Executables (optional)
         if: env.HAS_WINDOWS_CERTS == 'true' && env.HAS_WINDOWS_SIGNING_SUBJECT == 'true'
