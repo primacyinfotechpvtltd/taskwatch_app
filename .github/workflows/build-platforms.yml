@@ -24,6 +24,10 @@ jobs:
     name: Build & Package Windows App
     runs-on: windows-2022
 
+    env:
+      HAS_WINDOWS_CERTS: ${{ secrets.WINDOWS_CERT_PFX != '' && secrets.WINDOWS_CERT_PASSWORD != '' }}
+      HAS_WINDOWS_SIGNING_SUBJECT: ${{ secrets.WINDOWS_SIGNING_SUBJECT != '' }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -54,7 +58,7 @@ jobs:
         run: python generate_fastforge_configs.py
 
       - name: Import Code Signing Certificate (optional)
-        if: secrets.WINDOWS_CERT_PFX != '' && secrets.WINDOWS_CERT_PASSWORD != ''
+        if: ${{ env.HAS_WINDOWS_CERTS }}
         shell: powershell
         run: |
           $securePfxBytes = [Convert]::FromBase64String("${{ secrets.WINDOWS_CERT_PFX }}")
@@ -75,7 +79,7 @@ jobs:
         run: flutter build windows --release
 
       - name: Sign Windows Executables (optional)
-        if: secrets.WINDOWS_CERT_PFX != '' && secrets.WINDOWS_CERT_PASSWORD != '' && secrets.WINDOWS_SIGNING_SUBJECT != ''
+        if: ${{ env.HAS_WINDOWS_CERTS && env.HAS_WINDOWS_SIGNING_SUBJECT }}
         shell: powershell
         env:
           SIGNING_SUBJECT: ${{ secrets.WINDOWS_SIGNING_SUBJECT }}
@@ -155,6 +159,9 @@ jobs:
     name: Build & Package macOS App
     runs-on: macos-latest
 
+    env:
+      HAS_MACOS_CERTS: ${{ secrets.MACOS_CERT_P12 != '' && secrets.MACOS_CERT_PASSWORD != '' && secrets.MACOS_SIGNING_IDENTITY != '' }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -189,7 +196,7 @@ jobs:
         run: python generate_fastforge_configs.py
 
       - name: Import Code Signing Certificate (optional)
-        if: secrets.MACOS_CERT_P12 != '' && secrets.MACOS_CERT_PASSWORD != '' && secrets.MACOS_SIGNING_IDENTITY != ''
+        if: ${{ env.HAS_MACOS_CERTS }}
         env:
           CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
           CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
@@ -205,7 +212,6 @@ jobs:
 
       - name: Build macOS App (Release)
         env:
-          # Use hardened runtime when signing is available
           CODE_SIGNING_ALLOWED: ${{ secrets.MACOS_CERT_P12 != '' && 'YES' || 'NO' }}
           CODE_SIGNING_REQUIRED: ${{ secrets.MACOS_CERT_P12 != '' && 'YES' || 'NO' }}
           CODE_SIGN_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY || '-' }}
@@ -213,7 +219,7 @@ jobs:
         run: flutter build macos --release
 
       - name: Notarize macOS App (optional)
-        if: secrets.MACOS_CERT_P12 != '' && secrets.MACOS_SIGNING_IDENTITY != ''
+        if: ${{ env.HAS_MACOS_CERTS }}
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
