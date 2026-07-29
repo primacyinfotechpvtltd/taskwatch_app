@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import 'package:pi_task_watch/controllers/timesheet_controller.dart';
+import 'package:pi_task_watch/utils/date_to_simple_string.dart';
 import 'package:pi_task_watch/exports.dart';
 import 'package:pi_task_watch/models/timesheet_model.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -67,6 +68,8 @@ class AuthController extends GetxController {
   final RxBool isWfhApproved = true.obs;
   final RxString wfhMessage = ''.obs;
   bool hasShownWfhWarningPopup = false;
+  int? employeeId;
+  String? employeeAttendanceState;
 
   /// Checks if the current user has an approved WFH request in `pi.wfh.request`
   /// Flow:
@@ -132,7 +135,7 @@ class AuthController extends GetxController {
             domain: [
               ['user_id', '=', userId]
             ],
-            fields: ['id', 'name', 'user_id', 'work_email'],
+            fields: ['id', 'name', 'user_id', 'work_email', 'attendance_state'],
             limit: 1,
           );
 
@@ -142,6 +145,7 @@ class AuthController extends GetxController {
             final empRecord = (empRes.data as List).first;
             empId = empRecord['id'] as int?;
             empName = empRecord['name']?.toString() ?? empName;
+            employeeAttendanceState = empRecord['attendance_state']?.toString();
             // LogUtils.i('[STEP 2] ✅ Found employee: id=$empId, name=$empName');
             // print('[STEP 2] ✅ Found employee: id=$empId, name=$empName');
             // LogUtils.w(
@@ -155,7 +159,7 @@ class AuthController extends GetxController {
                 domain: [
                   ['work_email', '=', userEmail]
                 ],
-                fields: ['id', 'name', 'user_id', 'work_email'],
+                fields: ['id', 'name', 'user_id', 'work_email', 'attendance_state'],
                 limit: 1,
               );
               if (empRes2.isSuccess &&
@@ -164,6 +168,7 @@ class AuthController extends GetxController {
                 final empRecord = (empRes2.data as List).first;
                 empId = empRecord['id'] as int?;
                 empName = empRecord['name']?.toString() ?? empName;
+                employeeAttendanceState = empRecord['attendance_state']?.toString();
                 // LogUtils.i(
                 //     '[STEP 2] ✅ Found employee via email: id=$empId, name=$empName');
                 // print(
@@ -192,6 +197,28 @@ class AuthController extends GetxController {
       //print('==================================================');
       //print('👤 EMPLOYEE RESOLVED: id=$empId, name=$empName');
       //print('==================================================');
+
+      employeeId = empId;
+      if (employeeAttendanceState == null) {
+        try {
+          final empRes = await OdooRpcApiManager.searchRead(
+            model: 'hr.employee',
+            domain: [
+              ['id', '=', empId]
+            ],
+            fields: ['attendance_state'],
+            limit: 1,
+          );
+          if (empRes.isSuccess &&
+              empRes.data is List &&
+              (empRes.data as List).isNotEmpty) {
+            final empRecord = (empRes.data as List).first;
+            employeeAttendanceState = empRecord['attendance_state']?.toString();
+          }
+        } catch (e) {
+          if (kDebugMode) print("Error fetching employee attendance state: $e");
+        }
+      }
 
       // ── STEP 3: Fetch this employee's WFH records only ────────────────────
       // Reading every pi.wfh.request can fail for normal employee users due to
@@ -289,6 +316,11 @@ class AuthController extends GetxController {
         //LogUtils.i('✅ FINAL WFH STATUS: APPROVED');
         //print('✅ FINAL WFH STATUS: APPROVED');
         //print('==================================================');
+
+        if (foundApproved) {
+          await _createAttendanceIfNeeded();
+        }
+
         return true;
       } else {
         isWfhApproved.value = false;
@@ -304,6 +336,86 @@ class AuthController extends GetxController {
       //LogUtils.e('❌ [WFH CHECK] Unexpected exception: $e');
       //print('❌ [WFH CHECK] Unexpected exception: $e');
       return isWfhApproved.value;
+    }
+  }
+
+  Future<void> _createAttendanceIfNeeded() async {
+    final empId = employeeId;
+    if (empId == null) {
+      if (kDebugMode) print("⚠️ Cannot create attendance: employeeId is null");
+      return;
+    }
+
+    try {
+      if (kDebugMode) print("🔍 Checking for existing attendance today for employee $empId...");
+
+      // Get start of today in UTC
+      final now = DateTime.now();
+      final startOfLocalDay = DateTime(now.year, now.month, now.day);
+      final startOfLocalDayUtc = startOfLocalDay.toUtc();
+      final startOfDayStr = dateToSimpleString(startOfLocalDayUtc);
+
+      // 1. Search for any attendance records starting today (to prevent duplicate check-ins)
+      final existingRes = await OdooRpcApiManager.searchRead(
+        model: 'hr.attendance',
+        domain: [
+          ['employee_id', '=', empId],
+          ['check_in', '>=', startOfDayStr]
+        ],
+        fields: ['id'],
+        limit: 1,
+      );
+
+      bool hasExisting = false;
+      if (existingRes.isSuccess &&
+          existingRes.data is List &&
+          (existingRes.data as List).isNotEmpty) {
+        hasExisting = true;
+      }
+
+      if (kDebugMode) {
+        print("📊 Existing attendance check: hasExisting=$hasExisting, currentState=$employeeAttendanceState");
+      }
+
+      if (!hasExisting) {
+        // 2. Only check-in if not currently checked in (safety fallback)
+        if (employeeAttendanceState != 'checked_in') {
+          if (kDebugMode) print("🚀 Creating new attendance record for WFH...");
+
+          final attendanceVals = {
+            'employee_id': empId,
+            'check_in': dateToSimpleString(DateTime.now().toUtc()),
+            'in_mode': 'pi_taskwatch',
+          };
+
+          final createRes = await OdooRpcApiManager.create(
+            model: 'hr.attendance',
+            values: attendanceVals,
+          );
+
+          if (createRes.isSuccess) {
+            if (kDebugMode) {
+              print("✅ Attendance record created successfully: ID ${createRes.data}");
+            }
+            // Update local state to reflect check-in
+            employeeAttendanceState = 'checked_in';
+          } else {
+            if (kDebugMode) {
+              print("❌ Failed to create attendance record: ${createRes.message}");
+            }
+          }
+        } else {
+          if (kDebugMode) {
+            print("ℹ️ Employee is already checked in according to Odoo state. Skipping creation.");
+          }
+        }
+      } else {
+        if (kDebugMode) {
+          print("ℹ️ Attendance record already exists for today. Skipping creation.");
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) print("❌ Error in _createAttendanceIfNeeded: $e");
     }
   }
 
@@ -859,6 +971,8 @@ class AuthController extends GetxController {
       isWfhApproved.value = true;
       wfhMessage.value = '';
       hasShownWfhWarningPopup = false;
+      employeeId = null;
+      employeeAttendanceState = null;
 
       if (kDebugMode) print('🚪 [LOGOUT] Cleared user and settings data');
 
