@@ -142,7 +142,7 @@ jobs:
       - name: Create ZIP Fallback Artifact
         run: |
           mkdir -p dist/zip
-          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath dist\zip\PI_Task_Watch_Windows_v1.0.36.zip
+          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath dist\zip\PI_Task_Watch_Windows_v1.0.39.zip
 
       - name: Upload Windows Installer (.exe)
         uses: actions/upload-artifact@v4
@@ -250,7 +250,7 @@ jobs:
         run: |
           mkdir -p "$GITHUB_WORKSPACE/dist/zip"
           cd "$GITHUB_WORKSPACE/build/macos/Build/Products/Release/"
-          zip -r "$GITHUB_WORKSPACE/dist/zip/PI_Task_Watch_macOS_v1.0.36.zip" "PI Task Watch.app"
+          zip -r "$GITHUB_WORKSPACE/dist/zip/PI_Task_Watch_macOS_v1.0.39.zip" "PI Task Watch.app"
 
       - name: Upload macOS DMG Installer
         uses: actions/upload-artifact@v4
@@ -300,6 +300,9 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Check Linux Rust Library
+        run: cargo check --manifest-path rust/Cargo.toml --target x86_64-unknown-linux-gnu
+
       - name: Generate Fastforge configs
         run: python generate_fastforge_configs.py
 
@@ -318,7 +321,7 @@ jobs:
         run: |
           mkdir -p dist/zip
           cd build/linux/x64/release/bundle/
-          zip -r ../../../../../dist/zip/PI_Task_Watch_Linux_v1.0.36.zip .
+          zip -r ../../../../../dist/zip/PI_Task_Watch_Linux_v1.0.39.zip .
 
       - name: Upload Linux DEB Package
         uses: actions/upload-artifact@v4

@@ -293,29 +293,60 @@ pub fn check_linux_environment() -> Result<()> {
 #[cfg(target_os = "linux")]
 pub fn take_screenshot_linux_fallback() -> Result<String> {
     let start_time = Instant::now();
-    let temp_file = std::env::temp_dir().join(format!("screenshot_{}.png", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs()));
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_nanos();
+    let temp_file = std::env::temp_dir().join(format!(
+        "taskwatch_screenshot_{}_{}.png",
+        std::process::id(),
+        timestamp,
+    ));
 
     println!("[SCREENSHOT][linux-fallback] Using temp file: {}", temp_file.display());
 
-    // Try using command-line tools commonly available on Linux
-    println!("[SCREENSHOT][linux-fallback] Checking for available screenshot tools");
+    println!("[SCREENSHOT][linux-fallback] Checking flash-free screenshot tools");
 
-    let (tool_name, status) = if Command::new("sh").arg("-c").arg("command -v gnome-screenshot").status()?.success() {
-        println!("[SCREENSHOT][linux-fallback] Using gnome-screenshot");
-        ("gnome-screenshot", Command::new("gnome-screenshot").arg("-f").arg(&temp_file).status()?)
-    } else if Command::new("sh").arg("-c").arg("command -v scrot").status()?.success() {
-        println!("[SCREENSHOT][linux-fallback] Using scrot");
-        ("scrot", Command::new("scrot").arg(&temp_file).status()?)
-    } else if Command::new("sh").arg("-c").arg("command -v import").status()?.success() {
-        println!("[SCREENSHOT][linux-fallback] Using ImageMagick import as the last fallback");
-        ("import", Command::new("import").arg("-window").arg("root").arg(&temp_file).status()?)
-    } else {
-        return Err(anyhow!("No fallback screenshot tools found (gnome-screenshot, import, or scrot)"));
-    };
+    let mut gdbus = Command::new("gdbus");
+    gdbus.args([
+        "call",
+        "--session",
+        "--dest",
+        "org.gnome.Shell.Screenshot",
+        "--object-path",
+        "/org/gnome/Shell/Screenshot",
+        "--method",
+        "org.gnome.Shell.Screenshot.Screenshot",
+        "--timeout",
+        "5",
+        "false", // Do not include the cursor
+        "false", // Do not flash the screen
+    ]).arg(&temp_file);
 
-    if !status.success() {
-        return Err(anyhow!("Fallback screenshot command '{}' failed with status: {:?}", tool_name, status.code()));
+    let mut scrot = Command::new("scrot");
+    scrot.arg(&temp_file);
+
+    let mut import = Command::new("import");
+    import.args(["-window", "root"]).arg(&temp_file);
+
+    let mut tool_name = None;
+    for (name, mut command) in [
+        ("GNOME Shell D-Bus", gdbus),
+        ("scrot", scrot),
+        ("ImageMagick import", import),
+    ] {
+        println!("[SCREENSHOT][linux-fallback] Trying {}", name);
+        if command.status().is_ok_and(|status| status.success())
+            && std::fs::metadata(&temp_file).is_ok_and(|metadata| metadata.len() > 0)
+        {
+            tool_name = Some(name);
+            break;
+        }
+        let _ = std::fs::remove_file(&temp_file);
     }
+
+    let tool_name = tool_name.ok_or_else(|| {
+        anyhow!("No flash-free Linux screenshot method succeeded (gdbus, scrot, or import)")
+    })?;
 
     println!("[SCREENSHOT][linux-fallback] Screenshot taken with {}, reading file", tool_name);
 

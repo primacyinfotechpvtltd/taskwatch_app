@@ -3,7 +3,7 @@
 Employee monitoring application with Odoo integration
 
 ## Version
-1.0.38+38
+1.0.39+39
 
 ## Description
 PI Task Watch is an employee monitoring application that integrates with Odoo for comprehensive task tracking and productivity monitoring.
@@ -44,7 +44,7 @@ To build the Linux application locally inside your workspace, ensure you have th
 The script will automate the package setup, compile the Linux release binary, and generate the Debian (.deb) package.
 
 *   **Release Executable Path**: `build/linux/x64/release/bundle/pi_task_watch`
-*   **DEB Package Path**: `dist/linux/deb/pi-task-watch_1.0.34_amd64.deb`
+*   **DEB Package Path**: `dist/linux/deb/pi-task-watch_1.0.39_amd64.deb`
 
 ### Cloud Build (GitHub Actions)
 
@@ -59,8 +59,8 @@ This repository includes a GitHub Actions workflow that builds all desktop platf
 To publish a release after updating the version in `pubspec.yaml`:
 
 ```bash
-git tag v1.0.38
-git push origin v1.0.38
+git tag v1.0.39
+git push origin v1.0.39
 ```
 
 The workflow automatically compiles and publishes:
@@ -98,13 +98,13 @@ If signing secrets are not configured, the workflow still builds successfully an
 ## Distribution Files
 
 ### For macOS Users
-Send them: `PI_Task_Watch_macOS_v1.0.38.dmg`
+Send them: `PI_Task_Watch_macOS_v1.0.39.dmg`
 
 ### For Windows Users
-Send them: `PI_Task_Watch_Windows_v1.0.38.zip` or the Installer executable
+Send them: `PI_Task_Watch_Windows_v1.0.39.zip` or the Installer executable
 
 ### For Linux Users
-Send them: `pi-task-watch_1.0.38_amd64.deb` or `PI_Task_Watch_Linux_v1.0.38.zip`
+Send them: `pi-task-watch_1.0.39_amd64.deb` or `PI_Task_Watch_Linux_v1.0.39.zip`
 
 ## Installation
 

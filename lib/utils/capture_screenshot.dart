@@ -37,14 +37,13 @@ Future<String> captureScreenshot() async {
       print('🔵 Using Windows optimized screenshot method...');
       try {
         // Use the Rust backend which has multiple Windows-specific methods:
-        // 1. Screenshots crate (primary)
-        // 2. NirCmd (silent, Windows native)
-        // 3. PowerShell with hidden window (fallback)
-        print('🔵 Attempting Rust-based Windows screenshot...');
-        rawImage = await takeScreenshotWindowsNircmd();
+        // 1. Screenshots crate (in-process and silent)
+        // 2. Existing NirCmd and PowerShell fallback chain
+        print('🔵 Attempting silent in-process Windows screenshot...');
+        rawImage = await takeScreenshotWithScreenshotsCrate();
         print('✅ Windows screenshot captured successfully');
       } catch (e) {
-        print('❌ Windows NirCmd screenshot failed: $e, trying fallback...');
+        print('❌ Windows in-process screenshot failed: $e, trying fallback...');
         try {
           rawImage = await takeFullScreenshot();
           print('✅ Windows fallback screenshot captured successfully');
