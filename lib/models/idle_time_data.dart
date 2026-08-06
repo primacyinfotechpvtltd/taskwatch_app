@@ -45,7 +45,7 @@ class IdleTimeData {
   final String? breakTime;
 
   /// Unique generated id
-  final int? id;
+  final dynamic id;
 
   /// Start time string
   final String? startTime;
@@ -103,7 +103,7 @@ class IdleTimeData {
           json['meetingProject'] as String?,
       discussionWith: json['discussion_with'] as String? ??
           json['discussionWith'] as String?,
-      id: json['id'] as int?,
+      id: json['id'],
       startTime: json['startTime'] as String?,
       endTime: json['endTime'] as String?,
       duration: json['duration'] as String?,
@@ -129,7 +129,7 @@ class IdleTimeData {
     String? discussionWith,
     List<int>? employeeIds,
     String? breakTime,
-    int? id,
+    dynamic id,
     String? startTime,
     String? endTime,
     String? duration,
@@ -163,8 +163,8 @@ class IdleTimeData {
   /// Converts the idle time data to JSON for API requests
   Map<String, dynamic> toJson() {
     return {
-      if (id != null) 'id': id,
-      'timesheetId': timesheetId,
+      'id': id ?? timesheetId ?? '',
+      'timesheetId': timesheetId ?? '',
       if (startTime != null) 'startTime': startTime,
       if (endTime != null) 'endTime': endTime,
       'project_id': projectId,

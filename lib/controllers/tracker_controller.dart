@@ -719,9 +719,21 @@ class TrackerController extends GetxController {
       _logDebug('Idle dialog completed, processing result');
 
       if (idleResult != null) {
+        final activeWork = startWorkData.value;
+        final originalProjectId = activeWork?.project.id;
+        final originalTaskId = activeWork?.task.id;
+
+        final dynamic timesheetId;
+        if (idleResult.projectId != originalProjectId ||
+            idleResult.taskId != originalTaskId) {
+          timesheetId = "";
+        } else {
+          timesheetId = activeWork?.timesheetId ?? 0;
+        }
+
         // Create idle data with current timesheet ID, preserving all other fields
         final idleDataWithTimesheetId = (idleResult as IdleTimeData).copyWith(
-          timesheetId: startWorkData.value?.timesheetId ?? 0,
+          timesheetId: timesheetId,
         );
 
         // Save note for next time
