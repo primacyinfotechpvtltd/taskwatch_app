@@ -233,11 +233,11 @@ class AuthController extends GetxController {
         domain: [
           ['employee_id', '=', empId]
         ],
-        fields: ['id', 'employee_id', 'name', 'state'],
+        fields: ['id', 'employee_id', 'name', 'state', 'date_from', 'date_to'],
       );
 
-      bool foundApproved = false;
-      bool hasAnyRequestForEmployee = false;
+      bool foundApprovedForToday = false;
+      bool hasAnyRequestForToday = false;
 
       if (wfhRes.isSuccess && wfhRes.data is List) {
         final List<dynamic> requests = wfhRes.data as List;
@@ -256,33 +256,59 @@ class AuthController extends GetxController {
             reqEmpId = rawEmpField;
           }
 
-          //LogUtils.i(
-          //    '   ▶ WFH #${req['id']}: employee_id=$reqEmpId, state=$reqState');
-          //print(
-          //    '   ▶ WFH #${req['id']}: employee_id=$reqEmpId, state=$reqState');
-
           // Only process records belonging to THIS employee
           if (reqEmpId == empId) {
-            hasAnyRequestForEmployee = true;
-            if (reqState == 'approved') {
-              foundApproved = true;
-              //LogUtils.i('   ✅ APPROVED record found for employee $empId!');
-              //print('   ✅ APPROVED record found for employee $empId!');
-              break;
+            // Verify if today is within the WFH request date range
+            final String dateFromStr = req['date_from']?.toString() ?? '';
+            final String dateToStr = req['date_to']?.toString() ?? '';
+            
+            bool isForToday = false;
+            if (dateFromStr.isNotEmpty && dateToStr.isNotEmpty) {
+              try {
+                // Odoo fields may be 'yyyy-MM-dd' or 'yyyy-MM-dd HH:mm:ss'
+                final cleanFrom = dateFromStr.split(' ').first;
+                final cleanTo = dateToStr.split(' ').first;
+                
+                final fromDate = DateTime.parse(cleanFrom);
+                final toDate = DateTime.parse(cleanTo);
+                
+                final now = DateTime.now();
+                final today = DateTime(now.year, now.month, now.day);
+                
+                final cleanFromDate = DateTime(fromDate.year, fromDate.month, fromDate.day);
+                final cleanToDate = DateTime(toDate.year, toDate.month, toDate.day);
+                
+                if ((today.isAfter(cleanFromDate) || today.isAtSameMomentAs(cleanFromDate)) &&
+                    (today.isBefore(cleanToDate) || today.isAtSameMomentAs(cleanToDate))) {
+                  isForToday = true;
+                }
+              } catch (e) {
+                if (kDebugMode) print("Error parsing WFH dates: $e");
+              }
+            }
+
+            if (isForToday) {
+              hasAnyRequestForToday = true;
+              if (reqState == 'approved') {
+                foundApprovedForToday = true;
+                //LogUtils.i('   ✅ APPROVED and active today WFH record found for employee $empId!');
+                //print('   ✅ APPROVED and active today WFH record found for employee $empId!');
+                break;
+              }
             }
           }
         }
 
-        if (!hasAnyRequestForEmployee) {
+        if (!hasAnyRequestForToday) {
           //LogUtils.i(
-          //    '[STEP 3] No WFH requests for employee $empId — allowed (not a WFH employee)');
+          //    '[STEP 3] No WFH requests for today for employee $empId — allowed (not a WFH employee today)');
           //print(
-          //    '[STEP 3] No WFH requests for employee $empId — allowed (not a WFH employee)');
-        } else if (!foundApproved) {
+          //    '[STEP 3] No WFH requests for today for employee $empId — allowed (not a WFH employee today)');
+        } else if (!foundApprovedForToday) {
           //LogUtils.w(
-          //    '[STEP 3] Employee $empId has WFH request(s) but none approved');
+          //    '[STEP 3] Employee $empId has WFH request(s) for today but none approved');
           //print(
-          //    '[STEP 3] Employee $empId has WFH request(s) but none approved');
+          //    '[STEP 3] Employee $empId has WFH request(s) for today but none approved');
         }
       } else {
         final message = wfhRes.message;
@@ -306,10 +332,10 @@ class AuthController extends GetxController {
       }
 
       // ── FINAL DECISION ────────────────────────────────────────────────────
-      // • No requests for this employee → allowed (not a WFH employee)
-      // • Has request(s) + at least one approved → allowed
-      // • Has request(s) but none approved → show warning
-      final bool wfhAllowed = !hasAnyRequestForEmployee || foundApproved;
+      // • No requests for today → allowed (not a WFH employee today)
+      // • Has request for today + approved → allowed
+      // • Has request for today but not approved → show warning
+      final bool wfhAllowed = !hasAnyRequestForToday || foundApprovedForToday;
       if (wfhAllowed) {
         isWfhApproved.value = true;
         wfhMessage.value = 'WFH Approved';
@@ -317,7 +343,7 @@ class AuthController extends GetxController {
         //print('✅ FINAL WFH STATUS: APPROVED');
         //print('==================================================');
 
-        if (foundApproved) {
+        if (foundApprovedForToday) {
           await _createAttendanceIfNeeded();
         }
 
