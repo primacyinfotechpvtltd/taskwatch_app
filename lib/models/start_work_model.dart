@@ -95,7 +95,7 @@ class StartWorkModel {
       'updated_at': dateToSimpleString(DateTime.now()),
       'description': notes,
       'notes': notes,
-      'time_spent': duration.inMinutes,
+      'time_spent': duration.inSeconds / 60.0,
     };
   }
 }

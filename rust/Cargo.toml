@@ -19,7 +19,7 @@ lazy_static = "1.4.0"
 [target.'cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))'.dependencies]
 screenshots = "0.8"       # For capturing screenshots
 notify-rust = "=4.5"   # Version without mac-notification-sys build errors
-device_query = "0.2"
+rdev = "0.5.3"
 x-win = "5.5.0"
 
 [lints.rust]

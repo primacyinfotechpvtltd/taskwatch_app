@@ -8,9 +8,15 @@ class UserActivityService {
       return;
     }
     startMouseListener().listen((event) {
-      Get.find<TrackerController>().onUserActivity(
-        type: UserActivityType.mouseClick,
-      );
+      if (event.button == 'scroll') {
+        Get.find<TrackerController>().onUserActivity(
+          type: UserActivityType.mouseScroll,
+        );
+      } else {
+        Get.find<TrackerController>().onUserActivity(
+          type: UserActivityType.mouseClick,
+        );
+      }
     });
 
     startKeyboardListener().listen((event) {

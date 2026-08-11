@@ -2,7 +2,7 @@ name: pi_task_watch
 description: "PI Task Watch - Employee monitoring application with Odoo integration"
 publish_to: "none"
 
-version: 1.0.40+40
+version: 1.0.41+41
 
 environment:
   sdk: ^3.6.0

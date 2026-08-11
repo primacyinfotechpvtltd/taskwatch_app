@@ -109,6 +109,12 @@ class SessionModel {
   Map<String, dynamic> toJsonForAPi() {
     final bool hasScreenshot =
         screenshotImage != null && screenshotImage!.isNotEmpty;
+
+    String formatDuration(Duration d) {
+      String twoDigits(int n) => n.toString().padLeft(2, "0");
+      return "${twoDigits(d.inHours)}:${twoDigits(d.inMinutes.remainder(60))}:${twoDigits(d.inSeconds.remainder(60))}";
+    }
+
     return {
       "session_id": uniqueId,
       "timesheet_id": timesheetId,
@@ -122,14 +128,24 @@ class SessionModel {
               {
                 "url": screenshotImage!,
                 "timestamp": dateToSimpleString(endTime),
-                "tracker_timestamp": "00:00:00",
+                "tracker_timestamp": formatDuration(duration),
               },
             ]
           : [],
+      "duration": duration.inSeconds,
       "mouse_click_count": activities
           .where((activity) => activity == UserActivityType.mouseClick)
           .length,
+      "mouse_clicks": activities
+          .where((activity) => activity == UserActivityType.mouseClick)
+          .length,
+      "mouse_scrolls": activities
+          .where((activity) => activity == UserActivityType.mouseScroll)
+          .length,
       "keyboard_press_count": activities
+          .where((activity) => activity == UserActivityType.keyboardPress)
+          .length,
+      "key_presses": activities
           .where((activity) => activity == UserActivityType.keyboardPress)
           .length,
       "screenshot_count": hasScreenshot ? 1 : 0,
