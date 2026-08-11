@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:pi_task_watch/exports.dart';
 import 'package:pi_task_watch/rust/api/take_full_screenshot.dart';
 import 'package:pi_task_watch/utils/compress_image.dart';
+import 'package:window_manager/window_manager.dart';
 
 Future<String> captureScreenshot() async {
   if (GetPlatform.isAndroid || GetPlatform.isIOS) {
@@ -9,30 +10,48 @@ Future<String> captureScreenshot() async {
     return '';
   }
 
-  // macOS: pre-flight permission check — ask once, guide user, retry next tick
-  if (GetPlatform.isMacOS) {
-    final hasPerm = await hasScreenRecordingPermission();
-    if (!hasPerm) {
-      print('⚠️ macOS screen recording permission not granted — requesting...');
-      // Trigger the system permission dialog (may not appear if unsigned)
-      await requestScreenRecordingPermission();
-      await Future.delayed(const Duration(milliseconds: 500));
-      // Show UI guiding user to System Settings → Privacy & Security → Screen Recording
-      checkAndPromptScreenRecordingPermission(Get.context!);
-      print('⚠️ Returning empty — will retry on next 10-minute timer tick');
-      return '';
+  bool wasVisible = false;
+  bool wasMinimized = false;
+
+  if (GetPlatform.isDesktop) {
+    try {
+      wasVisible = await windowManager.isVisible();
+      wasMinimized = await windowManager.isMinimized();
+      if (wasVisible && !wasMinimized) {
+        print('🔵 Hiding TaskWatch window before screenshot...');
+        await windowManager.hide();
+        // Give the OS compositor a brief moment to hide the window
+        await Future.delayed(const Duration(milliseconds: 150));
+      }
+    } catch (e) {
+      print('⚠️ Failed to hide window: $e');
     }
-    print('✅ macOS screen recording permission verified');
   }
 
-  print('🔵 Starting screenshot capture process...');
-
-  String? rawImage;
-  String? compressedImage;
-
-  print('🔵 Platform check: isWindows = ${GetPlatform.isWindows}');
-
   try {
+    // macOS: pre-flight permission check — ask once, guide user, retry next tick
+    if (GetPlatform.isMacOS) {
+      final hasPerm = await hasScreenRecordingPermission();
+      if (!hasPerm) {
+        print('⚠️ macOS screen recording permission not granted — requesting...');
+        // Trigger the system permission dialog (may not appear if unsigned)
+        await requestScreenRecordingPermission();
+        await Future.delayed(const Duration(milliseconds: 500));
+        // Show UI guiding user to System Settings → Privacy & Security → Screen Recording
+        checkAndPromptScreenRecordingPermission(Get.context!);
+        print('⚠️ Returning empty — will retry on next 10-minute timer tick');
+        return '';
+      }
+      print('✅ macOS screen recording permission verified');
+    }
+
+    print('🔵 Starting screenshot capture process...');
+
+    String? rawImage;
+    String? compressedImage;
+
+    print('🔵 Platform check: isWindows = ${GetPlatform.isWindows}');
+
     if (GetPlatform.isWindows) {
       print('🔵 Using Windows optimized screenshot method...');
       try {
@@ -102,5 +121,14 @@ Future<String> captureScreenshot() async {
     print('❌ Unexpected screenshot error: $e');
     print('❌ Stack trace: $stackTrace');
     return '';
+  } finally {
+    if (GetPlatform.isDesktop && wasVisible && !wasMinimized) {
+      try {
+        print('🔵 Restoring TaskWatch window visibility...');
+        await windowManager.show(inactive: true);
+      } catch (e) {
+        print('⚠️ Failed to restore window: $e');
+      }
+    }
   }
 }

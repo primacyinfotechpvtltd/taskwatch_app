@@ -322,6 +322,12 @@ pub fn take_screenshot_linux_fallback() -> Result<String> {
         "false", // Do not flash the screen
     ]).arg(&temp_file);
 
+    let mut gnome_screenshot = Command::new("gnome-screenshot");
+    gnome_screenshot.args(["-f"]).arg(&temp_file);
+
+    let mut grim = Command::new("grim");
+    grim.arg(&temp_file);
+
     let mut scrot = Command::new("scrot");
     scrot.arg(&temp_file);
 
@@ -331,6 +337,8 @@ pub fn take_screenshot_linux_fallback() -> Result<String> {
     let mut tool_name = None;
     for (name, mut command) in [
         ("GNOME Shell D-Bus", gdbus),
+        ("gnome-screenshot", gnome_screenshot),
+        ("grim", grim),
         ("scrot", scrot),
         ("ImageMagick import", import),
     ] {
