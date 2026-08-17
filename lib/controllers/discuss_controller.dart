@@ -34,6 +34,7 @@ class DiscussController extends GetxController {
   
   Timer? _refreshTimer;
   StreamSubscription? _authSubscription;
+  StreamSubscription? _wsSubscription;
   bool _isLongPollingActive = false;
 
   void scrollToBottom({bool animate = true}) {
@@ -74,8 +75,8 @@ class DiscussController extends GetxController {
       }
     });
 
-    // Background polling for new messages every 60 seconds (passive fallback)
-    _refreshTimer = Timer.periodic(const Duration(seconds: 60), (_) {
+    // Background polling for new messages every 5 minutes (passive fallback)
+    _refreshTimer = Timer.periodic(const Duration(minutes: 5), (_) {
       if (OdooRpcApiManager.isAuthenticated && !isLoadingChannels.value) {
         refreshActiveChannel();
       }
@@ -88,12 +89,16 @@ class DiscussController extends GetxController {
     _isLongPollingActive = false;
     _refreshTimer?.cancel();
     _authSubscription?.cancel();
+    _wsSubscription?.cancel();
+    OdooWebSocketService().disconnect();
     chatScrollController.dispose();
     super.onClose();
   }
 
   void clearDiscuss() {
     _isLongPollingActive = false;
+    _wsSubscription?.cancel();
+    OdooWebSocketService().disconnect();
     channels.clear();
     channelMessages.clear();
     selectedChannelId.value = -1;
@@ -103,13 +108,10 @@ class DiscussController extends GetxController {
   Future<void> initDiscuss() async {
     try {
       isLoadingChannels.value = true;
-      //LogUtils.i('DISCUSS_INIT: Starting initialization...');
-      
       // 1. Fetch user's partner ID
       await _fetchPartnerId();
       
       if (partnerId.value == -1) {
-        //LogUtils.e('DISCUSS_INIT: Failed to resolve partner ID.');
         return;
       }
       
@@ -122,14 +124,40 @@ class DiscussController extends GetxController {
       // 4. Load users list for starting DMs
       await fetchUsers();
       
-      // 5. Start real-time long polling
+      // 5. Connect Odoo WebSocket for real-time messages
+      _initWebSocket();
+      
+      // 6. Start fallback polling loop
       _startLongPolling();
       
     } catch (e) {
-      //LogUtils.e('DISCUSS_INIT_ERROR: $e');
+      debugPrint('DISCUSS_INIT_ERROR: $e');
     } finally {
       isLoadingChannels.value = false;
     }
+  }
+
+  void _initWebSocket() {
+    final wsService = OdooWebSocketService();
+    
+    final channelList = <String>[];
+    if (partnerId.value != -1) {
+      channelList.add('res.partner_${partnerId.value}');
+    }
+    for (var c in channels) {
+      channelList.add('discuss.channel_${c.id}');
+    }
+
+    wsService.connect(initialChannels: channelList);
+
+    _wsSubscription?.cancel();
+    _wsSubscription = wsService.messageStream.listen((data) {
+      debugPrint('[DiscussController] Real-time WS message received');
+      if (selectedChannelId.value != -1) {
+        fetchMessages(selectedChannelId.value, background: true);
+      }
+      fetchChannels();
+    });
   }
 
   Future<void> _fetchPartnerId() async {

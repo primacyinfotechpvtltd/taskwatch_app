@@ -5,6 +5,7 @@ export 'package:uuid/uuid.dart';
 export './constants/constants.dart';
 export './controllers/controllers.dart';
 export './managers/managers.dart';
+export './services/services.dart';
 export './models/dialog_result_models.dart';
 export './models/models.dart';
 export './screens/screens.dart';

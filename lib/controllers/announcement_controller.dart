@@ -16,8 +16,8 @@ class AnnouncementController extends GetxController {
   void onInit() {
     super.onInit();
     fetchAnnouncements();
-    // Auto-refresh announcements every 30 seconds in background
-    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+    // Auto-refresh announcements every 3 hours (3 times in a 9-hour workday)
+    _refreshTimer = Timer.periodic(const Duration(hours: 3), (_) {
       if (!isLoading.value && !isCreating.value) {
         fetchAnnouncements();
       }

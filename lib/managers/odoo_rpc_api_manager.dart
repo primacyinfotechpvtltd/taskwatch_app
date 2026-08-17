@@ -432,6 +432,8 @@ class OdooRpcApiManager {
     return AppConstant.apiServerUrl;
   }
 
+  static String get serverUrl => _effectiveServerUrl;
+
   static Future<dio.Dio> _getDio() async {
     if (_dio == null) {
       _dio = await getSecureDioClient();
