@@ -30,10 +30,11 @@ class OdooNetworkImage extends StatefulWidget {
     this.errorWidget,
     this.base64Data,
     this.directImageUrl,
-  }) : assert(
-          directImageUrl != null || (model != null && id != null),
-          'Either directImageUrl must be provided, or both model and id must be provided',
-        );
+  });
+
+  static void clearCache() => _imageCache.clear();
+  static void evict(String model, int id, [String field = 'image_1920']) =>
+      _imageCache.remove('${model}_${id}_$field');
 
   @override
   State<OdooNetworkImage> createState() => _OdooNetworkImageState();
@@ -74,27 +75,38 @@ class _OdooNetworkImageState extends State<OdooNetworkImage> {
       return;
     }
 
-    // Check cache first
+    // Check cache first (only use valid non-empty cached bytes)
     final key = _cacheKey;
-    if (_imageCache.containsKey(key)) {
+    if (_imageCache.containsKey(key) &&
+        _imageCache[key] != null &&
+        _imageCache[key]!.isNotEmpty) {
       if (mounted) {
         setState(() {
           _imageBytes = _imageCache[key];
           _loading = false;
-          _hasError = _imageBytes == null || _imageBytes!.isEmpty;
+          _hasError = false;
         });
       }
       return;
     }
 
-    // Fetch via authenticated Dio client
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _hasError = false;
+      });
+    }
+
+    // Fetch via authenticated Odoo RPC
     try {
       final bytes = await OdooRpcApiManager.fetchImageBytes(
         model: widget.model!,
         id: widget.id!,
         field: widget.field,
       );
-      _imageCache[key] = bytes;
+      if (bytes != null && bytes.isNotEmpty) {
+        _imageCache[key] = bytes;
+      }
       if (mounted) {
         setState(() {
           _imageBytes = bytes;
@@ -103,7 +115,6 @@ class _OdooNetworkImageState extends State<OdooNetworkImage> {
         });
       }
     } catch (e) {
-      _imageCache[key] = null;
       if (mounted) {
         setState(() {
           _loading = false;

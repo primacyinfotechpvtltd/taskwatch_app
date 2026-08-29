@@ -31,25 +31,25 @@ class ThemePalette {
     switch (type) {
       case ThemeType.odooDark:
         return ThemePalette(
-          bgColor: const Color(0xFF14141E),
-          headerColor: const Color(0xFF1C1C28),
-          activeColor: const Color(0xFF00A09D),
-          accentColor: const Color(0xFF00A09D),
-          sidebarColor: const Color(0xFF181824),
+          bgColor: const Color(0xFF1E1318),
+          headerColor: const Color(0xFF2D1B24),
+          activeColor: const Color(0xFF006D37),
+          accentColor: const Color(0xFFE2165F),
+          sidebarColor: const Color(0xFF25171E),
           primaryTextColor: Colors.white,
-          secondaryTextColor: const Color(0xFF9494A1),
-          avatarColor: const Color(0xFF00A09D),
+          secondaryTextColor: const Color(0xFFD4B8C7),
+          avatarColor: const Color(0xFFE2165F),
           isDark: true,
         );
       case ThemeType.odooLight:
         return ThemePalette(
-          bgColor: const Color(0xFFF8F9FA),
+          bgColor: const Color(0xFFFFF8F8),
           headerColor: const Color(0xFF714B67),
-          activeColor: const Color(0xFF00A09D),
-          accentColor: const Color(0xFF714B67),
-          sidebarColor: const Color(0xFFE9ECEF),
-          primaryTextColor: Colors.black87,
-          secondaryTextColor: Colors.black54,
+          activeColor: const Color(0xFF006D37),
+          accentColor: const Color(0xFFB80049),
+          sidebarColor: const Color(0xFFFFE8F0),
+          primaryTextColor: const Color(0xFF25181E),
+          secondaryTextColor: const Color(0xFF714B67),
           avatarColor: const Color(0xFF714B67),
           isDark: false,
         );

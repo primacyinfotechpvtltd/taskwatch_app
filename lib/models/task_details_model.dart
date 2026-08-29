@@ -50,31 +50,43 @@ class TaskDetailsModel {
   /// Create TaskModel from JSON (API response)
   factory TaskDetailsModel.fromJson(Map<String, dynamic> json) {
     return TaskDetailsModel(
-      id: json['id'] ?? 0,
-      name: json['name'] ?? '',
-      description: json['description'],
+      id: (json['id'] is int)
+          ? json['id']
+          : int.tryParse(json['id']?.toString() ?? '0') ?? 0,
+      name: json['name'] is String
+          ? json['name']
+          : (json['name'] == false ? '' : json['name']?.toString() ?? ''),
+      description: json['description'] is String
+          ? json['description']
+          : (json['description'] == false
+              ? null
+              : json['description']?.toString()),
       projectId: json['project_id'] is List
           ? (json['project_id'] as List).first
-          : json['project_id'],
-      projectName: json['project_name'] ??
-          (json['project_id'] is List && (json['project_id'] as List).length > 1
-              ? json['project_id'][1]
+          : (json['project_id'] is int ? json['project_id'] : null),
+      projectName: json['project_name'] is String
+          ? json['project_name']
+          : (json['project_id'] is List && (json['project_id'] as List).length > 1
+              ? json['project_id'][1]?.toString()
               : null),
       stageId: json['stage_id'] is List
           ? (json['stage_id'] as List).first
-          : json['stage_id'] ?? 0,
-      stageName: json['stage_name'] ??
-          (json['stage_id'] is List && (json['stage_id'] as List).length > 1
-              ? json['stage_id'][1]
+          : (json['stage_id'] is int
+              ? json['stage_id']
+              : int.tryParse(json['stage_id']?.toString() ?? '0') ?? 0),
+      stageName: json['stage_name'] is String
+          ? json['stage_name']
+          : (json['stage_id'] is List && (json['stage_id'] as List).length > 1
+              ? json['stage_id'][1]?.toString()
               : null),
-      userIds: json['user_ids'] != null
+      userIds: json['user_ids'] is List
           ? (json['user_ids'] as List)
               .map<TaskAssignee>((x) => TaskAssignee.fromJson(x))
               .toList()
           : [],
-      userNames: json['user_names'] != null
-          ? List<String>.from(json['user_names'])
-          : (json['user_ids'] != null
+      userNames: json['user_names'] is List
+          ? List<String>.from(json['user_names'].map((x) => x.toString()))
+          : (json['user_ids'] is List
               ? (json['user_ids'] as List)
                   .map<String>((x) {
                     if (x is List && x.length > 1) return x[1].toString();
@@ -84,30 +96,48 @@ class TaskDetailsModel {
                   .where((s) => s.isNotEmpty)
                   .toList()
               : []),
-      tags: json['tag_ids'] != null ? List<String>.from(json['tag_ids']) : null,
-      dateDeadline: (json['date_deadline'] ?? json['end_date']) != null
+      tags: json['tag_ids'] is List
+          ? (json['tag_ids'] as List).map((x) {
+              if (x is List && x.length > 1) return x[1].toString();
+              if (x is Map) return (x['name'] ?? '').toString();
+              return x.toString();
+            }).toList()
+          : null,
+      dateDeadline: (json['date_deadline'] ?? json['end_date']) is String
           ? DateTime.tryParse(json['date_deadline'] ?? json['end_date'])
           : null,
-      dateStart: (json['date_start'] ?? json['start_date']) != null
+      dateStart: (json['date_start'] ?? json['start_date']) is String
           ? DateTime.tryParse(json['date_start'] ?? json['start_date'])
           : null,
-      allocatedHours: json['allocated_time_in_hours'] != null
+      allocatedHours: json['allocated_time_in_hours'] is String
           ? _parseDurationToHours(json['allocated_time_in_hours'])
-          : (json['allocated_hours'] ?? 0.0).toDouble(),
-      progressPercentage: (json['progress'] ?? 0.0).toDouble(),
-      priority: json['priority'],
-      state: json['state'],
+          : (json['allocated_hours'] is num
+              ? (json['allocated_hours'] as num).toDouble()
+              : 0.0),
+      progressPercentage: (json['progress'] is num
+          ? (json['progress'] as num).toDouble()
+          : 0.0),
+      priority: json['priority'] is String
+          ? json['priority']
+          : (json['priority'] == false ? null : json['priority']?.toString()),
+      state: json['state'] is String
+          ? json['state']
+          : (json['state'] == false ? null : json['state']?.toString()),
       parentId: json['parent_id'] is List
           ? (json['parent_id'] as List).first
-          : json['parent_id'],
-      createDate: json['create_date'] != null
+          : (json['parent_id'] is int ? json['parent_id'] : null),
+      createDate: json['create_date'] is String
           ? DateTime.tryParse(json['create_date'])
           : null,
-      writeDate: json['write_date'] != null
+      writeDate: json['write_date'] is String
           ? DateTime.tryParse(json['write_date'])
           : null,
-      usedTime: json['used_time'],
-      taskUrl: json['task_url'],
+      usedTime: json['used_time'] is String
+          ? json['used_time']
+          : (json['used_time'] == false ? null : json['used_time']?.toString()),
+      taskUrl: json['task_url'] is String
+          ? json['task_url']
+          : (json['task_url'] == false ? null : json['task_url']?.toString()),
     );
   }
 
@@ -321,6 +351,12 @@ class TaskActivity {
   final int authorId;
   final String authorName;
   final String messageType;
+  final String subtypeName;
+  final String? stageOldValue;
+  final String? stageNewValue;
+  final String? trackingDesc;
+  final bool isInternalNote;
+  final bool isTaskCreated;
   final List<TaskAssignee>? attachmentIds;
 
   TaskActivity({
@@ -330,16 +366,50 @@ class TaskActivity {
     required this.authorId,
     required this.authorName,
     required this.messageType,
+    this.subtypeName = '',
+    this.stageOldValue,
+    this.stageNewValue,
+    this.trackingDesc,
+    this.isInternalNote = false,
+    this.isTaskCreated = false,
     this.attachmentIds,
   });
 
   factory TaskActivity.fromJson(Map<String, dynamic> json) {
+    String subName = '';
+    if (json['subtype_id'] is List &&
+        (json['subtype_id'] as List).length > 1) {
+      subName = json['subtype_id'][1]?.toString() ?? '';
+    } else if (json['subtype_name'] != null) {
+      subName = json['subtype_name'].toString();
+    }
+
+    final bool isNote = subName.toLowerCase().contains('note') ||
+        (json['is_internal_note'] == true);
+    final bool isCreated = subName.toLowerCase().contains('created') ||
+        (json['is_task_created'] == true) ||
+        (json['body']?.toString().toLowerCase().contains('task created') ??
+            false);
+
+    DateTime parsedDate = DateTime.now();
+    if (json['date'] != null) {
+      final dateStr = json['date'].toString();
+      if (dateStr.isNotEmpty) {
+        if (!dateStr.endsWith('Z') && !dateStr.contains('+')) {
+          parsedDate =
+              DateTime.tryParse('${dateStr.replaceAll(' ', 'T')}Z')?.toLocal() ??
+                  DateTime.now();
+        } else {
+          parsedDate =
+              DateTime.tryParse(dateStr)?.toLocal() ?? DateTime.now();
+        }
+      }
+    }
+
     return TaskActivity(
       id: json['id'] ?? 0,
       body: json['body'] ?? '',
-      date: (json['date'] != null)
-          ? DateTime.tryParse(json['date']) ?? DateTime.now()
-          : DateTime.now(),
+      date: parsedDate,
       authorId: json['author_id'] is List
           ? (json['author_id'] as List).first
           : json['author_id'] is Map
@@ -349,9 +419,15 @@ class TaskActivity {
           (json['author_id'] is List && (json['author_id'] as List).length > 1
               ? json['author_id'][1]
               : json['author_id'] is Map
-                  ? (json['author_id'] as Map)['name'] ?? 'Unknown'
-                  : 'Unknown'),
+                  ? (json['author_id'] as Map)['name'] ?? 'Public user'
+                  : 'Public user'),
       messageType: json['message_type'] ?? 'comment',
+      subtypeName: subName,
+      stageOldValue: json['stage_old_value']?.toString(),
+      stageNewValue: json['stage_new_value']?.toString(),
+      trackingDesc: json['tracking_desc']?.toString(),
+      isInternalNote: isNote,
+      isTaskCreated: isCreated,
       attachmentIds: json['attachment_ids'] != null
           ? (json['attachment_ids'] as List)
               .map<TaskAssignee>((x) => TaskAssignee.fromJson(x))
@@ -368,6 +444,12 @@ class TaskActivity {
       'author_id': authorId,
       'author_name': authorName,
       'message_type': messageType,
+      'subtype_name': subtypeName,
+      'stage_old_value': stageOldValue,
+      'stage_new_value': stageNewValue,
+      'tracking_desc': trackingDesc,
+      'is_internal_note': isInternalNote,
+      'is_task_created': isTaskCreated,
       'attachment_ids': attachmentIds,
     };
   }
@@ -387,6 +469,72 @@ class TaskActivity {
   String getCleanBody() {
     return FormatUtils.cleanHtml(body);
   }
+}
+
+/// Planned Activity Model (mail.activity)
+class TaskPlannedActivity {
+  final int id;
+  final String summary;
+  final String note;
+  final int activityTypeId;
+  final String activityTypeName;
+  final String dateDeadline;
+  final int userId;
+  final String userName;
+  final String state; // 'today', 'planned', 'overdue'
+
+  TaskPlannedActivity({
+    required this.id,
+    required this.summary,
+    required this.note,
+    required this.activityTypeId,
+    required this.activityTypeName,
+    required this.dateDeadline,
+    required this.userId,
+    required this.userName,
+    required this.state,
+  });
+
+  factory TaskPlannedActivity.fromJson(Map<String, dynamic> json) {
+    int actTypeId = 0;
+    String actTypeName = 'Activity';
+    if (json['activity_type_id'] is List &&
+        (json['activity_type_id'] as List).isNotEmpty) {
+      actTypeId = json['activity_type_id'][0] is int
+          ? json['activity_type_id'][0]
+          : int.tryParse(json['activity_type_id'][0].toString()) ?? 0;
+      if ((json['activity_type_id'] as List).length > 1) {
+        actTypeName = json['activity_type_id'][1].toString();
+      }
+    }
+
+    int uId = 0;
+    String uName = '';
+    if (json['user_id'] is List && (json['user_id'] as List).isNotEmpty) {
+      uId = json['user_id'][0] is int
+          ? json['user_id'][0]
+          : int.tryParse(json['user_id'][0].toString()) ?? 0;
+      if ((json['user_id'] as List).length > 1) {
+        uName = json['user_id'][1].toString();
+      }
+    }
+
+    return TaskPlannedActivity(
+      id: json['id'] is int
+          ? json['id']
+          : int.tryParse(json['id'].toString()) ?? 0,
+      summary: json['summary']?.toString() ?? '',
+      note: json['note']?.toString() ?? '',
+      activityTypeId: actTypeId,
+      activityTypeName: actTypeName,
+      dateDeadline: json['date_deadline']?.toString() ?? '',
+      userId: uId,
+      userName: uName,
+      state: json['state']?.toString() ?? 'planned',
+    );
+  }
+
+  String get cleanNote => FormatUtils.cleanHtml(note);
 }
 
 /// Timesheet Model
@@ -534,5 +682,112 @@ class TaskAssignee {
       'id': id,
       'name': name,
     };
+  }
+}
+
+enum TaskAttachmentType { image, video, audio, document, other }
+
+class TaskAttachment {
+  final int id;
+  final String name;
+  final String? mimetype;
+  final int fileSize;
+  final DateTime? createDate;
+  final String? createUserName;
+
+  TaskAttachment({
+    required this.id,
+    required this.name,
+    this.mimetype,
+    this.fileSize = 0,
+    this.createDate,
+    this.createUserName,
+  });
+
+  factory TaskAttachment.fromJson(Map<String, dynamic> json) {
+    String? author;
+    if (json['create_uid'] is List && (json['create_uid'] as List).length > 1) {
+      author = json['create_uid'][1].toString();
+    } else if (json['create_uid'] is Map) {
+      author = json['create_uid']['name']?.toString();
+    }
+
+    return TaskAttachment(
+      id: json['id'] is int
+          ? json['id']
+          : (int.tryParse(json['id'].toString()) ?? 0),
+      name: json['name']?.toString() ?? 'Unnamed Attachment',
+      mimetype: json['mimetype']?.toString(),
+      fileSize: json['file_size'] is int
+          ? json['file_size']
+          : (int.tryParse(json['file_size']?.toString() ?? '0') ?? 0),
+      createDate: json['create_date'] != null
+          ? DateTime.tryParse(json['create_date'].toString())
+          : null,
+      createUserName: author,
+    );
+  }
+
+  TaskAttachmentType get type {
+    final lowerName = name.toLowerCase();
+    final lowerMime = (mimetype ?? '').toLowerCase();
+
+    if (lowerMime.startsWith('image/') ||
+        lowerName.endsWith('.jpg') ||
+        lowerName.endsWith('.jpeg') ||
+        lowerName.endsWith('.png') ||
+        lowerName.endsWith('.gif') ||
+        lowerName.endsWith('.webp') ||
+        lowerName.endsWith('.svg') ||
+        lowerName.endsWith('.bmp')) {
+      return TaskAttachmentType.image;
+    }
+
+    if (lowerMime.startsWith('video/') ||
+        lowerName.endsWith('.mp4') ||
+        lowerName.endsWith('.mov') ||
+        lowerName.endsWith('.avi') ||
+        lowerName.endsWith('.mkv') ||
+        lowerName.endsWith('.webm')) {
+      return TaskAttachmentType.video;
+    }
+
+    if (lowerMime.startsWith('audio/') ||
+        lowerName.endsWith('.mp3') ||
+        lowerName.endsWith('.wav') ||
+        lowerName.endsWith('.m4a') ||
+        lowerName.endsWith('.aac') ||
+        lowerName.endsWith('.ogg') ||
+        lowerName.endsWith('.flac')) {
+      return TaskAttachmentType.audio;
+    }
+
+    if (lowerMime.contains('pdf') ||
+        lowerMime.contains('document') ||
+        lowerMime.contains('sheet') ||
+        lowerMime.contains('presentation') ||
+        lowerMime.contains('text') ||
+        lowerName.endsWith('.pdf') ||
+        lowerName.endsWith('.doc') ||
+        lowerName.endsWith('.docx') ||
+        lowerName.endsWith('.xls') ||
+        lowerName.endsWith('.xlsx') ||
+        lowerName.endsWith('.ppt') ||
+        lowerName.endsWith('.pptx') ||
+        lowerName.endsWith('.txt') ||
+        lowerName.endsWith('.csv')) {
+      return TaskAttachmentType.document;
+    }
+
+    return TaskAttachmentType.other;
+  }
+
+  String get formattedSize {
+    if (fileSize <= 0) return '';
+    if (fileSize < 1024) return '$fileSize B';
+    if (fileSize < 1024 * 1024) {
+      return '${(fileSize / 1024).toStringAsFixed(1)} KB';
+    }
+    return '${(fileSize / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 }

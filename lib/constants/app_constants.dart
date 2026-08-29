@@ -6,7 +6,7 @@ class AppConstant {
   static const String apiScheme = isDebug ? "https" : "https";
   //
   static const String apiHostName =
-      isDebug ? "app.primacyinfotech.com" : "app.primacyinfotech.com";
+      isDebug ? "staging-pi.o19.primacyinfotech.com" : "staging-pi.o19.primacyinfotech.com";
   //
   static const int apiPort = isDebug ? 8017 : 9070;
   //

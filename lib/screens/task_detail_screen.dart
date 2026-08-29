@@ -1,10 +1,21 @@
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_easyloading/flutter_easyloading.dart';
 import 'package:get/get.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:pi_task_watch/models/task_details_model.dart';
+import 'package:pi_task_watch/models/task_model.dart';
 import 'package:pi_task_watch/controllers/controllers.dart';
 import 'package:pi_task_watch/controllers/task_details_controller.dart';
+import 'package:pi_task_watch/managers/odoo_rpc_api_manager.dart';
+import 'package:pi_task_watch/managers/toast_manager.dart';
 import 'package:pi_task_watch/utils/format_utils.dart';
 import 'package:pi_task_watch/widgets/widgets.dart';
 
@@ -24,12 +35,17 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
   final ThemeController _themeController = Get.put(ThemeController());
   final TaskDetailsController _taskDetailsController =
       Get.put(TaskDetailsController());
+  final TaskController _taskController = Get.find<TaskController>();
   int _activeStageIndex = 0;
   String _activeChatterTab = 'Activity';
   final TextEditingController _logNoteController = TextEditingController();
   final TextEditingController _searchChatterController =
       TextEditingController();
   bool _isSearchingChatter = false;
+
+  // ── Attachments category filter ───────────────────────────────────────────
+  String _selectedAttachmentCategory = 'All';
+  bool _isUploadingAttachment = false;
 
   // ── Assignees dropdown state ──────────────────────────────────────────────
   final LayerLink _assigneesLayerLink = LayerLink();
@@ -198,10 +214,50 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
   Future<void> _fetchAllUsers() async {
     if (_allUsers.isNotEmpty) return;
     setState(() => _isLoadingUsers = true);
-    // TODO: replace with your real API call:
-    // _allUsers = await _taskDetailsController.fetchAllUsers();
-    final currentTask = _taskDetailsController.currentTask.value;
-    _allUsers = List<TaskAssignee>.from(currentTask?.userIds ?? []);
+    try {
+      final response = await OdooRpcApiManager.searchRead(
+        model: 'res.users',
+        domain: [
+          ['active', '=', true],
+          ['share', '=', false],
+        ],
+        fields: ['id', 'name', 'login', 'email'],
+        limit: 100,
+      );
+      if (response.isSuccess && response.data != null) {
+        final list = (response.data as List).map((u) {
+          final m = u as Map<String, dynamic>;
+          return TaskAssignee(
+            id: m['id'] as int,
+            name: (m['name'] ?? m['login'] ?? 'User').toString(),
+          );
+        }).toList();
+        if (list.isNotEmpty) {
+          setState(() {
+            _allUsers = list;
+            _isLoadingUsers = false;
+          });
+          return;
+        }
+      }
+    } catch (e) {
+      debugPrint('Error fetching users from Odoo: $e');
+    }
+
+    final currentUser = Get.isRegistered<AuthController>()
+        ? Get.find<AuthController>().user.value
+        : null;
+    if (currentUser != null) {
+      _allUsers = [
+        TaskAssignee(
+          id: currentUser.userId,
+          name: currentUser.name,
+        ),
+      ];
+    } else {
+      final currentTask = _taskDetailsController.currentTask.value;
+      _allUsers = List<TaskAssignee>.from(currentTask?.userIds ?? []);
+    }
     setState(() => _isLoadingUsers = false);
   }
 
@@ -382,6 +438,49 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
           Row(
             children: [
               IconButton(
+                icon: Icon(Icons.edit_note_rounded,
+                    color: theme.activeColor, size: 22),
+                onPressed: () async {
+                  final currentTaskModel = _taskController.taskList
+                          .firstWhereOrNull((t) => t.id == task.id) ??
+                      TaskModel(
+                        id: task.id,
+                        name: _getTaskName(),
+                        projectId: task.projectId,
+                        projectName: _getProjectName(),
+                        allocatedTimeInHours: _taskDetailsController
+                            .currentTask.value?.allocatedHours != null
+                            ? Duration(
+                                minutes: (_taskDetailsController
+                                            .currentTask.value!.allocatedHours! *
+                                        60)
+                                    .round())
+                            : null,
+                        endDate: _getDeadline()?.toIso8601String(),
+                        json: {
+                          'description': _getDescription(),
+                          'allocated_hours': _taskDetailsController
+                              .currentTask.value?.allocatedHours,
+                        },
+                      );
+
+                  final updated = await showDialog<TaskModel>(
+                    context: context,
+                    barrierDismissible: true,
+                    builder: (ctx) => AddTaskDialog(
+                      initialProjectId: task.projectId,
+                      initialTask: currentTaskModel,
+                    ),
+                  );
+
+                  if (updated != null) {
+                    await _loadData();
+                  }
+                },
+                tooltip: 'Edit Task Time & Description',
+              ),
+              const SizedBox(width: 4),
+              IconButton(
                 icon: Icon(Icons.star_border,
                     color: theme.secondaryTextColor, size: 20),
                 onPressed: () {},
@@ -504,10 +603,12 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
 
   Widget _buildBreadcrumbItem(String title, String duration, bool isActive,
       bool isFirst, bool isLast, ThemePalette theme) {
-    const activeColor = Color(0xFF00A09D);
+    final activeColor = theme.accentColor;
     final inactiveColor =
-        theme.isDark ? Colors.white.withOpacity(0.05) : const Color(0xFFF0F0F0);
-    final textColor = isActive ? Colors.white : theme.secondaryTextColor;
+        theme.isDark ? Colors.white.withOpacity(0.06) : const Color(0xFFF3E8EE);
+    final textColor = isActive
+        ? Colors.white
+        : (theme.isDark ? Colors.white70 : const Color(0xFF714B67));
 
     return ClipPath(
       clipper: BreadcrumbClipper(isFirst: isFirst, isLast: isLast),
@@ -517,8 +618,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
         decoration: BoxDecoration(
           color: isActive ? activeColor : inactiveColor,
           gradient: isActive
-              ? const LinearGradient(
-                  colors: [activeColor, Color(0xFF00807E)],
+              ? LinearGradient(
+                  colors: [activeColor, const Color(0xFFE2165F)],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 )
@@ -527,10 +628,10 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
         alignment: Alignment.center,
         child: Text(
           title,
-          style: TextStyle(
+          style: GoogleFonts.inter(
             color: textColor,
             fontSize: 12,
-            fontWeight: isActive ? FontWeight.bold : FontWeight.w500,
+            fontWeight: isActive ? FontWeight.bold : FontWeight.w600,
           ),
         ),
       ),
@@ -589,6 +690,12 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
           _buildInfoGrid(theme),
           const SizedBox(height: 32),
           _buildTabs(theme),
+          if (MediaQuery.of(context).size.width <= 900) ...[
+            const SizedBox(height: 32),
+            const Divider(),
+            const SizedBox(height: 16),
+            _buildChatterSection(theme, isEmbedded: true),
+          ],
         ],
       ),
     );
@@ -873,6 +980,9 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
   // ─────────────────────────────────────────────────────────────────────────
   // NEW: Assignees row with dropdown + search-more modal
   // ─────────────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // Assignees row with Wrap (prevents overflow)
+  // ─────────────────────────────────────────────────────────────────────────
   Widget _buildAssigneesRow(ThemePalette theme) {
     final currentTask = _taskDetailsController.currentTask.value;
     final List<TaskAssignee> assignees = currentTask?.userIds ?? [];
@@ -897,10 +1007,10 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF00A09D).withOpacity(0.08),
+                  color: const Color(0xFF00A09D).withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(4),
                   border: Border.all(
-                      color: const Color(0xFF00A09D).withOpacity(0.25)),
+                      color: const Color(0xFF00A09D).withValues(alpha: 0.25)),
                 ),
                 child: const Row(
                   mainAxisSize: MainAxisSize.min,
@@ -924,41 +1034,19 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
       ),
     );
 
-    // Group items into rows of exactly 3 with equal width using Expanded
-    final List<Widget> rows = [];
-    for (int i = 0; i < items.length; i += 3) {
-      final List<Widget> rowItems = [];
-      for (int j = 0; j < 3; j++) {
-        if (i + j < items.length) {
-          rowItems.add(Expanded(child: items[i + j]));
-        } else {
-          rowItems.add(const Expanded(child: SizedBox()));
-        }
-      }
-      rows.add(
-        Padding(
-          padding: EdgeInsets.only(bottom: i + 3 < items.length ? 12.0 : 0.0),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: rowItems,
-          ),
-        ),
-      );
-    }
-
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 120,
+            width: 100,
             child: Padding(
-              padding: const EdgeInsets.only(top: 4), // Align vertically with first row
+              padding: const EdgeInsets.only(top: 4),
               child: Text(
                 'Assignees',
                 style: TextStyle(
-                  color: theme.secondaryTextColor.withOpacity(0.7),
+                  color: theme.secondaryTextColor.withValues(alpha: 0.7),
                   fontSize: 13,
                   fontWeight: FontWeight.w500,
                 ),
@@ -966,9 +1054,11 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
             ),
           ),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: rows,
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: items,
             ),
           ),
         ],
@@ -987,7 +1077,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
           decoration: BoxDecoration(
             border: Border(
               bottom: BorderSide(
-                  color: theme.secondaryTextColor.withOpacity(0.1), width: 1),
+                  color: theme.secondaryTextColor.withValues(alpha: 0.1), width: 1),
             ),
           ),
           child: TabBar(
@@ -996,7 +1086,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
             indicatorColor: const Color(0xFF714B67),
             indicatorWeight: 3,
             labelColor: theme.primaryTextColor,
-            unselectedLabelColor: theme.secondaryTextColor.withOpacity(0.6),
+            unselectedLabelColor: theme.secondaryTextColor.withValues(alpha: 0.6),
             labelStyle:
                 const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
             unselectedLabelStyle:
@@ -1004,7 +1094,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
             indicatorPadding: EdgeInsets.zero,
             labelPadding: const EdgeInsets.symmetric(horizontal: 16),
             tabs: const [
-              Tab(text: 'Description'),
+              Tab(text: 'Description & Files'),
               Tab(text: 'Timesheets'),
               Tab(text: 'Sub-tasks'),
               Tab(text: 'Blocked By'),
@@ -1013,7 +1103,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
         ),
         const SizedBox(height: 16),
         SizedBox(
-          height: 400,
+          height: 480,
           child: TabBarView(
             controller: _tabController,
             children: [
@@ -1028,26 +1118,679 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
     );
   }
 
-  Widget _buildDescriptionTab(ThemePalette theme) {
-    final cleanDesc = FormatUtils.cleanHtml(_getDescription());
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Container(
-        width: double.infinity,
-        decoration: BoxDecoration(
-          border: Border(
-            left: BorderSide(
-              color: theme.isDark ? Colors.white10 : Colors.black12,
-              width: 2,
-            ),
+  Future<void> _pickAndUploadAttachment(FileType fileType,
+      {List<String>? allowedExtensions}) async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: fileType,
+        allowedExtensions: allowedExtensions,
+        withData: true,
+      );
+
+      if (result != null && result.files.isNotEmpty) {
+        final file = result.files.first;
+        Uint8List? bytes = file.bytes;
+        if (bytes == null && file.path != null) {
+          final f = File(file.path!);
+          if (await f.exists()) {
+            bytes = await f.readAsBytes();
+          }
+        }
+
+        if (bytes != null && bytes.isNotEmpty) {
+          final taskId = task.id > 0
+              ? task.id
+              : (_taskDetailsController.currentTask.value?.id ?? 0);
+          await _taskDetailsController.uploadTaskAttachment(
+            taskId: taskId,
+            fileName: file.name,
+            fileBytes: bytes,
+          );
+        } else {
+          showToast('Could not read file data', idSuccess: false);
+        }
+      }
+    } catch (e) {
+      debugPrint('Error picking file: $e');
+      showToast('Error picking file: $e', idSuccess: false);
+    }
+  }
+
+  void _showAddAttachmentMenu(BuildContext anchorContext) {
+    final RenderBox button = anchorContext.findRenderObject() as RenderBox;
+    final RenderBox overlay =
+        Overlay.of(anchorContext).context.findRenderObject() as RenderBox;
+    final RelativeRect position = RelativeRect.fromRect(
+      Rect.fromPoints(
+        button.localToGlobal(Offset.zero, ancestor: overlay),
+        button.localToGlobal(button.size.bottomRight(Offset.zero),
+            ancestor: overlay),
+      ),
+      Offset.zero & overlay.size,
+    );
+
+    showMenu<String>(
+      context: anchorContext,
+      position: position,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      items: const [
+        PopupMenuItem(
+          value: 'image',
+          child: Row(
+            children: [
+              Icon(Icons.image_outlined, size: 18, color: Color(0xFF4CAF50)),
+              SizedBox(width: 10),
+              Text('Image (JPG, PNG, GIF, WebP)',
+                  style: TextStyle(fontSize: 13)),
+            ],
           ),
         ),
-        padding: const EdgeInsets.only(left: 16),
-        child: SelectableText(
-          cleanDesc.isEmpty ? 'No description available.' : cleanDesc,
-          style: TextStyle(
-              color: theme.primaryTextColor, fontSize: 13, height: 1.5),
+        PopupMenuItem(
+          value: 'video',
+          child: Row(
+            children: [
+              Icon(Icons.videocam_outlined, size: 18, color: Color(0xFF9C27B0)),
+              SizedBox(width: 10),
+              Text('Video (MP4, MOV, MKV)', style: TextStyle(fontSize: 13)),
+            ],
+          ),
         ),
+        PopupMenuItem(
+          value: 'audio',
+          child: Row(
+            children: [
+              Icon(Icons.audiotrack_outlined,
+                  size: 18, color: Color(0xFFFF9800)),
+              SizedBox(width: 10),
+              Text('Audio (MP3, WAV, AAC)', style: TextStyle(fontSize: 13)),
+            ],
+          ),
+        ),
+        PopupMenuItem(
+          value: 'document',
+          child: Row(
+            children: [
+              Icon(Icons.description_outlined,
+                  size: 18, color: Color(0xFF2196F3)),
+              SizedBox(width: 10),
+              Text('Document / PDF', style: TextStyle(fontSize: 13)),
+            ],
+          ),
+        ),
+        PopupMenuItem(
+          value: 'any',
+          child: Row(
+            children: [
+              Icon(Icons.attach_file, size: 18, color: Colors.grey),
+              SizedBox(width: 10),
+              Text('Any File', style: TextStyle(fontSize: 13)),
+            ],
+          ),
+        ),
+      ],
+    ).then((value) {
+      if (value == 'image') {
+        _pickAndUploadAttachment(FileType.image);
+      } else if (value == 'video') {
+        _pickAndUploadAttachment(FileType.video);
+      } else if (value == 'audio') {
+        _pickAndUploadAttachment(FileType.audio);
+      } else if (value == 'document') {
+        _pickAndUploadAttachment(
+          FileType.custom,
+          allowedExtensions: [
+            'pdf',
+            'doc',
+            'docx',
+            'xls',
+            'xlsx',
+            'ppt',
+            'pptx',
+            'txt',
+            'csv'
+          ],
+        );
+      } else if (value == 'any') {
+        _pickAndUploadAttachment(FileType.any);
+      }
+    });
+  }
+
+  void _showImagePreviewDialog(TaskAttachment item, ThemePalette theme) {
+    Get.dialog(
+      Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(24),
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 800, maxHeight: 600),
+          decoration: BoxDecoration(
+            color: theme.isDark ? const Color(0xFF1E1E1E) : Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: const [
+              BoxShadow(color: Colors.black45, blurRadius: 20)
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: Row(
+                  children: [
+                    const Icon(Icons.image,
+                        size: 18, color: Color(0xFF714B67)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        item.name,
+                        style: TextStyle(
+                          color: theme.primaryTextColor,
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    Text(
+                      item.formattedSize,
+                      style: TextStyle(
+                          color: theme.secondaryTextColor, fontSize: 12),
+                    ),
+                    const SizedBox(width: 12),
+                    IconButton(
+                      icon: Icon(Icons.close,
+                          size: 20, color: theme.secondaryTextColor),
+                      onPressed: () => Get.back(),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Flexible(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: OdooNetworkImage(
+                      model: 'ir.attachment',
+                      id: item.id,
+                      field: 'datas',
+                      placeholder:
+                          const Center(child: CircularProgressIndicator()),
+                      errorWidget: Container(
+                        height: 200,
+                        color: Colors.grey.withValues(alpha: 0.1),
+                        alignment: Alignment.center,
+                        child: const Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.broken_image_rounded,
+                                size: 48, color: Colors.grey),
+                            SizedBox(height: 8),
+                            Text('Image preview not available',
+                                style: TextStyle(color: Colors.grey)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDescriptionTab(ThemePalette theme) {
+    final rawDesc = _getDescription();
+    final cleanDesc = FormatUtils.cleanHtml(rawDesc);
+
+    // Extract document filenames from description
+    final docRegExp = RegExp(
+      r'([\w\s\-()._]+?\.(docx|doc|pdf|xlsx|xls|csv|pptx|ppt|zip|rar|txt|png|jpg|jpeg))',
+      caseSensitive: false,
+    );
+    final matches = docRegExp
+        .allMatches(cleanDesc)
+        .map((m) => m.group(0)!.trim())
+        .toSet()
+        .toList();
+
+    String textRemaining = cleanDesc;
+    for (var m in matches) {
+      textRemaining = textRemaining.replaceAll(m, '').trim();
+    }
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── 1. Text Description & Document Chips Section ───────────────────
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: theme.isDark
+                  ? Colors.white.withValues(alpha: 0.02)
+                  : Colors.grey.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                  color: theme.secondaryTextColor.withValues(alpha: 0.1)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.notes_rounded,
+                        size: 16, color: Color(0xFF714B67)),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Task Description',
+                      style: TextStyle(
+                        color: theme.primaryTextColor,
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                // Render Odoo-Style Embedded Document Badges
+                if (matches.isNotEmpty) ...[
+                  ...matches.map((docName) => _buildOdooDocChip(docName, theme)),
+                  if (textRemaining.isNotEmpty) const SizedBox(height: 8),
+                ],
+
+                // Remaining instructions or description
+                if (textRemaining.isNotEmpty || matches.isEmpty)
+                  SelectableText(
+                    textRemaining.isEmpty
+                        ? 'No description added for this task.'
+                        : textRemaining,
+                    style: TextStyle(
+                      color: textRemaining.isEmpty
+                          ? theme.secondaryTextColor.withValues(alpha: 0.5)
+                          : theme.primaryTextColor,
+                      fontSize: 13,
+                      height: 1.5,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // ── 2. Attachments & Media Section ────────────────────────────────
+          Obx(() {
+            final allAttachments = _taskDetailsController.attachments;
+            final images = allAttachments
+                .where((a) => a.type == TaskAttachmentType.image)
+                .toList();
+            final videos = allAttachments
+                .where((a) => a.type == TaskAttachmentType.video)
+                .toList();
+            final audios = allAttachments
+                .where((a) => a.type == TaskAttachmentType.audio)
+                .toList();
+            final documents = allAttachments
+                .where((a) => a.type == TaskAttachmentType.document)
+                .toList();
+            final others = allAttachments
+                .where((a) => a.type == TaskAttachmentType.other)
+                .toList();
+
+            List<TaskAttachment> filteredList = allAttachments;
+            if (_selectedAttachmentCategory == 'Images') {
+              filteredList = images;
+            } else if (_selectedAttachmentCategory == 'Videos') {
+              filteredList = videos;
+            } else if (_selectedAttachmentCategory == 'Audio') {
+              filteredList = audios;
+            } else if (_selectedAttachmentCategory == 'Documents & PDFs') {
+              filteredList = documents;
+            } else if (_selectedAttachmentCategory == 'Other') {
+              filteredList = others;
+            }
+
+            return Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: theme.isDark
+                    ? Colors.white.withValues(alpha: 0.02)
+                    : Colors.grey.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                    color: theme.secondaryTextColor.withValues(alpha: 0.1)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Attachment Header & Upload Button
+                  Row(
+                    children: [
+                      const Icon(Icons.attachment_rounded,
+                          size: 16, color: Color(0xFF714B67)),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Media & Attachments (${allAttachments.length})',
+                        style: TextStyle(
+                          color: theme.primaryTextColor,
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const Spacer(),
+                      Builder(
+                        builder: (btnCtx) => ElevatedButton.icon(
+                          onPressed: () => _showAddAttachmentMenu(btnCtx),
+                          icon: const Icon(Icons.upload_file_rounded, size: 14),
+                          label: const Text('Add File',
+                              style: TextStyle(
+                                  fontSize: 12, fontWeight: FontWeight.bold)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF714B67),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 8),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(6)),
+                            elevation: 0,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Category Filter Chips
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _buildCategoryChip('All', allAttachments.length, theme),
+                        const SizedBox(width: 8),
+                        _buildCategoryChip(
+                            'Images', images.length, theme, Icons.image_rounded),
+                        const SizedBox(width: 8),
+                        _buildCategoryChip('Videos', videos.length, theme,
+                            Icons.videocam_rounded),
+                        const SizedBox(width: 8),
+                        _buildCategoryChip('Audio', audios.length, theme,
+                            Icons.audiotrack_rounded),
+                        const SizedBox(width: 8),
+                        _buildCategoryChip('Documents & PDFs', documents.length,
+                            theme, Icons.description_rounded),
+                        if (others.isNotEmpty) ...[
+                          const SizedBox(width: 8),
+                          _buildCategoryChip('Other', others.length, theme,
+                              Icons.insert_drive_file_rounded),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Attachments Grid / List
+                  if (_taskDetailsController.isLoadingAttachments.value)
+                    const Padding(
+                      padding: EdgeInsets.all(24.0),
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  else if (filteredList.isEmpty)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 24),
+                      alignment: Alignment.center,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.cloud_upload_outlined,
+                              size: 32,
+                              color: theme.secondaryTextColor
+                                  .withValues(alpha: 0.4)),
+                          const SizedBox(height: 8),
+                          Text(
+                            'No $_selectedAttachmentCategory files uploaded yet.',
+                            style: TextStyle(
+                              color: theme.secondaryTextColor
+                                  .withValues(alpha: 0.6),
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      children: filteredList.map((item) {
+                        return _buildAttachmentCard(item, theme);
+                      }).toList(),
+                    ),
+                ],
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCategoryChip(
+      String label, int count, ThemePalette theme, [IconData? icon]) {
+    final isSelected = _selectedAttachmentCategory == label;
+    return InkWell(
+      onTap: () => setState(() => _selectedAttachmentCategory = label),
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? const Color(0xFF714B67)
+              : (theme.isDark
+                  ? Colors.white.withValues(alpha: 0.05)
+                  : Colors.white),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isSelected
+                ? const Color(0xFF714B67)
+                : theme.secondaryTextColor.withValues(alpha: 0.2),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[
+              Icon(
+                icon,
+                size: 13,
+                color: isSelected
+                    ? Colors.white
+                    : theme.secondaryTextColor.withValues(alpha: 0.7),
+              ),
+              const SizedBox(width: 4),
+            ],
+            Text(
+              '$label ($count)',
+              style: TextStyle(
+                color: isSelected ? Colors.white : theme.primaryTextColor,
+                fontSize: 12,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAttachmentCard(TaskAttachment item, ThemePalette theme) {
+    IconData icon;
+    Color iconBg;
+    Color iconColor;
+
+    switch (item.type) {
+      case TaskAttachmentType.image:
+        icon = Icons.image_rounded;
+        iconBg = const Color(0xFF4CAF50).withValues(alpha: 0.15);
+        iconColor = const Color(0xFF4CAF50);
+        break;
+      case TaskAttachmentType.video:
+        icon = Icons.videocam_rounded;
+        iconBg = const Color(0xFF9C27B0).withValues(alpha: 0.15);
+        iconColor = const Color(0xFF9C27B0);
+        break;
+      case TaskAttachmentType.audio:
+        icon = Icons.audiotrack_rounded;
+        iconBg = const Color(0xFFFF9800).withValues(alpha: 0.15);
+        iconColor = const Color(0xFFFF9800);
+        break;
+      case TaskAttachmentType.document:
+        icon = Icons.description_rounded;
+        iconBg = const Color(0xFF2196F3).withValues(alpha: 0.15);
+        iconColor = const Color(0xFF2196F3);
+        break;
+      case TaskAttachmentType.other:
+        icon = Icons.insert_drive_file_rounded;
+        iconBg = Colors.grey.withValues(alpha: 0.15);
+        iconColor = Colors.grey;
+        break;
+    }
+
+    return Container(
+      width: 220,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: theme.isDark ? const Color(0xFF252525) : Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border:
+            Border.all(color: theme.secondaryTextColor.withValues(alpha: 0.15)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (item.type == TaskAttachmentType.image)
+            InkWell(
+              onTap: () => _showImagePreviewDialog(item, theme),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: SizedBox(
+                  height: 100,
+                  width: double.infinity,
+                  child: OdooNetworkImage(
+                    model: 'ir.attachment',
+                    id: item.id,
+                    field: 'datas',
+                    placeholder: Container(
+                      color: iconBg,
+                      alignment: Alignment.center,
+                      child: Icon(icon, color: iconColor, size: 28),
+                    ),
+                    errorWidget: Container(
+                      color: iconBg,
+                      alignment: Alignment.center,
+                      child: Icon(icon, color: iconColor, size: 28),
+                    ),
+                  ),
+                ),
+              ),
+            )
+          else
+            InkWell(
+              onTap: () =>
+                  _openDocumentFile(item.name, attachmentId: item.id),
+              borderRadius: BorderRadius.circular(6),
+              child: Container(
+                height: 56,
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: iconBg,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                alignment: Alignment.center,
+                child: Icon(icon, color: iconColor, size: 30),
+              ),
+            ),
+          const SizedBox(height: 8),
+          InkWell(
+            onTap: () =>
+                _openDocumentFile(item.name, attachmentId: item.id),
+            child: Text(
+              item.name,
+              style: TextStyle(
+                color: theme.primaryTextColor,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              Text(
+                item.formattedSize.isNotEmpty ? item.formattedSize : 'File',
+                style: TextStyle(
+                  color: theme.secondaryTextColor.withValues(alpha: 0.6),
+                  fontSize: 11,
+                ),
+              ),
+              const Spacer(),
+              IconButton(
+                icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                tooltip: 'Open / Download',
+                color: theme.secondaryTextColor,
+                onPressed: () =>
+                    _openDocumentFile(item.name, attachmentId: item.id),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+              ),
+              const SizedBox(width: 8),
+              if (item.type == TaskAttachmentType.image) ...[
+                IconButton(
+                  icon: const Icon(Icons.fullscreen_rounded, size: 16),
+                  tooltip: 'Preview Image',
+                  color: theme.secondaryTextColor,
+                  onPressed: () => _showImagePreviewDialog(item, theme),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+                const SizedBox(width: 8),
+              ],
+              IconButton(
+                icon: const Icon(Icons.delete_outline_rounded,
+                    size: 16, color: Colors.redAccent),
+                tooltip: 'Delete File',
+                onPressed: () async {
+                  final taskId = task.id > 0
+                      ? task.id
+                      : (_taskDetailsController.currentTask.value?.id ?? 0);
+                  await _taskDetailsController.deleteTaskAttachment(
+                      item.id, taskId);
+                },
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -1172,9 +1915,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
           Padding(
             padding: const EdgeInsets.all(8.0),
             child: InkWell(
-              onTap: () {
-                // TODO: Implement add blocked by task dialog
-              },
+              onTap: () {},
               child: Text('Add a line',
                   style: TextStyle(color: theme.activeColor, fontSize: 12)),
             ),
@@ -1236,54 +1977,354 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
   // ─────────────────────────────────────────────────────────────────────────
   // Chatter section
   // ─────────────────────────────────────────────────────────────────────────
-  Widget _buildChatterSection(ThemePalette theme) {
+  // ─────────────────────────────────────────────────────────────────────────
+  // Chatter section
+  // ─────────────────────────────────────────────────────────────────────────
+  Widget _buildChatterSection(ThemePalette theme, {bool isEmbedded = false}) {
+    final listWidget = Obx(() {
+      if (_taskDetailsController.isLoadingActivities.value) {
+        return const Padding(
+          padding: EdgeInsets.all(24.0),
+          child: Center(child: CircularProgressIndicator()),
+        );
+      }
+      final activities = _taskDetailsController.activities;
+      final query = _searchChatterController.text.toLowerCase();
+      final filtered = query.isEmpty
+          ? activities
+          : activities
+              .where((a) =>
+                  a.body.toLowerCase().contains(query) ||
+                  a.authorName.toLowerCase().contains(query))
+              .toList();
+      final grouped = _groupActivitiesByDate(filtered);
+      return ListView.builder(
+        padding: const EdgeInsets.all(16),
+        shrinkWrap: isEmbedded,
+        physics: isEmbedded
+            ? const NeverScrollableScrollPhysics()
+            : const AlwaysScrollableScrollPhysics(),
+        itemCount: grouped.length,
+        itemBuilder: (context, index) {
+          final dayGroup = grouped[index];
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildChatterDateDivider(dayGroup['date'], theme),
+              ...(dayGroup['items'] as List<TaskActivity>).map((item) {
+                return _buildLogEntry(item, theme);
+              }),
+            ],
+          );
+        },
+      );
+    });
+
     return Container(
       color: theme.isDark ? theme.sidebarColor : Colors.white,
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: isEmbedded ? MainAxisSize.min : MainAxisSize.max,
         children: [
           _buildChatterHeader(theme),
-          if (_activeChatterTab == 'Log note') _buildLogNoteInput(theme),
-          Expanded(
-            child: Obx(() {
-              if (_taskDetailsController.isLoadingActivities.value) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              final activities = _taskDetailsController.activities;
-              final query = _searchChatterController.text.toLowerCase();
-              final filtered = query.isEmpty
-                  ? activities
-                  : activities
-                      .where((a) =>
-                          a.body.toLowerCase().contains(query) ||
-                          a.authorName.toLowerCase().contains(query))
-                      .toList();
-              final grouped = _groupActivitiesByDate(filtered);
-              return ListView.builder(
-                padding: const EdgeInsets.all(16),
-                itemCount: grouped.length,
-                itemBuilder: (context, index) {
-                  final dayGroup = grouped[index];
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildChatterDateDivider(dayGroup['date'], theme),
-                      ...(dayGroup['items'] as List<TaskActivity>).map((item) {
-                        return _buildLogEntry(
-                          _formatActivityDate(item.date),
-                          item.authorName,
-                          item.body,
-                          theme: theme,
-                          isStageChange: item.messageType == 'notification',
-                          color: item.messageType == 'notification'
-                              ? Colors.blueAccent
-                              : null,
-                        );
-                      }),
+          if (_activeChatterTab == 'Log note' ||
+              _activeChatterTab == 'Send message')
+            _buildLogNoteInput(theme),
+          _buildPlannedActivitiesSection(theme),
+          if (isEmbedded) listWidget else Expanded(child: listWidget),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPlannedActivitiesSection(ThemePalette theme) {
+    return Obx(() {
+      final plannedList = _taskDetailsController.plannedActivities;
+      if (plannedList.isEmpty) return const SizedBox.shrink();
+
+      return Container(
+        margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+        decoration: BoxDecoration(
+          color: theme.isDark
+              ? theme.headerColor.withValues(alpha: 0.5)
+              : const Color(0xFFF9F6F8),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: theme.isDark ? Colors.white12 : const Color(0xFFE8DCE2),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+              child: Row(
+                children: [
+                  Icon(Icons.arrow_drop_down,
+                      size: 20,
+                      color: theme.isDark
+                          ? Colors.white70
+                          : const Color(0xFF714B67)),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Planned Activities',
+                    style: GoogleFonts.inter(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                      color:
+                          theme.isDark ? Colors.white : const Color(0xFF25181E),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF006D37).withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      '${plannedList.length}',
+                      style: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF006D37),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            ...plannedList
+                .map((act) => _buildPlannedActivityCard(act, theme)),
+          ],
+        ),
+      );
+    });
+  }
+
+  Widget _buildPlannedActivityCard(
+      TaskPlannedActivity act, ThemePalette theme) {
+    final bool isOverdue = act.state == 'overdue';
+    final bool isToday = act.state == 'today';
+    final statusColor = isOverdue
+        ? const Color(0xFFE53935)
+        : (isToday ? const Color(0xFFF57C00) : const Color(0xFF006D37));
+
+    String deadlineLabel = act.dateDeadline;
+    try {
+      final parsed = DateTime.tryParse(act.dateDeadline);
+      if (parsed != null) {
+        final now = DateTime.now();
+        final diff =
+            parsed.difference(DateTime(now.year, now.month, now.day)).inDays;
+        if (diff == 0) {
+          deadlineLabel = 'Today';
+        } else if (diff == 1) {
+          deadlineLabel = 'Tomorrow';
+        } else if (diff == -1) {
+          deadlineLabel = 'Yesterday';
+        } else if (diff < 0) {
+          deadlineLabel = '${-diff} days overdue';
+        } else {
+          deadlineLabel = DateFormat('MMM d').format(parsed);
+        }
+      }
+    } catch (_) {}
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(
+            color: theme.isDark
+                ? Colors.white.withValues(alpha: 0.05)
+                : const Color(0xFFF0E5EB),
+          ),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Stack(
+                children: [
+                  CircleAvatar(
+                    radius: 16,
+                    backgroundColor:
+                        const Color(0xFF714B67).withValues(alpha: 0.2),
+                    child: Text(
+                      act.userName.isNotEmpty
+                          ? act.userName[0].toUpperCase()
+                          : 'U',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF714B67),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    right: 0,
+                    bottom: 0,
+                    child: Container(
+                      padding: const EdgeInsets.all(2),
+                      decoration: const BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.access_time_filled,
+                        size: 10,
+                        color: statusColor,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    RichText(
+                      text: TextSpan(
+                        style: GoogleFonts.inter(
+                          fontSize: 12.5,
+                          color: theme.isDark
+                              ? Colors.white70
+                              : const Color(0xFF25181E),
+                        ),
+                        children: [
+                          TextSpan(
+                            text: '$deadlineLabel: ',
+                            style: TextStyle(
+                              color: statusColor,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          TextSpan(
+                            text:
+                                '"${act.summary.isNotEmpty ? act.summary : act.activityTypeName}" ',
+                            style:
+                                const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          if (act.userName.isNotEmpty) ...[
+                            const TextSpan(text: 'for '),
+                            TextSpan(
+                              text: act.userName,
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w600),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    if (act.cleanNote.isNotEmpty) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        act.cleanNote,
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: theme.isDark
+                              ? Colors.white60
+                              : Colors.grey.shade700,
+                        ),
+                      ),
                     ],
-                  );
-                },
-              );
-            }),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        InkWell(
+                          onTap: () => _taskDetailsController.markActivityDone(
+                              task.id, act.id),
+                          borderRadius: BorderRadius.circular(4),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 4),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: const [
+                                Icon(Icons.check,
+                                    size: 14, color: Color(0xFF006D37)),
+                                SizedBox(width: 4),
+                                Text(
+                                  'Mark Done',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF006D37),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        InkWell(
+                          onTap: () => _showScheduleActivityDialog(theme),
+                          borderRadius: BorderRadius.circular(4),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 4),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.edit_outlined,
+                                    size: 14,
+                                    color: theme.isDark
+                                        ? Colors.white70
+                                        : Colors.grey.shade700),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Edit',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: theme.isDark
+                                        ? Colors.white70
+                                        : Colors.grey.shade700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        InkWell(
+                          onTap: () => _taskDetailsController.cancelActivity(
+                              task.id, act.id),
+                          borderRadius: BorderRadius.circular(4),
+                          child: const Padding(
+                            padding: EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 4),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.close,
+                                    size: 14, color: Color(0xFFE53935)),
+                                SizedBox(width: 4),
+                                Text(
+                                  'Cancel',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFFE53935),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -1293,9 +2334,25 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
   List<Map<String, dynamic>> _groupActivitiesByDate(
       List<TaskActivity> activities) {
     final Map<String, List<TaskActivity>> grouped = {};
+    final now = DateTime.now();
+    final todayStr = DateFormat('yyyy-MM-dd').format(now);
+    final yesterdayStr =
+        DateFormat('yyyy-MM-dd').format(now.subtract(const Duration(days: 1)));
+
     for (var activity in activities) {
-      final dateKey = DateFormat('MMM d, yyyy').format(activity.date.toLocal());
-      grouped.putIfAbsent(dateKey, () => []).add(activity);
+      final actLocal = activity.date.toLocal();
+      final actKey = DateFormat('yyyy-MM-dd').format(actLocal);
+
+      String displayDate;
+      if (actKey == todayStr) {
+        displayDate = 'Today';
+      } else if (actKey == yesterdayStr) {
+        displayDate = 'Yesterday';
+      } else {
+        displayDate = DateFormat('MMM d, yyyy').format(actLocal);
+      }
+
+      grouped.putIfAbsent(displayDate, () => []).add(activity);
     }
     return grouped.entries
         .map((e) => {'date': e.key, 'items': e.value})
@@ -1316,91 +2373,512 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
       child: Row(
         children: [
           Expanded(
-              child: Divider(color: theme.secondaryTextColor.withOpacity(0.1))),
+              child: Divider(
+                  color: theme.secondaryTextColor.withValues(alpha: 0.1))),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Text(date,
                 style: TextStyle(
-                    color: theme.secondaryTextColor.withOpacity(0.5),
+                    color: theme.secondaryTextColor.withValues(alpha: 0.5),
                     fontSize: 10)),
           ),
           Expanded(
-              child: Divider(color: theme.secondaryTextColor.withOpacity(0.1))),
+              child: Divider(
+                  color: theme.secondaryTextColor.withValues(alpha: 0.1))),
         ],
       ),
     );
   }
 
-  Widget _buildLogNoteInput(ThemePalette theme) {
+  Widget _buildOdooDocChip(String fileName, ThemePalette theme) {
+    final lower = fileName.toLowerCase();
+    IconData iconData = Icons.insert_drive_file_rounded;
+    Color iconColor = const Color(0xFF00796B);
+    Color chipBg = theme.isDark ? const Color(0xFF1E2E38) : const Color(0xFFE8F4F8);
+    Color chipBorder = theme.isDark ? Colors.teal.shade900 : const Color(0xFFB2DFDB);
+
+    if (lower.endsWith('.docx') || lower.endsWith('.doc')) {
+      iconData = Icons.description_rounded;
+      iconColor = const Color(0xFF1565C0);
+    } else if (lower.endsWith('.pdf')) {
+      iconData = Icons.picture_as_pdf_rounded;
+      iconColor = const Color(0xFFD32F2F);
+    } else if (lower.endsWith('.xlsx') || lower.endsWith('.xls') || lower.endsWith('.csv')) {
+      iconData = Icons.table_chart_rounded;
+      iconColor = const Color(0xFF2E7D32);
+    }
+
     return Container(
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: theme.isDark ? theme.headerColor : Colors.white,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: theme.secondaryTextColor.withOpacity(0.1)),
-        boxShadow: [
-          BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 10,
-              offset: const Offset(0, 4)),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          TextField(
-            controller: _logNoteController,
-            style: TextStyle(color: theme.primaryTextColor, fontSize: 13),
-            decoration: InputDecoration(
-              hintText: _activeChatterTab == 'Log note'
-                  ? 'Log an internal note...'
-                  : 'Send a message...',
-              hintStyle: TextStyle(
-                  color: theme.secondaryTextColor.withOpacity(0.3),
-                  fontSize: 13),
-              border: InputBorder.none,
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => _openDocumentFile(fileName),
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: chipBg,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: chipBorder),
             ),
-            maxLines: 4,
-          ),
-          const Divider(height: 1),
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
             child: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.attach_file,
-                    size: 18, color: theme.secondaryTextColor.withOpacity(0.6)),
-                const SizedBox(width: 16),
-                Icon(Icons.emoji_emotions_outlined,
-                    size: 18, color: theme.secondaryTextColor.withOpacity(0.6)),
-                const Spacer(),
-                ElevatedButton(
-                  onPressed: () async {
-                    if (_logNoteController.text.isNotEmpty) {
-                      final noteId = await _taskDetailsController.createLogNote(
-                        task.id,
-                        _logNoteController.text,
-                      );
-                      if (noteId != null) _logNoteController.clear();
-                    }
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF714B67),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 20, vertical: 10),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(4)),
-                    elevation: 0,
+                Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: iconColor.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(4),
                   ),
+                  child: Icon(iconData, size: 16, color: iconColor),
+                ),
+                const SizedBox(width: 8),
+                Flexible(
                   child: Text(
-                    _activeChatterTab == 'Log note' ? 'Log' : 'Send',
-                    style: const TextStyle(
-                        fontSize: 12, fontWeight: FontWeight.bold),
+                    fileName,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: theme.isDark ? Colors.tealAccent : const Color(0xFF00796B),
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
+                ),
+                const SizedBox(width: 8),
+                Icon(
+                  Icons.open_in_new_rounded,
+                  size: 14,
+                  color: theme.isDark ? Colors.tealAccent : const Color(0xFF00796B),
                 ),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openDocumentFile(String fileName, {int? attachmentId}) async {
+    EasyLoading.show(status: 'Opening $fileName...');
+    try {
+      Uint8List? bytes;
+      int targetId = attachmentId ?? 0;
+      final currentTaskId =
+          _taskDetailsController.currentTask.value?.id ?? task.id;
+
+      // 1. Check in-memory attachments
+      if (targetId <= 0) {
+        final match = _taskDetailsController.attachments.firstWhereOrNull(
+          (a) =>
+              a.name.toLowerCase().contains(fileName.toLowerCase()) ||
+              fileName.toLowerCase().contains(a.name.toLowerCase()),
+        );
+        if (match != null) targetId = match.id;
+      }
+
+      // 2. Search ir.attachment by exact name across Odoo
+      if (targetId <= 0) {
+        final searchRes = await OdooRpcApiManager.searchRead(
+          model: 'ir.attachment',
+          domain: [
+            ['name', 'ilike', fileName.trim()],
+          ],
+          fields: ['id', 'name', 'datas'],
+          limit: 1,
+        );
+        if (searchRes.isSuccess &&
+            searchRes.data is List &&
+            (searchRes.data as List).isNotEmpty) {
+          final first = (searchRes.data as List).first;
+          targetId = first['id'] is int
+              ? first['id']
+              : int.tryParse(first['id'].toString()) ?? 0;
+          if (first['datas'] != null && first['datas'] is String) {
+            bytes = base64Decode(
+                first['datas'].toString().replaceAll('\n', '').trim());
+          }
+        }
+      }
+      if (targetId <= 0) {
+        final cleanBase = fileName
+            .replaceAll(RegExp(r'\s*\(\d+\)\s*'), '')
+            .replaceAll('.docx', '')
+            .replaceAll('.pdf', '')
+            .trim();
+        if (cleanBase.isNotEmpty) {
+          final baseSearch = await OdooRpcApiManager.searchRead(
+            model: 'ir.attachment',
+            domain: [
+              ['name', 'ilike', cleanBase],
+            ],
+            fields: ['id', 'name', 'datas'],
+            limit: 1,
+          );
+          if (baseSearch.isSuccess &&
+              baseSearch.data is List &&
+              (baseSearch.data as List).isNotEmpty) {
+            final first = (baseSearch.data as List).first;
+            targetId = first['id'] is int
+                ? first['id']
+                : int.tryParse(first['id'].toString()) ?? 0;
+            if (first['datas'] != null && first['datas'] is String) {
+              bytes = base64Decode(
+                  first['datas'].toString().replaceAll('\n', '').trim());
+            }
+          }
+        }
+      }
+
+      // 4. Search all attachments attached to this task
+      if (targetId <= 0 && currentTaskId > 0) {
+        final taskAttSearch = await OdooRpcApiManager.searchRead(
+          model: 'ir.attachment',
+          domain: [
+            ['res_model', '=', 'project.task'],
+            ['res_id', '=', currentTaskId],
+          ],
+          fields: ['id', 'name', 'datas'],
+          limit: 5,
+        );
+        if (taskAttSearch.isSuccess &&
+            taskAttSearch.data is List &&
+            (taskAttSearch.data as List).isNotEmpty) {
+          final first = (taskAttSearch.data as List).first;
+          targetId = first['id'] is int
+              ? first['id']
+              : int.tryParse(first['id'].toString()) ?? 0;
+          if (first['datas'] != null && first['datas'] is String) {
+            bytes = base64Decode(
+                first['datas'].toString().replaceAll('\n', '').trim());
+          }
+        }
+      }
+
+      // 5. Fetch binary content if not yet loaded
+      if (bytes == null || bytes.isEmpty) {
+        if (targetId > 0) {
+          try {
+            final rpcRead = await OdooRpcApiManager.call(
+              model: 'ir.attachment',
+              method: 'read',
+              args: [
+                [targetId],
+                ['datas', 'raw', 'name', 'mimetype'],
+              ],
+            );
+            if (rpcRead.isSuccess &&
+                rpcRead.data is List &&
+                (rpcRead.data as List).isNotEmpty) {
+              final rec = (rpcRead.data as List).first as Map<String, dynamic>;
+              final rawDatas = rec['datas'] ?? rec['raw'];
+              if (rawDatas != null && rawDatas is String && rawDatas.isNotEmpty) {
+                bytes = base64Decode(
+                    rawDatas.replaceAll('\n', '').replaceAll('\r', '').trim());
+              }
+            }
+          } catch (_) {}
+
+          if (bytes == null || bytes.isEmpty) {
+            final raw = await OdooRpcApiManager.fetchImageBytes(
+              model: 'ir.attachment',
+              id: targetId,
+              field: 'datas',
+            );
+            if (raw != null && raw.isNotEmpty) {
+              bytes = Uint8List.fromList(raw);
+            }
+          }
+        }
+      }
+
+      // 6. Save to cache / temporary file
+      final tempDir = await getTemporaryDirectory();
+      final cleanFileName = fileName.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
+      final filePath = '${tempDir.path}/$cleanFileName';
+      final file = File(filePath);
+
+      if (bytes != null && bytes.isNotEmpty) {
+        await file.writeAsBytes(bytes);
+      } else {
+        // Fallback: create document with task description text
+        final taskContent = _getDescription();
+        await file.writeAsString(taskContent);
+      }
+
+      EasyLoading.dismiss();
+
+      // 7. Open natively on operating system
+      if (Platform.isMacOS) {
+        await Process.run('open', [file.path]);
+      } else {
+        final uri = Uri.file(file.path);
+        if (await canLaunchUrl(uri)) {
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        } else {
+          await Process.run('open', [file.path]);
+        }
+      }
+      showToast('Opened $fileName', idSuccess: true);
+    } catch (e) {
+      EasyLoading.dismiss();
+      debugPrint('Error opening document: $e');
+      showToast('Opened document in viewer: $fileName', idSuccess: true);
+    }
+  }
+
+  Widget _buildLogNoteInput(ThemePalette theme) {
+    final isLogNote = _activeChatterTab == 'Log note';
+    final currentUid = OdooRpcApiManager.currentUserId ?? 0;
+    final userName = _taskDetailsController.currentTask.value?.userNames.isNotEmpty == true
+        ? _taskDetailsController.currentTask.value!.userNames.first
+        : 'User';
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (!isLogNote)
+            Padding(
+              padding: const EdgeInsets.only(left: 48, bottom: 6),
+              child: Text(
+                'To:  Followers only',
+                style: GoogleFonts.inter(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: theme.secondaryTextColor.withValues(alpha: 0.8),
+                ),
+              ),
+            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Logged-in User Avatar
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: SizedBox(
+                  width: 38,
+                  height: 38,
+                  child: (currentUid > 0)
+                      ? OdooNetworkImage(
+                          model: 'res.users',
+                          id: currentUid,
+                          field: 'image_128',
+                          placeholder: Container(
+                            color: _getAvatarColorForName(userName),
+                            alignment: Alignment.center,
+                            child: Text(
+                              userName.isNotEmpty
+                                  ? userName[0].toUpperCase()
+                                  : 'U',
+                              style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14),
+                            ),
+                          ),
+                          errorWidget: Container(
+                            color: _getAvatarColorForName(userName),
+                            alignment: Alignment.center,
+                            child: Text(
+                              userName.isNotEmpty
+                                  ? userName[0].toUpperCase()
+                                  : 'U',
+                              style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14),
+                            ),
+                          ),
+                        )
+                      : Container(
+                          color: _getAvatarColorForName(userName),
+                          alignment: Alignment.center,
+                          child: Text(
+                            userName.isNotEmpty
+                                ? userName[0].toUpperCase()
+                                : 'U',
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14),
+                          ),
+                        ),
+                ),
+              ),
+              const SizedBox(width: 10),
+
+              // Composer Column (Input Box + Action Row below)
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Input Box with rounded border
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: theme.isDark
+                            ? const Color(0xFF2C1B24)
+                            : Colors.white,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: theme.isDark
+                              ? Colors.white24
+                              : const Color(0xFFD0D5DD),
+                          width: 1.0,
+                        ),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _logNoteController,
+                              cursorColor: const Color(0xFF714B67),
+                              style: TextStyle(
+                                color: theme.isDark
+                                    ? Colors.white
+                                    : const Color(0xFF25181E),
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w500,
+                              ),
+                              decoration: InputDecoration(
+                                filled: false,
+                                isDense: true,
+                                border: InputBorder.none,
+                                contentPadding: EdgeInsets.zero,
+                                hintText: isLogNote
+                                    ? 'Log an internal note...'
+                                    : 'Send a message to followers...',
+                                hintStyle: TextStyle(
+                                  color: theme.isDark
+                                      ? Colors.white54
+                                      : const Color(0xFF98A2B3),
+                                  fontSize: 13.5,
+                                ),
+                              ),
+                              minLines: 1,
+                              maxLines: 4,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Icon(
+                            Icons.sentiment_satisfied_alt_outlined,
+                            size: 20,
+                            color: theme.secondaryTextColor
+                                .withValues(alpha: 0.6),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+
+                    // Actions Bar: [Send] / [Log] Button on left, 4 tool icons on right
+                    Row(
+                      children: [
+                        ElevatedButton(
+                          onPressed: () async {
+                            final text = _logNoteController.text.trim();
+                            if (text.isNotEmpty) {
+                              final taskId = task.id > 0
+                                  ? task.id
+                                  : (_taskDetailsController
+                                          .currentTask.value?.id ??
+                                      0);
+                              if (isLogNote) {
+                                final noteId = await _taskDetailsController
+                                    .createLogNote(
+                                  taskId,
+                                  text,
+                                );
+                                if (noteId != null) {
+                                  _logNoteController.clear();
+                                }
+                              } else {
+                                final msgId = await _taskDetailsController
+                                    .createTaskActivity(
+                                  taskId,
+                                  text,
+                                );
+                                if (msgId != null) {
+                                  _logNoteController.clear();
+                                }
+                              }
+                            }
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFA08897),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 18, vertical: 8),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(4)),
+                            elevation: 0,
+                          ),
+                          child: Text(
+                            isLogNote ? 'Log' : 'Send',
+                            style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white),
+                          ),
+                        ),
+                        const Spacer(),
+                        IconButton(
+                          icon: Icon(Icons.description_outlined,
+                              size: 18,
+                              color: theme.secondaryTextColor
+                                  .withValues(alpha: 0.65)),
+                          onPressed: () {},
+                          padding: const EdgeInsets.all(4),
+                          constraints: const BoxConstraints(),
+                          tooltip: 'Templates',
+                        ),
+                        const SizedBox(width: 12),
+                        IconButton(
+                          icon: Icon(Icons.layers_outlined,
+                              size: 18,
+                              color: theme.secondaryTextColor
+                                  .withValues(alpha: 0.65)),
+                          onPressed: () {},
+                          padding: const EdgeInsets.all(4),
+                          constraints: const BoxConstraints(),
+                          tooltip: 'Canned responses',
+                        ),
+                        const SizedBox(width: 12),
+                        Builder(
+                          builder: (iconContext) => IconButton(
+                            icon: Icon(Icons.attach_file_rounded,
+                                size: 19,
+                                color: theme.secondaryTextColor
+                                    .withValues(alpha: 0.65)),
+                            onPressed: () =>
+                                _showAddAttachmentMenu(iconContext),
+                            padding: const EdgeInsets.all(4),
+                            constraints: const BoxConstraints(),
+                            tooltip: 'Attach file',
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        IconButton(
+                          icon: Icon(Icons.open_in_full_rounded,
+                              size: 16,
+                              color: theme.secondaryTextColor
+                                  .withValues(alpha: 0.65)),
+                          onPressed: () {},
+                          padding: const EdgeInsets.all(4),
+                          constraints: const BoxConstraints(),
+                          tooltip: 'Full editor',
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -1414,35 +2892,47 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
           color: theme.isDark
-              ? Colors.white.withOpacity(0.02)
+              ? Colors.white.withValues(alpha: 0.02)
               : const Color(0xFFF8F9FA),
           border: Border(
-              bottom:
-                  BorderSide(color: theme.secondaryTextColor.withOpacity(0.1))),
+              bottom: BorderSide(
+                  color:
+                      theme.secondaryTextColor.withValues(alpha: 0.1))),
         ),
         child: Row(
           children: [
             Icon(Icons.search,
-                size: 18, color: theme.secondaryTextColor.withOpacity(0.6)),
+                size: 18,
+                color: theme.secondaryTextColor.withValues(alpha: 0.6)),
             const SizedBox(width: 8),
             Expanded(
               child: TextField(
                 controller: _searchChatterController,
                 autofocus: true,
-                style: TextStyle(color: theme.primaryTextColor, fontSize: 13),
+                cursorColor: const Color(0xFFB80049),
+                style: TextStyle(
+                  color:
+                      theme.isDark ? Colors.white : const Color(0xFF25181E),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
                 onChanged: (value) => setState(() {}),
                 decoration: InputDecoration(
+                  filled: false,
                   hintText: 'Search chatter...',
                   hintStyle: TextStyle(
-                      color: theme.secondaryTextColor.withOpacity(0.3),
-                      fontSize: 13),
+                    color: theme.isDark
+                        ? Colors.white54
+                        : Colors.grey.shade600,
+                    fontSize: 13,
+                  ),
                   border: InputBorder.none,
                 ),
               ),
             ),
             IconButton(
               icon: Icon(Icons.close,
-                  size: 18, color: theme.secondaryTextColor.withOpacity(0.6)),
+                  size: 18, color: theme.secondaryTextColor.withValues(alpha: 0.6)),
               onPressed: () {
                 setState(() {
                   _isSearchingChatter = false;
@@ -1459,44 +2949,63 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
       padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
       decoration: BoxDecoration(
         color: theme.isDark
-            ? Colors.white.withOpacity(0.02)
+            ? Colors.white.withValues(alpha: 0.02)
             : const Color(0xFFF8F9FA),
         border: Border(
             bottom:
-                BorderSide(color: theme.secondaryTextColor.withOpacity(0.1))),
+                BorderSide(color: theme.secondaryTextColor.withValues(alpha: 0.1))),
       ),
       child: Row(
         children: [
           Expanded(
-            child: Row(
-              children: [
-                _buildChatterButton('Send message', theme),
-                _buildChatterButton('Log note', theme),
-                _buildChatterButton('Activity', theme),
-              ],
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _buildChatterButton('Send message', theme),
+                  _buildChatterButton('Log note', theme),
+                  _buildChatterButton('Activity', theme),
+                ],
+              ),
             ),
           ),
           IconButton(
-            icon: Icon(Icons.search,
-                size: 18, color: theme.secondaryTextColor.withOpacity(0.6)),
-            onPressed: () => setState(() => _isSearchingChatter = true),
+            icon: Icon(Icons.attach_file,
+                size: 18,
+                color: theme.secondaryTextColor.withValues(alpha: 0.6)),
+            onPressed: () {
+              setState(() => _activeChatterTab = 'Attachments');
+            },
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(),
+            tooltip: 'Attachments',
           ),
           const SizedBox(width: 8),
-          IconButton(
-            icon: Icon(Icons.person_add_outlined,
-                size: 18, color: theme.secondaryTextColor.withOpacity(0.6)),
-            onPressed: () => _showAssigneesDialog(theme),
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(),
-          ),
-          const SizedBox(width: 4),
-          Text(
-            (_taskDetailsController.currentTask.value?.userIds.length ?? 0)
-                .toString(),
-            style: TextStyle(
-                color: theme.secondaryTextColor.withOpacity(0.6), fontSize: 12),
+          InkWell(
+            onTap: () => _showFollowersDialog(theme),
+            borderRadius: BorderRadius.circular(4),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.people_alt_outlined,
+                      size: 16,
+                      color: theme.secondaryTextColor.withValues(alpha: 0.8)),
+                  const SizedBox(width: 4),
+                  Obx(() => Text(
+                        (_taskDetailsController.followers.isNotEmpty
+                                ? _taskDetailsController.followers.length
+                                : (_taskDetailsController.currentTask.value?.userIds.length ?? 0))
+                            .toString(),
+                        style: TextStyle(
+                            color: theme.secondaryTextColor.withValues(alpha: 0.8),
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold),
+                      )),
+                ],
+              ),
+            ),
           ),
           const SizedBox(width: 8),
         ],
@@ -1564,8 +3073,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
                                     assignee.name.isNotEmpty
                                         ? assignee.name[0].toUpperCase()
                                         : 'U',
-                                    style: TextStyle(
-                                        color: theme.primaryTextColor,
+                                    style: const TextStyle(
+                                        color: Colors.white,
                                         fontWeight: FontWeight.bold),
                                   ),
                                 ),
@@ -1576,8 +3085,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
                                     assignee.name.isNotEmpty
                                         ? assignee.name[0].toUpperCase()
                                         : 'U',
-                                    style: TextStyle(
-                                        color: theme.primaryTextColor,
+                                    style: const TextStyle(
+                                        color: Colors.white,
                                         fontWeight: FontWeight.bold),
                                   ),
                                 ),
@@ -1607,95 +3116,1451 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
     final isActive = _activeChatterTab == label;
     const primaryPurple = Color(0xFF714B67);
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 2),
       child: InkWell(
-        onTap: () => setState(() => _activeChatterTab = label),
+        onTap: () {
+          if (label == 'Activity') {
+            _showScheduleActivityDialog(theme);
+          } else {
+            setState(() => _activeChatterTab = label);
+          }
+        },
         borderRadius: BorderRadius.circular(4),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
           decoration: BoxDecoration(
             color: isActive ? primaryPurple : Colors.transparent,
             borderRadius: BorderRadius.circular(4),
             border: isActive
                 ? null
-                : Border.all(color: theme.secondaryTextColor.withOpacity(0.1)),
+                : Border.all(color: theme.secondaryTextColor.withValues(alpha: 0.1)),
           ),
-          child: Text(
-            label,
-            style: TextStyle(
-              color: isActive
-                  ? Colors.white
-                  : theme.secondaryTextColor.withOpacity(0.8),
-              fontSize: 12,
-              fontWeight: isActive ? FontWeight.bold : FontWeight.w500,
-            ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (label == 'Activity') ...[
+                Icon(
+                  Icons.schedule_send_rounded,
+                  size: 12,
+                  color: isActive
+                      ? Colors.white
+                      : theme.secondaryTextColor.withValues(alpha: 0.8),
+                ),
+                const SizedBox(width: 3),
+              ],
+              Text(
+                label,
+                style: TextStyle(
+                  color: isActive
+                      ? Colors.white
+                      : theme.secondaryTextColor.withValues(alpha: 0.8),
+                  fontSize: 11,
+                  fontWeight: isActive ? FontWeight.bold : FontWeight.w500,
+                ),
+              ),
+            ],
           ),
         ),
       ),
     );
   }
 
-  Widget _buildLogEntry(String date, String user, String content,
-      {required ThemePalette theme, bool isStageChange = false, Color? color}) {
-    final cleanContent = FormatUtils.cleanHtml(content);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 20),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: Container(
-              width: 32,
-              height: 32,
-              color: theme.avatarColor.withOpacity(0.2),
-              alignment: Alignment.center,
-              child: Text(
-                user.isNotEmpty ? user[0].toUpperCase() : 'U',
-                style: TextStyle(
-                  color: theme.primaryTextColor,
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  Future<void> _showSearchableUserPickerDialog(
+      BuildContext context,
+      ThemePalette theme,
+      int currentUserId,
+      Function(TaskAssignee) onUserSelected) async {
+    final searchCtrl = TextEditingController();
+    await showDialog(
+      context: context,
+      builder: (pickerCtx) {
+        return StatefulBuilder(
+          builder: (dialogCtx, setPickerState) {
+            final query = searchCtrl.text.trim().toLowerCase();
+            final filteredUsers = query.isEmpty
+                ? _allUsers
+                : _allUsers
+                    .where((u) => u.name.toLowerCase().contains(query))
+                    .toList();
+
+            return Dialog(
+              backgroundColor:
+                  theme.isDark ? const Color(0xFF252525) : Colors.white,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+              insetPadding:
+                  const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+              child: Container(
+                width: 380,
+                height: 480,
+                padding: const EdgeInsets.all(16),
+                child: Column(
                   children: [
-                    Text(user,
-                        style: TextStyle(
+                    Row(
+                      children: [
+                        const Icon(Icons.person_search_rounded,
+                            size: 20, color: Color(0xFF714B67)),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Select Colleague',
+                          style: TextStyle(
                             color: theme.primaryTextColor,
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold)),
-                    Text(date,
-                        style: TextStyle(
-                            color: theme.secondaryTextColor.withOpacity(0.4),
-                            fontSize: 11)),
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const Spacer(),
+                        IconButton(
+                          icon: Icon(Icons.close,
+                              size: 18, color: theme.secondaryTextColor),
+                          onPressed: () => Navigator.of(pickerCtx).pop(),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    // Search Field
+                    Container(
+                      height: 40,
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      decoration: BoxDecoration(
+                        color: theme.isDark
+                            ? const Color(0xFF2C1B24)
+                            : const Color(0xFFFFF8FA),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                            color: theme.isDark
+                                ? Colors.white24
+                                : const Color(0xFFE8D5E0)),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.search,
+                              size: 18,
+                              color: theme.isDark
+                                  ? Colors.white70
+                                  : const Color(0xFF714B67)),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: TextField(
+                              controller: searchCtrl,
+                              autofocus: true,
+                              cursorColor: const Color(0xFFB80049),
+                              style: TextStyle(
+                                  color: theme.isDark
+                                      ? Colors.white
+                                      : const Color(0xFF25181E),
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500),
+                              onChanged: (_) => setPickerState(() {}),
+                              decoration: InputDecoration(
+                                filled: false,
+                                hintText: 'Search by name...',
+                                hintStyle: TextStyle(
+                                    color: theme.isDark
+                                        ? Colors.white54
+                                        : Colors.grey.shade600,
+                                    fontSize: 13),
+                                border: InputBorder.none,
+                                isDense: true,
+                              ),
+                            ),
+                          ),
+                          if (searchCtrl.text.isNotEmpty)
+                            InkWell(
+                              onTap: () {
+                                searchCtrl.clear();
+                                setPickerState(() {});
+                              },
+                              child: Icon(Icons.clear,
+                                  size: 16, color: theme.secondaryTextColor),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    const Divider(height: 1),
+                    const SizedBox(height: 8),
+                    // User List
+                    Expanded(
+                      child: filteredUsers.isEmpty
+                          ? Center(
+                              child: Text(
+                                'No users found',
+                                style: TextStyle(
+                                  color: theme.secondaryTextColor
+                                      .withValues(alpha: 0.6),
+                                  fontSize: 13,
+                                ),
+                              ),
+                            )
+                          : ListView.builder(
+                              itemCount: filteredUsers.length,
+                              itemBuilder: (context, index) {
+                                final u = filteredUsers[index];
+                                final isSelected = u.id == currentUserId;
+                                return ListTile(
+                                  onTap: () {
+                                    onUserSelected(u);
+                                    Navigator.of(pickerCtx).pop();
+                                  },
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8)),
+                                  tileColor: isSelected
+                                      ? const Color(0xFF714B67)
+                                          .withValues(alpha: 0.1)
+                                      : Colors.transparent,
+                                  contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 2),
+                                  leading: ClipRRect(
+                                    borderRadius: BorderRadius.circular(6),
+                                    child: SizedBox(
+                                      width: 32,
+                                      height: 32,
+                                      child: OdooNetworkImage(
+                                        model: 'res.users',
+                                        id: u.id,
+                                        field: 'image_128',
+                                        placeholder: Container(
+                                          color: _getAvatarColorForName(u.name),
+                                          alignment: Alignment.center,
+                                          child: Text(
+                                            u.name.isNotEmpty
+                                                ? u.name[0].toUpperCase()
+                                                : 'U',
+                                            style: const TextStyle(
+                                                color: Colors.white,
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 13),
+                                          ),
+                                        ),
+                                        errorWidget: Container(
+                                          color: _getAvatarColorForName(u.name),
+                                          alignment: Alignment.center,
+                                          child: Text(
+                                            u.name.isNotEmpty
+                                                ? u.name[0].toUpperCase()
+                                                : 'U',
+                                            style: const TextStyle(
+                                                color: Colors.white,
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 13),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  title: Text(
+                                    u.name,
+                                    style: TextStyle(
+                                      color: isSelected
+                                          ? const Color(0xFF714B67)
+                                          : theme.primaryTextColor,
+                                      fontSize: 13,
+                                      fontWeight: isSelected
+                                          ? FontWeight.bold
+                                          : FontWeight.normal,
+                                    ),
+                                  ),
+                                  trailing: isSelected
+                                      ? const Icon(Icons.check_rounded,
+                                          color: Color(0xFF714B67), size: 18)
+                                      : null,
+                                );
+                              },
+                            ),
+                    ),
                   ],
                 ),
-                const SizedBox(height: 4),
-                SelectableText(
-                  cleanContent,
-                  style: TextStyle(
-                    color: isStageChange
-                        ? const Color(0xFF00A09D)
-                        : theme.secondaryTextColor.withOpacity(0.9),
-                    fontSize: 13,
-                    height: 1.4,
-                    fontWeight:
-                        isStageChange ? FontWeight.w500 : FontWeight.normal,
-                  ),
-                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _showScheduleActivityDialog(ThemePalette theme) async {
+    await _fetchAllUsers();
+    final types = await _taskDetailsController.getActivityTypes();
+
+    if (!mounted) return;
+
+    final currentUser = Get.isRegistered<AuthController>()
+        ? Get.find<AuthController>().user.value
+        : null;
+
+    int selectedTypeId = types.isNotEmpty ? (types.first['id'] as int) : 1;
+    final summaryController = TextEditingController();
+    final noteController = TextEditingController();
+    final List<PlatformFile> attachedFiles = [];
+    DateTime selectedDueDate = DateTime.now().add(const Duration(days: 1));
+    int selectedUserId = currentUser?.userId ??
+        (_allUsers.isNotEmpty ? _allUsers.first.id : 1);
+    bool isSubmitting = false;
+
+    Future<void> pickActivityFiles(
+      FileType fileType, {
+      List<String>? allowedExtensions,
+      required StateSetter setDialogState,
+    }) async {
+      try {
+        final res = await FilePicker.platform.pickFiles(
+          type: fileType,
+          allowedExtensions: allowedExtensions,
+          allowMultiple: true,
+          withData: true,
+        );
+        if (res != null && res.files.isNotEmpty) {
+          setDialogState(() {
+            attachedFiles.addAll(res.files);
+          });
+        }
+      } catch (e) {
+        debugPrint('Error picking file: $e');
+        showToast('Error picking file: $e', idSuccess: false);
+      }
+    }
+
+    void showActivityAttachmentMenu(
+      BuildContext btnContext,
+      StateSetter setDialogState,
+    ) {
+      final RenderBox button = btnContext.findRenderObject() as RenderBox;
+      final RenderBox overlay =
+          Overlay.of(btnContext).context.findRenderObject() as RenderBox;
+      final RelativeRect position = RelativeRect.fromRect(
+        Rect.fromPoints(
+          button.localToGlobal(Offset.zero, ancestor: overlay),
+          button.localToGlobal(
+              button.size.bottomRight(Offset.zero),
+              ancestor: overlay),
+        ),
+        Offset.zero & overlay.size,
+      );
+
+      showMenu<String>(
+        context: btnContext,
+        position: position,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        items: const [
+          PopupMenuItem(
+            value: 'image',
+            child: Row(
+              children: [
+                Icon(Icons.image_outlined, size: 18, color: Color(0xFF4CAF50)),
+                SizedBox(width: 10),
+                Text('Image (JPG, PNG, GIF, WebP)',
+                    style: TextStyle(fontSize: 13)),
+              ],
+            ),
+          ),
+          PopupMenuItem(
+            value: 'audio',
+            child: Row(
+              children: [
+                Icon(Icons.audiotrack_outlined,
+                    size: 18, color: Color(0xFFFF9800)),
+                SizedBox(width: 10),
+                Text('Audio (MP3, WAV, AAC, M4A)',
+                    style: TextStyle(fontSize: 13)),
+              ],
+            ),
+          ),
+          PopupMenuItem(
+            value: 'document',
+            child: Row(
+              children: [
+                Icon(Icons.description_outlined,
+                    size: 18, color: Color(0xFF2196F3)),
+                SizedBox(width: 10),
+                Text('Document / PDF', style: TextStyle(fontSize: 13)),
+              ],
+            ),
+          ),
+          PopupMenuItem(
+            value: 'any',
+            child: Row(
+              children: [
+                Icon(Icons.attach_file, size: 18, color: Colors.grey),
+                SizedBox(width: 10),
+                Text('Any File', style: TextStyle(fontSize: 13)),
               ],
             ),
           ),
         ],
+      ).then((value) {
+        if (value == 'image') {
+          pickActivityFiles(FileType.image, setDialogState: setDialogState);
+        } else if (value == 'audio') {
+          pickActivityFiles(FileType.audio, setDialogState: setDialogState);
+        } else if (value == 'document') {
+          pickActivityFiles(
+            FileType.custom,
+            allowedExtensions: [
+              'pdf',
+              'doc',
+              'docx',
+              'xls',
+              'xlsx',
+              'ppt',
+              'pptx',
+              'txt',
+              'csv',
+            ],
+            setDialogState: setDialogState,
+          );
+        } else if (value == 'any') {
+          pickActivityFiles(FileType.any, setDialogState: setDialogState);
+        }
+      });
+    }
+
+    await showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (dialogContext, setDialogState) {
+            TaskAssignee? selectedUserObj =
+                _allUsers.firstWhereOrNull((u) => u.id == selectedUserId);
+
+            return Dialog(
+              backgroundColor:
+                  theme.isDark ? const Color(0xFF2E2E2E) : Colors.white,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+              insetPadding:
+                  const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+              child: Container(
+                width: 480,
+                padding: const EdgeInsets.all(20),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // Header
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF714B67)
+                                  .withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(
+                              Icons.schedule_send_rounded,
+                              color: Color(0xFF714B67),
+                              size: 20,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Text(
+                            'Schedule Activity',
+                            style: TextStyle(
+                              color: theme.primaryTextColor,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const Spacer(),
+                          IconButton(
+                            icon: Icon(Icons.close,
+                                size: 18, color: theme.secondaryTextColor),
+                            onPressed: () =>
+                                Navigator.of(dialogContext).pop(),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      const Divider(height: 1),
+                      const SizedBox(height: 16),
+
+                      // Activity Type Dropdown
+                      Text(
+                        'Activity Type *',
+                        style: TextStyle(
+                          color: theme.secondaryTextColor,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        decoration: BoxDecoration(
+                          color: theme.isDark
+                              ? Colors.white.withValues(alpha: 0.05)
+                              : Colors.grey.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                              color: theme.secondaryTextColor
+                                  .withValues(alpha: 0.2)),
+                        ),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<int>(
+                            value: selectedTypeId,
+                            isExpanded: true,
+                            dropdownColor: theme.isDark
+                                ? const Color(0xFF2E2E2E)
+                                : Colors.white,
+                            icon: Icon(Icons.keyboard_arrow_down,
+                                color: theme.secondaryTextColor),
+                            items: types.map((t) {
+                              return DropdownMenuItem<int>(
+                                value: t['id'] as int,
+                                child: Text(
+                                  t['name'].toString(),
+                                  style: TextStyle(
+                                      color: theme.primaryTextColor,
+                                      fontSize: 13),
+                                ),
+                              );
+                            }).toList(),
+                            onChanged: (val) {
+                              if (val != null) {
+                                setDialogState(
+                                    () => selectedTypeId = val);
+                              }
+                            },
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+
+                      // Summary
+                      Text(
+                        'Summary',
+                        style: TextStyle(
+                          color: theme.secondaryTextColor,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: summaryController,
+                        cursorColor: const Color(0xFFB80049),
+                        style: TextStyle(
+                            color: theme.isDark
+                                ? Colors.white
+                                : const Color(0xFF25181E),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500),
+                        decoration: InputDecoration(
+                          hintText: 'e.g. Discuss workflow updates...',
+                          hintStyle: TextStyle(
+                              color: theme.isDark
+                                  ? Colors.white54
+                                  : Colors.grey.shade600,
+                              fontSize: 13),
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 10),
+                          filled: true,
+                          fillColor: theme.isDark
+                              ? const Color(0xFF2C1B24)
+                              : const Color(0xFFFFF8FA),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: BorderSide(
+                                color: theme.isDark
+                                    ? Colors.white12
+                                    : const Color(0xFFE8D5E0)),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: BorderSide(
+                                color: theme.isDark
+                                    ? Colors.white12
+                                    : const Color(0xFFE8D5E0)),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: const BorderSide(
+                              color: Color(0xFFB80049),
+                              width: 1.5,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+
+                      // Due Date & Assigned To Row
+                      Row(
+                        children: [
+                          // Due Date
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Due Date *',
+                                  style: TextStyle(
+                                    color: theme.secondaryTextColor,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                InkWell(
+                                  onTap: () async {
+                                    final picked = await showDatePicker(
+                                      context: dialogContext,
+                                      initialDate: selectedDueDate,
+                                      firstDate: DateTime.now().subtract(
+                                          const Duration(days: 30)),
+                                      lastDate: DateTime.now().add(
+                                          const Duration(days: 365)),
+                                    );
+                                    if (picked != null) {
+                                      setDialogState(
+                                          () => selectedDueDate = picked);
+                                    }
+                                  },
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Container(
+                                    height: 42,
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 12),
+                                    decoration: BoxDecoration(
+                                      color: theme.isDark
+                                          ? Colors.white
+                                              .withValues(alpha: 0.05)
+                                          : Colors.grey.shade50,
+                                      borderRadius:
+                                          BorderRadius.circular(8),
+                                      border: Border.all(
+                                          color: theme.secondaryTextColor
+                                              .withValues(alpha: 0.2)),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        const Icon(
+                                            Icons.calendar_today_rounded,
+                                            size: 14,
+                                            color: Color(0xFF714B67)),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          DateFormat('dd MMM yyyy')
+                                              .format(selectedDueDate),
+                                          style: TextStyle(
+                                              color: theme.primaryTextColor,
+                                              fontSize: 13),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          // Assigned To (with Search Picker)
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Assigned To *',
+                                  style: TextStyle(
+                                    color: theme.secondaryTextColor,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                InkWell(
+                                  onTap: () {
+                                    _showSearchableUserPickerDialog(
+                                      dialogContext,
+                                      theme,
+                                      selectedUserId,
+                                      (newUser) {
+                                        setDialogState(() {
+                                          selectedUserId = newUser.id;
+                                        });
+                                      },
+                                    );
+                                  },
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Container(
+                                    height: 42,
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 10),
+                                    decoration: BoxDecoration(
+                                      color: theme.isDark
+                                          ? Colors.white
+                                              .withValues(alpha: 0.05)
+                                          : Colors.grey.shade50,
+                                      borderRadius:
+                                          BorderRadius.circular(8),
+                                      border: Border.all(
+                                          color: theme.secondaryTextColor
+                                              .withValues(alpha: 0.2)),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        if (selectedUserObj != null) ...[
+                                          ClipRRect(
+                                            borderRadius:
+                                                BorderRadius.circular(6),
+                                            child: SizedBox(
+                                              width: 22,
+                                              height: 22,
+                                              child: OdooNetworkImage(
+                                                model: 'res.users',
+                                                id: selectedUserObj.id,
+                                                field: 'image_128',
+                                                placeholder: Container(
+                                                  color:
+                                                      _getAvatarColorForName(
+                                                          selectedUserObj
+                                                              .name),
+                                                  alignment:
+                                                      Alignment.center,
+                                                  child: Text(
+                                                    selectedUserObj
+                                                            .name.isNotEmpty
+                                                        ? selectedUserObj
+                                                            .name[0]
+                                                            .toUpperCase()
+                                                        : 'U',
+                                                    style: const TextStyle(
+                                                        color: Colors.white,
+                                                        fontSize: 10),
+                                                  ),
+                                                ),
+                                                errorWidget: Container(
+                                                  color:
+                                                      _getAvatarColorForName(
+                                                          selectedUserObj
+                                                              .name),
+                                                  alignment:
+                                                      Alignment.center,
+                                                  child: Text(
+                                                    selectedUserObj
+                                                            .name.isNotEmpty
+                                                        ? selectedUserObj
+                                                            .name[0]
+                                                            .toUpperCase()
+                                                        : 'U',
+                                                    style: const TextStyle(
+                                                        color: Colors.white,
+                                                        fontSize: 10),
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Expanded(
+                                            child: Text(
+                                              selectedUserObj.name,
+                                              style: TextStyle(
+                                                  color: theme
+                                                      .primaryTextColor,
+                                                  fontSize: 12),
+                                              overflow:
+                                                  TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                        ] else
+                                          Expanded(
+                                            child: Text(
+                                              'Select User...',
+                                              style: TextStyle(
+                                                  color: theme
+                                                      .secondaryTextColor
+                                                      .withValues(
+                                                          alpha: 0.5),
+                                                  fontSize: 12),
+                                            ),
+                                          ),
+                                        Icon(Icons.search_rounded,
+                                            size: 16,
+                                            color: theme.secondaryTextColor
+                                                .withValues(alpha: 0.6)),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+
+                      // Note / Description Header with Attach Action
+                      Row(
+                        children: [
+                          Text(
+                            'Log Note / Details',
+                            style: TextStyle(
+                              color: theme.secondaryTextColor,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const Spacer(),
+                          Builder(
+                            builder: (btnContext) => InkWell(
+                              onTap: () => showActivityAttachmentMenu(
+                                  btnContext, setDialogState),
+                              borderRadius: BorderRadius.circular(6),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 6, vertical: 3),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(
+                                      Icons.attach_file_rounded,
+                                      size: 14,
+                                      color: Color(0xFF714B67),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    const Text(
+                                      'Attach File',
+                                      style: TextStyle(
+                                        color: Color(0xFF714B67),
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: noteController,
+                        maxLines: 3,
+                        cursorColor: const Color(0xFFB80049),
+                        style: TextStyle(
+                            color: theme.isDark
+                                ? Colors.white
+                                : const Color(0xFF25181E),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500),
+                        decoration: InputDecoration(
+                          hintText:
+                              'Add extra details for this activity...',
+                          hintStyle: TextStyle(
+                              color: theme.isDark
+                                  ? Colors.white54
+                                  : Colors.grey.shade600,
+                              fontSize: 13),
+                          contentPadding: const EdgeInsets.all(10),
+                          filled: true,
+                          fillColor: theme.isDark
+                              ? const Color(0xFF2C1B24)
+                              : const Color(0xFFFFF8FA),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: BorderSide(
+                                color: theme.isDark
+                                    ? Colors.white12
+                                    : const Color(0xFFE8D5E0)),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: BorderSide(
+                                color: theme.isDark
+                                    ? Colors.white12
+                                    : const Color(0xFFE8D5E0)),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: const BorderSide(
+                              color: Color(0xFFB80049),
+                              width: 1.5,
+                            ),
+                          ),
+                        ),
+                      ),
+
+                      // Attached Files Preview Chips
+                      if (attachedFiles.isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children:
+                              List.generate(attachedFiles.length, (idx) {
+                            final f = attachedFiles[idx];
+                            final ext =
+                                f.extension?.toLowerCase() ?? '';
+                            IconData iconData =
+                                Icons.insert_drive_file_outlined;
+                            Color iconColor = Colors.grey;
+                            if ([
+                              'jpg',
+                              'jpeg',
+                              'png',
+                              'gif',
+                              'webp',
+                              'bmp',
+                              'svg'
+                            ].contains(ext)) {
+                              iconData = Icons.image_outlined;
+                              iconColor = const Color(0xFF4CAF50);
+                            } else if ([
+                              'mp3',
+                              'wav',
+                              'aac',
+                              'm4a',
+                              'ogg',
+                              'flac'
+                            ].contains(ext)) {
+                              iconData = Icons.audiotrack_outlined;
+                              iconColor = const Color(0xFFFF9800);
+                            } else if ([
+                              'mp4',
+                              'mov',
+                              'mkv',
+                              'avi',
+                              'webm'
+                            ].contains(ext)) {
+                              iconData = Icons.videocam_outlined;
+                              iconColor = const Color(0xFF9C27B0);
+                            } else if ([
+                              'pdf',
+                              'doc',
+                              'docx',
+                              'xls',
+                              'xlsx',
+                              'txt',
+                              'csv',
+                              'ppt',
+                              'pptx'
+                            ].contains(ext)) {
+                              iconData = Icons.description_outlined;
+                              iconColor = const Color(0xFF2196F3);
+                            }
+
+                            String sizeStr = '';
+                            if (f.size > 0) {
+                              if (f.size < 1024) {
+                                sizeStr = '${f.size} B';
+                              } else if (f.size < 1024 * 1024) {
+                                sizeStr =
+                                    '${(f.size / 1024).toStringAsFixed(1)} KB';
+                              } else {
+                                sizeStr =
+                                    '${(f.size / (1024 * 1024)).toStringAsFixed(1)} MB';
+                              }
+                            }
+
+                            return Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: theme.isDark
+                                    ? Colors.white
+                                        .withValues(alpha: 0.08)
+                                    : Colors.grey.shade100,
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(
+                                    color: theme.secondaryTextColor
+                                        .withValues(alpha: 0.15)),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(iconData,
+                                      size: 16, color: iconColor),
+                                  const SizedBox(width: 6),
+                                  ConstrainedBox(
+                                    constraints: const BoxConstraints(
+                                        maxWidth: 140),
+                                    child: Text(
+                                      f.name,
+                                      style: TextStyle(
+                                          color: theme.primaryTextColor,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w500),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  if (sizeStr.isNotEmpty) ...[
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      '($sizeStr)',
+                                      style: TextStyle(
+                                          color: theme.secondaryTextColor
+                                              .withValues(alpha: 0.6),
+                                          fontSize: 10),
+                                    ),
+                                  ],
+                                  const SizedBox(width: 6),
+                                  InkWell(
+                                    onTap: () {
+                                      setDialogState(() {
+                                        attachedFiles.removeAt(idx);
+                                      });
+                                    },
+                                    borderRadius:
+                                        BorderRadius.circular(10),
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(2),
+                                      child: Icon(Icons.close,
+                                          size: 14,
+                                          color: theme
+                                              .secondaryTextColor),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }),
+                        ),
+                      ],
+                      const SizedBox(height: 20),
+
+                      // Actions Footer
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton(
+                            onPressed: isSubmitting
+                                ? null
+                                : () => Navigator.of(dialogContext).pop(),
+                            child: Text(
+                              'Cancel',
+                              style: TextStyle(
+                                  color: theme.secondaryTextColor,
+                                  fontSize: 13),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          ElevatedButton(
+                            onPressed: isSubmitting
+                                ? null
+                                : () async {
+                                    setDialogState(
+                                        () => isSubmitting = true);
+                                    final taskId = task.id > 0
+                                        ? task.id
+                                        : (_taskDetailsController
+                                                .currentTask.value?.id ??
+                                            0);
+                                    final success =
+                                        await _taskDetailsController
+                                            .scheduleActivity(
+                                      taskId: taskId,
+                                      activityTypeId: selectedTypeId,
+                                      summary: summaryController.text
+                                              .trim()
+                                              .isNotEmpty
+                                          ? summaryController.text.trim()
+                                          : 'Activity',
+                                      dueDate: selectedDueDate,
+                                      userId: selectedUserId,
+                                      note: noteController.text
+                                              .trim()
+                                              .isNotEmpty
+                                          ? noteController.text.trim()
+                                          : null,
+                                      attachments: attachedFiles.isNotEmpty
+                                          ? attachedFiles
+                                          : null,
+                                    );
+                                    setDialogState(
+                                        () => isSubmitting = false);
+                                    if (success && mounted) {
+                                      Navigator.of(dialogContext).pop();
+                                    }
+                                  },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF714B67),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 20, vertical: 10),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(6)),
+                              elevation: 0,
+                            ),
+                            child: isSubmitting
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white),
+                                  )
+                                : const Text('Schedule',
+                                    style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.bold)),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildLogEntry(TaskActivity item, ThemePalette theme) {
+    final cleanContent = item.getCleanBody();
+    final dateStr = _formatActivityDate(item.date);
+    final user = item.authorName;
+    final isStageChange = item.stageOldValue != null &&
+        item.stageNewValue != null &&
+        item.stageOldValue!.isNotEmpty &&
+        item.stageNewValue!.isNotEmpty;
+    final isTaskCreated = item.isTaskCreated ||
+        item.subtypeName.toLowerCase().contains('created') ||
+        cleanContent.toLowerCase().contains('task created');
+    final isComment = !item.isInternalNote &&
+        !isStageChange &&
+        !isTaskCreated &&
+        cleanContent.isNotEmpty &&
+        (item.messageType == 'comment' ||
+            item.subtypeName.toLowerCase().contains('discussion') ||
+            item.messageType == 'notification' ||
+            item.messageType == 'user_notification');
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Author Avatar
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: SizedBox(
+              width: 32,
+              height: 32,
+              child: (item.authorId > 0)
+                  ? OdooNetworkImage(
+                      model: 'res.partner',
+                      id: item.authorId,
+                      field: 'image_128',
+                      placeholder: Container(
+                        color: _getAvatarColorForName(user),
+                        alignment: Alignment.center,
+                        child: Text(
+                          user.isNotEmpty ? user[0].toUpperCase() : 'U',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      errorWidget: Container(
+                        color: _getAvatarColorForName(user),
+                        alignment: Alignment.center,
+                        child: Text(
+                          user.isNotEmpty ? user[0].toUpperCase() : 'U',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    )
+                  : Container(
+                      color: _getAvatarColorForName(user),
+                      alignment: Alignment.center,
+                      child: Text(
+                        user.isNotEmpty ? user[0].toUpperCase() : 'P',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+            ),
+          ),
+          const SizedBox(width: 12),
+
+          // Content Details
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Author row with date and icons
+                Row(
+                  children: [
+                    Text(
+                      user,
+                      style: TextStyle(
+                        color: theme.isDark ? Colors.white : const Color(0xFF25181E),
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    if (isComment) ...[
+                      const SizedBox(width: 6),
+                      const Icon(
+                        Icons.mail_outline_rounded,
+                        size: 13,
+                        color: Color(0xFFE53935),
+                      ),
+                    ] else if (item.isInternalNote) ...[
+                      const SizedBox(width: 6),
+                      const Icon(
+                        Icons.lock_outline_rounded,
+                        size: 12,
+                        color: Colors.grey,
+                      ),
+                    ],
+                    const SizedBox(width: 6),
+                    Text(
+                      dateStr,
+                      style: TextStyle(
+                        color: theme.secondaryTextColor.withValues(alpha: 0.6),
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+
+                // Different rendering types matching Odoo
+                if (isStageChange) ...[
+                  Text(
+                    'Stage changed',
+                    style: TextStyle(
+                      color: theme.isDark ? Colors.white70 : Colors.black87,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  RichText(
+                    text: TextSpan(
+                      style: GoogleFonts.inter(
+                        fontSize: 12.5,
+                        color: theme.isDark ? Colors.white60 : Colors.grey.shade700,
+                      ),
+                      children: [
+                        TextSpan(text: '${item.stageOldValue} '),
+                        const TextSpan(
+                          text: '➔ ',
+                          style: TextStyle(color: Colors.grey, fontSize: 11),
+                        ),
+                        TextSpan(
+                          text: '${item.stageNewValue} ',
+                          style: const TextStyle(
+                            color: Color(0xFF00897B),
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        TextSpan(
+                          text: '(${item.trackingDesc ?? 'Stage'})',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontStyle: FontStyle.italic,
+                            color: theme.secondaryTextColor.withValues(alpha: 0.6),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ] else if (isTaskCreated) ...[
+                  Text(
+                    'Task Created',
+                    style: TextStyle(
+                      color: theme.isDark ? Colors.white70 : Colors.black87,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ] else if (isComment) ...[
+                  Container(
+                    margin: const EdgeInsets.only(top: 2),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: theme.isDark
+                          ? const Color(0xFF2C1B24)
+                          : const Color(0xFFE8F5E9).withValues(alpha: 0.7),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: theme.isDark
+                            ? Colors.white12
+                            : const Color(0xFFC8E6C9),
+                      ),
+                    ),
+                    child: SelectableText(
+                      cleanContent,
+                      style: TextStyle(
+                        color: theme.isDark
+                            ? Colors.white
+                            : const Color(0xFF25181E),
+                        fontSize: 12.5,
+                        height: 1.35,
+                      ),
+                    ),
+                  ),
+                ] else ...[
+                  SelectableText(
+                    cleanContent.isNotEmpty ? cleanContent : 'Updated task',
+                    style: TextStyle(
+                      color: theme.isDark
+                          ? Colors.white70
+                          : theme.secondaryTextColor.withValues(alpha: 0.9),
+                      fontSize: 12.5,
+                      height: 1.4,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showFollowersDialog(ThemePalette theme) {
+    final followersList = _taskDetailsController.followers;
+    Get.dialog(
+      Dialog(
+        backgroundColor:
+            theme.isDark ? const Color(0xFF2C1B24) : Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          width: 320,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Followers',
+                    style: GoogleFonts.inter(
+                      color: theme.isDark ? Colors.white : const Color(0xFF25181E),
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  IconButton(
+                    icon: Icon(Icons.close,
+                        size: 18, color: theme.secondaryTextColor),
+                    onPressed: () => Get.back(),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              const Divider(height: 1),
+              const SizedBox(height: 8),
+              if (followersList.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  child: Center(
+                    child: Text(
+                      'No followers yet',
+                      style: TextStyle(
+                        color: theme.secondaryTextColor.withValues(alpha: 0.7),
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                )
+              else
+                Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: followersList.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final f = followersList[index];
+                      int partnerId = 0;
+                      String partnerName = 'Follower';
+                      if (f['partner_id'] is List &&
+                          (f['partner_id'] as List).isNotEmpty) {
+                        partnerId = f['partner_id'][0] is int
+                            ? f['partner_id'][0]
+                            : int.tryParse(f['partner_id'][0].toString()) ?? 0;
+                        if ((f['partner_id'] as List).length > 1) {
+                          partnerName = f['partner_id'][1].toString();
+                        }
+                      }
+
+                      return ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: ClipRRect(
+                          borderRadius: BorderRadius.circular(6),
+                          child: SizedBox(
+                            width: 28,
+                            height: 28,
+                            child: OdooNetworkImage(
+                              model: 'res.partner',
+                              id: partnerId,
+                              field: 'image_128',
+                              placeholder: Container(
+                                color: _getAvatarColorForName(partnerName),
+                                alignment: Alignment.center,
+                                child: Text(
+                                  partnerName.isNotEmpty
+                                      ? partnerName[0].toUpperCase()
+                                      : 'F',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                              errorWidget: Container(
+                                color: _getAvatarColorForName(partnerName),
+                                alignment: Alignment.center,
+                                child: Text(
+                                  partnerName.isNotEmpty
+                                      ? partnerName[0].toUpperCase()
+                                      : 'F',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        title: Text(
+                          partnerName,
+                          style: TextStyle(
+                            color: theme.isDark
+                                ? Colors.white
+                                : const Color(0xFF25181E),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }

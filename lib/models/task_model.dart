@@ -119,6 +119,24 @@ class TaskModel {
   // Add getter for URL with null safety
   String get url => task_url ?? '';
 
+  String? get description {
+    if (json['description'] != null) {
+      final desc = json['description'].toString();
+      return desc != 'false' ? desc : null;
+    }
+    return null;
+  }
+
+  double? get allocatedHours {
+    if (_allocatedTimeInHours != null) {
+      return _allocatedTimeInHours!.inMinutes / 60.0;
+    }
+    if (json['allocated_hours'] is num) {
+      return (json['allocated_hours'] as num).toDouble();
+    }
+    return null;
+  }
+
   // Computed remaining time from allocated - used
   Duration? getRemainingTimeDuration() {
     if (_allocatedTimeInHours != null && _usedTime != null) {

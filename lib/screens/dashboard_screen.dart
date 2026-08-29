@@ -461,10 +461,11 @@ class _DashboardScreenState extends State<DashboardScreen>
     return Row(
       children: [
         Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              InkWell(
+          child: MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: Tooltip(
+              message: 'Click to open task details, chatter & activities',
+              child: InkWell(
                 onTap: () {
                   try {
                     Get.toNamed(
@@ -483,37 +484,98 @@ class _DashboardScreenState extends State<DashboardScreen>
                     debugPrint('Error navigating to task detail: $e');
                   }
                 },
-                child: Text(
-                  task.name,
-                  style: GoogleFonts.spaceGrotesk(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: const Color(0xFF25181E),
-                  ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Row(
-                children: [
-                  const Icon(
-                    Icons.folder_open_rounded,
-                    size: 12,
-                    color: AppTheme.primary,
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    startWorkModel.project.name,
-                    style: GoogleFonts.inter(
-                      fontSize: 10,
-                      color: AppTheme.primary.withOpacity(0.8),
-                      fontWeight: FontWeight.w600,
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primary.withValues(alpha: 0.05),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: AppTheme.primary.withValues(alpha: 0.18),
+                      width: 1,
                     ),
                   ),
-                ],
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    task.name,
+                                    style: GoogleFonts.spaceGrotesk(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                      color: const Color(0xFF25181E),
+                                    ),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                const Icon(
+                                  Icons.folder_open_rounded,
+                                  size: 12,
+                                  color: AppTheme.primary,
+                                ),
+                                const SizedBox(width: 4),
+                                Expanded(
+                                  child: Text(
+                                    startWorkModel.project.name,
+                                    style: GoogleFonts.inter(
+                                      fontSize: 10,
+                                      color: AppTheme.primary.withValues(alpha: 0.8),
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: AppTheme.primary.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              'Details',
+                              style: GoogleFonts.inter(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: AppTheme.primary,
+                              ),
+                            ),
+                            const SizedBox(width: 2),
+                            const Icon(
+                              Icons.open_in_new_rounded,
+                              size: 11,
+                              color: AppTheme.primary,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-            ],
+            ),
           ),
         ),
         const SizedBox(width: 12),
@@ -1186,133 +1248,11 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   void _showProfileDialog(BuildContext context, UserModel user) {
-    DialogUtils.showAppDialog(
-      context: context,
-      title: "User Profile",
-      content: Container(
-        width: 320,
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 80,
-              height: 80,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: AppTheme.primary.withOpacity(0.2),
-                  width: 2,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
-                    blurRadius: 8,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(40),
-                child: OdooNetworkImage(
-                  model: 'res.users',
-                  id: user.userId,
-                  field: 'image_256',
-                  placeholder: Container(
-                    color: AppTheme.primary,
-                    alignment: Alignment.center,
-                    child: Text(
-                      user.name.isNotEmpty ? user.name[0].toUpperCase() : 'U',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 32,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  errorWidget: Container(
-                    color: AppTheme.primary,
-                    alignment: Alignment.center,
-                    child: Text(
-                      user.name.isNotEmpty ? user.name[0].toUpperCase() : 'U',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 32,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              user.name,
-              style: GoogleFonts.spaceGrotesk(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: const Color(0xFF25181E),
-              ),
-              textAlign: TextAlign.center,
-            ),
-            Text(
-              user.email,
-              style: GoogleFonts.inter(
-                fontSize: 13,
-                color: Colors.grey.shade600,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
-            const Divider(),
-            const SizedBox(height: 12),
-            _buildProfileDetailItem(
-              icon: Icons.person_outline,
-              label: "User ID",
-              value: user.userId.toString(),
-            ),
-            _buildProfileDetailItem(
-              icon: Icons.dns_outlined,
-              label: "Database",
-              value: OdooRpcApiManager.authenticationState['database'] ?? 'N/A',
-            ),
-            _buildProfileDetailItem(
-              icon: Icons.link_rounded,
-              label: "Server URL",
-              value:
-                  OdooRpcApiManager.authenticationState['serverUrl'] ?? 'N/A',
-            ),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: () {
-                  Navigator.pop(context);
-                  confirmationAlert(
-                    content: "Are you sure you want to logout?",
-                    onConfirm: () {
-                      _authController.logout();
-                    },
-                  );
-                },
-                icon: const Icon(Icons.logout, size: 16, color: Colors.white),
-                label: const Text(
-                  "Logout",
-                  style: TextStyle(
-                      color: Colors.white, fontWeight: FontWeight.bold),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppTheme.primary,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
+    UserProfileHierarchyDialog.show(
+      context,
+      userId: user.userId,
+      initialName: user.name,
+      initialEmail: user.email,
     );
   }
 

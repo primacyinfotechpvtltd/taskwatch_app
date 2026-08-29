@@ -6,4 +6,7 @@ export './searchable_dropdown.dart';
 export './odoo_network_image.dart';
 export './announcement_widgets.dart';
 export './discuss_widgets.dart';
+export './add_task_dialog.dart';
+export './user_profile_hierarchy_dialog.dart';
+
 

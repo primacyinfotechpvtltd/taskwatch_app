@@ -1077,7 +1077,10 @@ class OdooRpcApiManager {
 
   static bool get isUsingFullUrl => useFullUrl;
 
-  /// Fetches an Odoo model profile image as raw bytes via HTTP GET /web/image?model=&id=&field=
+  /// Fetches an Odoo model profile image as raw bytes.
+  /// 1. Queries image binary fields via authenticated JSON-RPC (works in password auth mode)
+  /// 2. If model is res.users and avatar is empty, queries partner_id avatar
+  /// 3. Falls back to HTTP GET /web/image if session is available
   static Future<List<int>?> fetchImageBytes({
     required String model,
     required int id,
@@ -1085,32 +1088,197 @@ class OdooRpcApiManager {
   }) async {
     try {
       if (!isAuthenticated) return null;
+
+      // 1. Read image binary field via authenticated JSON-RPC execute_kw
+      try {
+        final List<String> fieldsToRead = model == 'ir.attachment'
+            ? ['datas', 'mimetype', 'name']
+            : (model == 'res.users'
+                ? [
+                    field,
+                    if (field != 'image_128') 'image_128',
+                    if (field != 'image_256') 'image_256',
+                    if (field != 'image_512') 'image_512',
+                    if (field != 'image_1920') 'image_1920',
+                    if (field != 'avatar_128') 'avatar_128',
+                    if (field != 'avatar_256') 'avatar_256',
+                    if (field != 'avatar_1920') 'avatar_1920',
+                    'partner_id',
+                  ]
+                : (model == 'res.partner' || model == 'hr.employee'
+                    ? [
+                        field,
+                        if (field != 'image_128') 'image_128',
+                        if (field != 'image_256') 'image_256',
+                        if (field != 'image_512') 'image_512',
+                        if (field != 'image_1920') 'image_1920',
+                        if (field != 'avatar_128') 'avatar_128',
+                        if (field != 'avatar_256') 'avatar_256',
+                        if (field != 'avatar_1920') 'avatar_1920',
+                      ]
+                    : [field]));
+
+        final rpcRes = await _executeKw(
+          model: model,
+          method: 'read',
+          args: [
+            [id],
+            fieldsToRead,
+          ],
+          showLog: false,
+        );
+
+        if (rpcRes.isSuccess &&
+            rpcRes.data is List &&
+            (rpcRes.data as List).isNotEmpty) {
+          final record =
+              (rpcRes.data as List).first as Map<String, dynamic>;
+
+          // Check direct image fields in order of preference
+          final candidates = model == 'ir.attachment'
+              ? ['datas']
+              : [
+                  field,
+                  'image_128',
+                  'image_256',
+                  'image_512',
+                  'image_1920',
+                  'avatar_128',
+                  'avatar_256',
+                  'avatar_1920',
+                ];
+
+          for (final f in candidates) {
+            final val = record[f];
+            if (val != null && val is String && val.trim().isNotEmpty) {
+              final cleanBase64 =
+                  val.replaceAll('\n', '').replaceAll('\r', '').trim();
+              try {
+                final bytes = base64Decode(cleanBase64);
+                if (bytes.isNotEmpty) {
+                  return bytes;
+                }
+              } catch (_) {}
+            }
+          }
+
+          // If model is res.users and user image was empty, check partner_id
+          if (model == 'res.users' && record['partner_id'] != null) {
+            int? partnerId;
+            final pidVal = record['partner_id'];
+            if (pidVal is List && pidVal.isNotEmpty) {
+              partnerId = pidVal[0] is int
+                  ? pidVal[0]
+                  : int.tryParse(pidVal[0].toString());
+            } else if (pidVal is int) {
+              partnerId = pidVal;
+            }
+
+            if (partnerId != null && partnerId > 0) {
+              final partnerRes = await _executeKw(
+                model: 'res.partner',
+                method: 'read',
+                args: [
+                  [partnerId],
+                  [
+                    field,
+                    'image_128',
+                    'image_256',
+                    'image_512',
+                    'image_1920',
+                    'avatar_128',
+                    'avatar_256',
+                    'avatar_1920'
+                  ],
+                ],
+                showLog: false,
+              );
+
+              if (partnerRes.isSuccess &&
+                  partnerRes.data is List &&
+                  (partnerRes.data as List).isNotEmpty) {
+                final partnerRecord =
+                    (partnerRes.data as List).first as Map<String, dynamic>;
+                for (final f in candidates) {
+                  final val = partnerRecord[f];
+                  if (val != null && val is String && val.trim().isNotEmpty) {
+                    final cleanBase64 =
+                        val.replaceAll('\n', '').replaceAll('\r', '').trim();
+                    try {
+                      final bytes = base64Decode(cleanBase64);
+                      if (bytes.isNotEmpty) {
+                        return bytes;
+                      }
+                    } catch (_) {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      } catch (e) {
+        _logger.d('fetchImageBytes RPC read failed for $model id=$id: $e');
+      }
+
+      // 2. Fallback to HTTP GET /web/content (for ir.attachment) or /web/image (for other models)
       final baseUrl = _effectiveServerUrl;
-      final dioInstance = await _getDio();
+      if (baseUrl.isNotEmpty) {
+        final dioInstance = await _getDio();
 
-      final params = <String, String>{
-        'model': model,
-        'id': id.toString(),
-        'field': field,
-        if (_sessionId != null && _sessionId!.isNotEmpty) 'session_id': _sessionId!,
-      };
+        final params = <String, String>{
+          'model': model,
+          'id': id.toString(),
+          'field': field,
+          if (_sessionId != null && _sessionId!.isNotEmpty)
+            'session_id': _sessionId!,
+        };
 
-      final uri = Uri.parse(baseUrl).replace(path: '/web/image', queryParameters: params);
-      
-      final response = await dioInstance.get<List<int>>(
-        uri.toString(),
-        options: dio.Options(
-          responseType: dio.ResponseType.bytes,
-          headers: _getHeaders(includeSession: true),
-        ),
-      );
+        final uri = model == 'ir.attachment'
+            ? Uri.parse(baseUrl).replace(
+                path: '/web/content/$id',
+                queryParameters: {
+                  if (_sessionId != null && _sessionId!.isNotEmpty)
+                    'session_id': _sessionId!,
+                },
+              )
+            : Uri.parse(baseUrl)
+                .replace(path: '/web/image', queryParameters: params);
 
-      if (response.statusCode == 200 && response.data != null && response.data!.isNotEmpty) {
-        return response.data!;
+        final response = await dioInstance.get<List<int>>(
+          uri.toString(),
+          options: dio.Options(
+            responseType: dio.ResponseType.bytes,
+            headers: _getHeaders(includeSession: true),
+          ),
+        );
+
+        if (response.statusCode == 200 &&
+            response.data != null &&
+            response.data!.isNotEmpty) {
+          final data = response.data!;
+          // Validate image magic bytes to ensure not HTML redirect page
+          if (data.length > 4) {
+            final isPng = data[0] == 0x89 &&
+                data[1] == 0x50 &&
+                data[2] == 0x4E &&
+                data[3] == 0x47;
+            final isJpg = data[0] == 0xFF && data[1] == 0xD8;
+            final isGif = data[0] == 0x47 && data[1] == 0x49 && data[2] == 0x46;
+            final isWebp = data.length > 12 &&
+                data[0] == 0x52 &&
+                data[1] == 0x49 &&
+                data[2] == 0x46 &&
+                data[3] == 0x46;
+            if (isPng || isJpg || isGif || isWebp) {
+              return data;
+            }
+          }
+        }
       }
       return null;
     } catch (e) {
-      _logger.w('OdooRpcApiManager.fetchImageBytes error for $model id=$id: $e');
+      _logger.w(
+          'OdooRpcApiManager.fetchImageBytes error for $model id=$id: $e');
       return null;
     }
   }

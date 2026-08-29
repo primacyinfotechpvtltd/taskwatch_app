@@ -271,21 +271,32 @@ class _DiscussScreenState extends State<DiscussScreen> {
           child: ListTile(
             contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
             onTap: () => controller.startDirectChat(uId, name),
-            leading: CircleAvatar(
-              radius: 18,
-              backgroundColor: avatarColor.withOpacity(0.15),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(18),
-                child: OdooNetworkImage(
-                  model: 'res.partner',
-                  id: uId,
-                  field: 'image_128',
-                  placeholder: Text(
-                    name.isNotEmpty ? name[0].toUpperCase() : 'U',
-                    style: GoogleFonts.spaceGrotesk(
-                      fontWeight: FontWeight.bold,
-                      color: avatarColor,
-                      fontSize: 13,
+            leading: InkWell(
+              onTap: () {
+                UserProfileHierarchyDialog.show(
+                  context,
+                  partnerId: uId,
+                  initialName: name,
+                  initialEmail: email,
+                );
+              },
+              borderRadius: BorderRadius.circular(18),
+              child: CircleAvatar(
+                radius: 18,
+                backgroundColor: avatarColor.withOpacity(0.15),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(18),
+                  child: OdooNetworkImage(
+                    model: 'res.partner',
+                    id: uId,
+                    field: 'image_128',
+                    placeholder: Text(
+                      name.isNotEmpty ? name[0].toUpperCase() : 'U',
+                      style: GoogleFonts.spaceGrotesk(
+                        fontWeight: FontWeight.bold,
+                        color: avatarColor,
+                        fontSize: 13,
+                      ),
                     ),
                   ),
                 ),
@@ -317,6 +328,36 @@ class _DiscussScreenState extends State<DiscussScreen> {
         );
       },
     );
+  }
+
+  void _showChannelInfo(DiscussChannelModel channel) {
+    if (channel.channelType == 'chat' && channel.otherPartnerId != null) {
+      UserProfileHierarchyDialog.show(
+        context,
+        partnerId: channel.otherPartnerId,
+        initialName: channel.name,
+      );
+    } else {
+      DialogUtils.showAppDialog(
+        context: context,
+        title: channel.name,
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Channel: ${channel.name}',
+                style: const TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Text('Type: Group Channel (#${channel.id})',
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+            const SizedBox(height: 8),
+            Text(
+                'Total Messages: ${controller.channelMessages[channel.id]?.length ?? 0}',
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+          ],
+        ),
+      );
+    }
   }
 
   // --- Section: Active Chat Thread ---
@@ -392,85 +433,97 @@ class _DiscussScreenState extends State<DiscussScreen> {
                 const SizedBox(width: 4),
               ],
               
-              // Avatar
-              CircleAvatar(
-                radius: 16,
-                backgroundColor: avatarColor.withOpacity(0.15),
-                child: activeChannel.channelType == 'chat' && activeChannel.otherPartnerId != null
-                    ? ClipRRect(
-                        borderRadius: BorderRadius.circular(16),
-                        child: OdooNetworkImage(
-                          model: 'res.partner',
-                          id: activeChannel.otherPartnerId!,
-                          field: 'image_128',
-                          placeholder: Text(
-                            activeChannel.name.isNotEmpty ? activeChannel.name[0].toUpperCase() : 'C',
-                            style: GoogleFonts.spaceGrotesk(
-                              fontWeight: FontWeight.bold,
-                              color: avatarColor,
-                              fontSize: 12,
+              // Avatar & Info Clickable Area
+              InkWell(
+                onTap: () => _showChannelInfo(activeChannel),
+                borderRadius: BorderRadius.circular(16),
+                child: CircleAvatar(
+                  radius: 16,
+                  backgroundColor: avatarColor.withOpacity(0.15),
+                  child: activeChannel.channelType == 'chat' &&
+                          activeChannel.otherPartnerId != null
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(16),
+                          child: OdooNetworkImage(
+                            model: 'res.partner',
+                            id: activeChannel.otherPartnerId!,
+                            field: 'image_128',
+                            placeholder: Text(
+                              activeChannel.name.isNotEmpty
+                                  ? activeChannel.name[0].toUpperCase()
+                                  : 'C',
+                              style: GoogleFonts.spaceGrotesk(
+                                fontWeight: FontWeight.bold,
+                                color: avatarColor,
+                                fontSize: 12,
+                              ),
+                            ),
+                            errorWidget: Text(
+                              activeChannel.name.isNotEmpty
+                                  ? activeChannel.name[0].toUpperCase()
+                                  : 'C',
+                              style: GoogleFonts.spaceGrotesk(
+                                fontWeight: FontWeight.bold,
+                                color: avatarColor,
+                                fontSize: 12,
+                              ),
                             ),
                           ),
-                          errorWidget: Text(
-                            activeChannel.name.isNotEmpty ? activeChannel.name[0].toUpperCase() : 'C',
-                            style: GoogleFonts.spaceGrotesk(
-                              fontWeight: FontWeight.bold,
-                              color: avatarColor,
-                              fontSize: 12,
-                            ),
+                        )
+                      : Text(
+                          activeChannel.name.isNotEmpty
+                              ? activeChannel.name[0].toUpperCase()
+                              : '#',
+                          style: GoogleFonts.spaceGrotesk(
+                            fontWeight: FontWeight.bold,
+                            color: avatarColor,
+                            fontSize: 12,
                           ),
                         ),
-                      )
-                    : Text(
-                        activeChannel.name.isNotEmpty ? activeChannel.name[0].toUpperCase() : '#',
-                        style: GoogleFonts.spaceGrotesk(
-                          fontWeight: FontWeight.bold,
-                          color: avatarColor,
-                          fontSize: 12,
-                        ),
-                      ),
-              ),
-              const SizedBox(width: 10),
-              
-              // Name and type
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      activeChannel.name,
-                      style: GoogleFonts.inter(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: const Color(0xFF25181E),
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    Text(
-                      activeChannel.channelType == 'chat' ? 'Direct Message' : 'Group Channel',
-                      style: TextStyle(
-                        fontSize: 9,
-                        color: Colors.grey.shade500,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
                 ),
               ),
-              
-              // Rich Mock Bitrix Action Buttons
-              IconButton(
-                onPressed: () {},
-                icon: const Icon(Icons.search_rounded, size: 18),
-                color: Colors.grey.shade600,
-                style: IconButton.styleFrom(minimumSize: const Size(32, 32)),
+              const SizedBox(width: 10),
+
+              // Name and type Clickable
+              Expanded(
+                child: InkWell(
+                  onTap: () => _showChannelInfo(activeChannel),
+                  borderRadius: BorderRadius.circular(6),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        activeChannel.name,
+                        style: GoogleFonts.inter(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: const Color(0xFF25181E),
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        activeChannel.channelType == 'chat'
+                            ? 'Direct Message • Tap for Profile & Hierarchy'
+                            : 'Group Channel',
+                        style: TextStyle(
+                          fontSize: 9,
+                          color: Colors.grey.shade500,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
+
+              // Action Buttons
               IconButton(
-                onPressed: () {},
+                onPressed: () => _showChannelInfo(activeChannel),
                 icon: const Icon(Icons.info_outline_rounded, size: 18),
                 color: Colors.grey.shade600,
+                tooltip: 'Profile & Info',
                 style: IconButton.styleFrom(minimumSize: const Size(32, 32)),
               ),
             ],

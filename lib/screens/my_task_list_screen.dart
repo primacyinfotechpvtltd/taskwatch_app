@@ -9,6 +9,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import 'package:pi_task_watch/models/task_model.dart';
 import 'package:pi_task_watch/models/task_details_model.dart';
+import 'package:pi_task_watch/widgets/add_task_dialog.dart';
 import 'task_detail_screen.dart';
 
 class MyTaskListScreen extends StatefulWidget {
@@ -1020,6 +1021,35 @@ class _MyTaskListScreenState extends State<MyTaskListScreen>
                           ),
                         ),
                       ],
+                      // Edit task button
+                      const SizedBox(width: 6),
+                      InkWell(
+                        onTap: () async {
+                          final updated = await showDialog<TaskModel>(
+                            context: context,
+                            barrierDismissible: true,
+                            builder: (context) => AddTaskDialog(
+                              initialProjectId: task.projectId,
+                              initialTask: task,
+                            ),
+                          );
+                          if (updated != null) {
+                            _loadTasks();
+                          }
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).primaryColor.withOpacity(0.08),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            Icons.edit_note_rounded,
+                            size: 16,
+                            color: Theme.of(context).primaryColor,
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 6),
@@ -1276,14 +1306,26 @@ class _MyTaskListScreenState extends State<MyTaskListScreen>
     );
   }
 
+  void _showAddTaskDialog() async {
+    final result = await showDialog<TaskModel>(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) => const AddTaskDialog(),
+    );
+
+    if (result != null) {
+      _loadTasks();
+    }
+  }
+
   Widget _buildHeaderActions() {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         _buildIconButton(
-          icon: Icons.close_rounded,
-          color: Colors.grey[700],
-          onTap: () => Navigator.of(context).pop(),
+          icon: Icons.add_rounded,
+          color: Theme.of(context).primaryColor,
+          onTap: _showAddTaskDialog,
           withBackground: true,
         ),
         const SizedBox(width: 6),
@@ -1301,6 +1343,13 @@ class _MyTaskListScreenState extends State<MyTaskListScreen>
           icon: Icons.sort_rounded,
           color: Colors.grey[700],
           onTap: _showSortBottomSheet,
+          withBackground: true,
+        ),
+        const SizedBox(width: 6),
+        _buildIconButton(
+          icon: Icons.close_rounded,
+          color: Colors.grey[700],
+          onTap: () => Navigator.of(context).pop(),
           withBackground: true,
         ),
       ],

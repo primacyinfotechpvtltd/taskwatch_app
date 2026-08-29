@@ -1,3 +1,4 @@
+import 'package:intl/intl.dart';
 import 'package:pi_task_watch/exports.dart';
 
 class TaskController extends GetxController {
@@ -42,6 +43,167 @@ class TaskController extends GetxController {
     } catch (e) {
       print("Error fetching task list: $e");
       return [];
+    } finally {
+      _isLoading.value = false;
+    }
+  }
+
+  /// Create a new task strictly assigned to the currently logged in user
+  Future<TaskModel?> createTask({
+    required String name,
+    required int projectId,
+    String? description,
+    DateTime? deadline,
+    double? allocatedHours,
+  }) async {
+    try {
+      _isLoading.value = true;
+
+      // Ensure logged in user is assigned
+      final authController = Get.find<AuthController>();
+      final currentUser = authController.user.value;
+      if (currentUser == null) {
+        showToast('Please log in to create a task', idSuccess: false);
+        return null;
+      }
+
+      final int userId = currentUser.userId;
+      final Map<String, dynamic> values = {
+        'name': name.trim(),
+        'project_id': projectId,
+        // Strictly assign ONLY the logged-in user
+        'user_ids': [
+          [6, 0, [userId]]
+        ],
+      };
+
+      if (description != null && description.trim().isNotEmpty) {
+        values['description'] = description.trim();
+      }
+
+      if (deadline != null) {
+        values['date_deadline'] = DateFormat('yyyy-MM-dd').format(deadline);
+      }
+
+      if (allocatedHours != null && allocatedHours > 0) {
+        values['allocated_hours'] = allocatedHours;
+      }
+
+      // Try creating via OdooRpcApiManager
+      final odooResponse = await OdooRpcApiManager.create(
+        model: 'project.task',
+        values: values,
+      );
+
+      if (odooResponse.isSuccess && odooResponse.data != null) {
+        final int taskId = odooResponse.data as int;
+        showToast('Task created successfully', idSuccess: true);
+        await getTaskList(projectId: null);
+        return _taskList.firstWhereOrNull((t) => t.id == taskId);
+      } else {
+        // Fallback: try via REST API if RPC is not enabled
+        final restResponse = await ApiManager.postRequest(
+          endPoint: 'tasks',
+          data: {
+            'name': name.trim(),
+            'project_id': projectId,
+            'user_id': userId,
+            'user_ids': [userId],
+            if (description != null && description.trim().isNotEmpty)
+              'description': description.trim(),
+            if (deadline != null)
+              'date_deadline': DateFormat('yyyy-MM-dd').format(deadline),
+            if (allocatedHours != null && allocatedHours > 0)
+              'allocated_hours': allocatedHours,
+          },
+        );
+
+        if (restResponse.isSuccess) {
+          showToast('Task created successfully', idSuccess: true);
+          await getTaskList(projectId: null);
+          return _taskList.isNotEmpty ? _taskList.first : null;
+        }
+
+        final errMsg = odooResponse.message.isNotEmpty
+            ? odooResponse.message
+            : (restResponse.message.isNotEmpty
+                ? restResponse.message
+                : 'Failed to create task');
+        showToast(errMsg, idSuccess: false);
+        return null;
+      }
+    } catch (e) {
+      print("Error creating task: $e");
+      showToast('Error creating task: $e', idSuccess: false);
+      return null;
+    } finally {
+      _isLoading.value = false;
+    }
+  }
+
+  /// Update an existing task's description, allocated hours, deadline, and/or name
+  Future<bool> updateTask({
+    required int taskId,
+    String? name,
+    String? description,
+    DateTime? deadline,
+    double? allocatedHours,
+  }) async {
+    try {
+      _isLoading.value = true;
+
+      final Map<String, dynamic> values = {};
+      if (name != null && name.trim().isNotEmpty) {
+        values['name'] = name.trim();
+      }
+      if (description != null) {
+        values['description'] = description.trim();
+      }
+      if (deadline != null) {
+        values['date_deadline'] = DateFormat('yyyy-MM-dd').format(deadline);
+      }
+      if (allocatedHours != null) {
+        values['allocated_hours'] = allocatedHours;
+      }
+
+      if (values.isEmpty) return true;
+
+      // Try via OdooRpcApiManager.write
+      final odooResponse = await OdooRpcApiManager.write(
+        model: 'project.task',
+        ids: [taskId],
+        values: values,
+      );
+
+      if (odooResponse.isSuccess) {
+        showToast('Task updated successfully', idSuccess: true);
+        await getTaskList(projectId: null);
+        return true;
+      } else {
+        // Fallback: try REST API
+        final restResponse = await ApiManager.postRequest(
+          endPoint: 'tasks/$taskId',
+          data: values,
+        );
+
+        if (restResponse.isSuccess) {
+          showToast('Task updated successfully', idSuccess: true);
+          await getTaskList(projectId: null);
+          return true;
+        }
+
+        final errMsg = odooResponse.message.isNotEmpty
+            ? odooResponse.message
+            : (restResponse.message.isNotEmpty
+                ? restResponse.message
+                : 'Failed to update task');
+        showToast(errMsg, idSuccess: false);
+        return false;
+      }
+    } catch (e) {
+      print("Error updating task: $e");
+      showToast('Error updating task: $e', idSuccess: false);
+      return false;
     } finally {
       _isLoading.value = false;
     }
