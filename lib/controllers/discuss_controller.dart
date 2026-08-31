@@ -28,6 +28,35 @@ class DiscussController extends GetxController {
   // For searching/starting direct messages
   final RxList<Map<String, dynamic>> usersToChat = <Map<String, dynamic>>[].obs;
   final RxBool isLoadingUsers = false.obs;
+
+  // WhatsApp-style Pinned messages, replies, and reactions
+  final RxMap<int, DiscussMessageModel?> pinnedMessages =
+      <int, DiscussMessageModel?>{}.obs;
+  final Rx<DiscussMessageModel?> replyingMessage =
+      Rx<DiscussMessageModel?>(null);
+  final RxMap<int, String> messageReactions = <int, String>{}.obs;
+
+  void pinMessage(int channelId, DiscussMessageModel message) {
+    pinnedMessages[channelId] = message;
+    showToast('Message pinned to conversation', idSuccess: true);
+  }
+
+  void unpinMessage(int channelId) {
+    pinnedMessages.remove(channelId);
+    showToast('Message unpinned', idSuccess: true);
+  }
+
+  void setReplyMessage(DiscussMessageModel? message) {
+    replyingMessage.value = message;
+  }
+
+  void reactToMessage(int messageId, String emoji) {
+    if (messageReactions[messageId] == emoji) {
+      messageReactions.remove(messageId);
+    } else {
+      messageReactions[messageId] = emoji;
+    }
+  }
   
   // Scroll Controller for Chat Thread
   final ScrollController chatScrollController = ScrollController();
@@ -75,10 +104,12 @@ class DiscussController extends GetxController {
       }
     });
 
-    // Background polling for new messages every 5 minutes (passive fallback)
-    _refreshTimer = Timer.periodic(const Duration(minutes: 5), (_) {
+    // Background real-time polling for new incoming messages every 2.5 seconds
+    _refreshTimer = Timer.periodic(const Duration(milliseconds: 2500), (_) {
       if (OdooRpcApiManager.isAuthenticated && !isLoadingChannels.value) {
-        refreshActiveChannel();
+        if (selectedChannelId.value != -1) {
+          fetchMessages(selectedChannelId.value, background: true);
+        }
       }
     });
     //LogUtils.i('DISCUSS_LIFECYCLE: DiscussController onInit complete');
@@ -146,6 +177,7 @@ class DiscussController extends GetxController {
     }
     for (var c in channels) {
       channelList.add('discuss.channel_${c.id}');
+      channelList.add('mail.channel_${c.id}');
     }
 
     wsService.connect(initialChannels: channelList);
@@ -665,6 +697,12 @@ class DiscussController extends GetxController {
       channels[idx] = channels[idx].copyWith(unreadCount: 0);
     }
     
+    // Subscribe to channel on Odoo WebSocket
+    OdooWebSocketService().subscribe([
+      'discuss.channel_$channelId',
+      'mail.channel_$channelId',
+    ]);
+
     // Fetch messages for this channel
     if (!channelMessages.containsKey(channelId)) {
       fetchMessages(channelId);
@@ -680,10 +718,10 @@ class DiscussController extends GetxController {
     
     if (!background) {
       isLoadingMessages[channelId] = true;
+      debugPrint('DISCUSS_MESSAGES: Querying messages for channel=$channelId');
     }
 
     try {
-      debugPrint('DISCUSS_MESSAGES: Querying messages for channel=$channelId');
       
       // In Odoo, messages for a channel are linked via model and res_id
       final response = await OdooRpcApiManager.searchRead(
@@ -745,25 +783,42 @@ class DiscussController extends GetxController {
         // Odoo returns newest first, so we reverse to display chronologically in chat bubble flow
         final chronological = msgs.reversed.toList();
         
-        channelMessages[channelId] = chronological;
-        scrollToBottom(animate: false);
-        
-        await fetchChannelMembersSeenStatus(channelId);
-        
-        // Update the channel's last message info
-        if (chronological.isNotEmpty) {
-          final last = chronological.last;
-          final idx = channels.indexWhere((c) => c.id == channelId);
-          if (idx != -1) {
-            channels[idx] = channels[idx].copyWith(
-              lastMessage: last.displayBody,
-              lastMessageTime: last.date,
-            );
-            sortChannels();
+        final existingList = channelMessages[channelId];
+        bool hasChanges = false;
+
+        if (existingList == null || existingList.length != chronological.length) {
+          hasChanges = true;
+        } else if (existingList.isNotEmpty && chronological.isNotEmpty) {
+          if (existingList.last.id != chronological.last.id ||
+              existingList.first.id != chronological.first.id) {
+            hasChanges = true;
           }
+        }
+
+        if (hasChanges) {
+          channelMessages[channelId] = chronological;
+          scrollToBottom(animate: false);
           
-          // Mark channel as read on Odoo server
-          markChannelAsSeen(channelId);
+          await fetchChannelMembersSeenStatus(channelId);
+          
+          // Update the channel's last message info only when actually changed
+          if (chronological.isNotEmpty) {
+            final last = chronological.last;
+            final idx = channels.indexWhere((c) => c.id == channelId);
+            if (idx != -1) {
+              if (channels[idx].lastMessage != last.displayBody ||
+                  channels[idx].lastMessageTime != last.date) {
+                channels[idx] = channels[idx].copyWith(
+                  lastMessage: last.displayBody,
+                  lastMessageTime: last.date,
+                );
+                sortChannels();
+              }
+            }
+            
+            // Mark channel as read on Odoo server
+            markChannelAsSeen(channelId);
+          }
         }
       }
     } catch (e) {
@@ -1247,40 +1302,26 @@ class DiscussController extends GetxController {
   }
 
   Future<void> _runAdaptivePollingLoop() async {
-    //LogUtils.i('DISCUSS_POLL: Starting background adaptive polling loop...');
-    
     while (_isLongPollingActive && OdooRpcApiManager.isAuthenticated) {
-      final isDiscussActive = Get.currentRoute == '/discuss';
+      final hasSelectedChannel = selectedChannelId.value != -1;
       
-      Duration delay;
-      if (isDiscussActive) {
-        // If actively looking at chat, we poll every 4 seconds for responsiveness
-        delay = const Duration(seconds: 4);
-      } else {
-        // If in dashboard, timesheets, or background, we poll very passively (every 60 seconds)
-        delay = const Duration(seconds: 60);
-      }
+      // If a chat conversation is active, poll every 2.5s; otherwise poll channels every 8s
+      final delay = hasSelectedChannel
+          ? const Duration(milliseconds: 2500)
+          : const Duration(seconds: 8);
 
       await Future.delayed(delay);
 
       if (!_isLongPollingActive || !OdooRpcApiManager.isAuthenticated) break;
 
       try {
-        if (isDiscussActive) {
-          //LogUtils.i('DISCUSS_POLL: App is in chat view, fetching new messages...');
-          if (selectedChannelId.value != -1) {
-            await fetchMessages(selectedChannelId.value, background: true);
-          }
-          await fetchChannels();
-        } else {
-          //.i('DISCUSS_POLL: App is inactive/in background, passive sync channels...');
-          await fetchChannels();
+        if (selectedChannelId.value != -1) {
+          await fetchMessages(selectedChannelId.value, background: true);
         }
+        await fetchChannels();
       } catch (e) {
-        //LogUtils.e('DISCUSS_POLL_ERROR: Polling request failed: $e');
+        debugPrint('DISCUSS_POLL_ERROR: $e');
       }
     }
-    
-    //LogUtils.i('DISCUSS_POLL: Adaptive polling loop terminated.');
   }
 }

@@ -945,36 +945,39 @@ class _MyTaskListScreenState extends State<MyTaskListScreen>
                 children: [
                   Row(
                     children: [
-                      // Info button moved to beginning for better positioning
-                      InkWell(
-                        onTap: () {
-                          // Pass TaskDetailsModel instead of TaskModel
-                          Get.toNamed(
-                            TaskDetailScreen.routeName,
-                            arguments: TaskDetailsModel(
-                              id: task.id,
-                              name: task.name,
-                              projectId: task.projectId,
-                              projectName: task.projectName,
-                              stageId: task.stageId ?? 0,
-                              stageName: task.stageName,
-                              dateDeadline: task.getEndDateTime(),
+                      // Eye button to view task details fullscreen
+                      Tooltip(
+                        message: 'View task details fullscreen',
+                        child: InkWell(
+                          onTap: () {
+                            // Pass TaskDetailsModel instead of TaskModel
+                            Get.toNamed(
+                              TaskDetailScreen.routeName,
+                              arguments: TaskDetailsModel(
+                                id: task.id,
+                                name: task.name,
+                                projectId: task.projectId,
+                                projectName: task.projectName,
+                                stageId: task.stageId ?? 0,
+                                stageName: task.stageName,
+                                dateDeadline: task.getEndDateTime(),
+                              ),
+                            );
+                          },
+                          child: Container(
+                            margin: const EdgeInsets.only(right: 8),
+                            padding: const EdgeInsets.all(4),
+                            decoration: BoxDecoration(
+                              color: Theme.of(
+                                context,
+                              ).primaryColor.withOpacity(0.1),
+                              shape: BoxShape.circle,
                             ),
-                          );
-                        },
-                        child: Container(
-                          margin: const EdgeInsets.only(right: 8),
-                          padding: const EdgeInsets.all(4),
-                          decoration: BoxDecoration(
-                            color: Theme.of(
-                              context,
-                            ).primaryColor.withOpacity(0.1),
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(
-                            Icons.info_outline,
-                            size: 14,
-                            color: Theme.of(context).primaryColor,
+                            child: Icon(
+                              Icons.visibility_rounded,
+                              size: 14,
+                              color: Theme.of(context).primaryColor,
+                            ),
                           ),
                         ),
                       ),

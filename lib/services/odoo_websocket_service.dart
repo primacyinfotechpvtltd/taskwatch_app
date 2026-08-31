@@ -31,10 +31,20 @@ class OdooWebSocketService {
     if (isConnected || _isConnecting) return;
 
     final baseUrl = OdooRpcApiManager.serverUrl;
-    final sessionId = OdooRpcApiManager.currentSessionId;
+    var sessionId = OdooRpcApiManager.currentSessionId;
 
-    if (baseUrl.isEmpty || sessionId == null || sessionId.isEmpty) {
-      debugPrint('[OdooWS] Cannot connect: missing serverUrl or sessionId');
+    if (baseUrl.isEmpty) {
+      debugPrint('[OdooWS] Cannot connect: missing serverUrl');
+      return;
+    }
+
+    if (sessionId == null || sessionId.isEmpty) {
+      debugPrint('[OdooWS] No sessionId present, auto-establishing web session for WebSocket...');
+      sessionId = await OdooRpcApiManager.ensureWebSession();
+    }
+
+    if (sessionId == null || sessionId.isEmpty) {
+      debugPrint('[OdooWS] Cannot connect: could not establish web session');
       return;
     }
 

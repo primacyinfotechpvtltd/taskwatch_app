@@ -546,7 +546,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                       const SizedBox(width: 6),
                       Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 4),
+                            horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
                           color: AppTheme.primary.withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(6),
@@ -554,19 +554,19 @@ class _DashboardScreenState extends State<DashboardScreen>
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
+                            const Icon(
+                              Icons.visibility_rounded,
+                              size: 13,
+                              color: AppTheme.primary,
+                            ),
+                            const SizedBox(width: 4),
                             Text(
-                              'Details',
+                              'View Task',
                               style: GoogleFonts.inter(
                                 fontSize: 10,
                                 fontWeight: FontWeight.bold,
                                 color: AppTheme.primary,
                               ),
-                            ),
-                            const SizedBox(width: 2),
-                            const Icon(
-                              Icons.open_in_new_rounded,
-                              size: 11,
-                              color: AppTheme.primary,
                             ),
                           ],
                         ),

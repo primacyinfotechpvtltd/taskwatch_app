@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:pi_task_watch/exports.dart';
@@ -25,21 +26,11 @@ class _DiscussScreenState extends State<DiscussScreen> {
       body: LayoutBuilder(
         builder: (context, constraints) {
           final isWide = constraints.maxWidth > 550;
-          return Obx(() {
-            if (controller.isLoadingChannels.value && controller.channels.isEmpty) {
-              return const Center(
-                child: CircularProgressIndicator(
-                  valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primary),
-                ),
-              );
-            }
-
-            if (isWide) {
-              return _buildWideLayout();
-            } else {
-              return _buildCompactLayout();
-            }
-          });
+          if (isWide) {
+            return _buildWideLayout();
+          } else {
+            return _buildCompactLayout();
+          }
         },
       ),
     );
@@ -65,26 +56,21 @@ class _DiscussScreenState extends State<DiscussScreen> {
   }
 
   Widget _buildCompactLayout() {
-    final activeId = controller.selectedChannelId.value;
-    
-    // If no channel is selected or we're on fallback, show channels list
-    if (activeId == -1) {
-      return _buildChannelsListSection();
-    } else {
-      return _buildChatThreadSection(showBackButton: true);
-    }
+    return Obx(() {
+      final activeId = controller.selectedChannelId.value;
+      
+      // If no channel is selected or we're on fallback, show channels list
+      if (activeId == -1) {
+        return _buildChannelsListSection();
+      } else {
+        return _buildChatThreadSection(showBackButton: true);
+      }
+    });
   }
 
   // --- Section: Channels List ---
 
   Widget _buildChannelsListSection() {
-    // Filter channels
-    final filtered = controller.channels.where((c) {
-      if (_filterType == 'chat') return c.channelType == 'chat';
-      if (_filterType == 'channel') return c.channelType != 'chat';
-      return true;
-    }).toList();
-
     return Column(
       children: [
         // Top Toolbar
@@ -137,28 +123,48 @@ class _DiscussScreenState extends State<DiscussScreen> {
 
         // List
         Expanded(
-          child: _filterType == 'colleagues'
-              ? _buildColleaguesList()
-              : filtered.isEmpty
-                  ? _buildEmptyChannelsState()
-                  : ListView.separated(
-                      itemCount: filtered.length,
-                      separatorBuilder: (context, index) => Divider(
-                        height: 1,
-                        thickness: 0.5,
-                        color: Colors.grey.shade200,
-                        indent: 64,
-                        endIndent: 12,
-                      ),
-                      itemBuilder: (context, index) {
-                        final chan = filtered[index];
-                        return ChannelListTile(
-                          channel: chan,
-                          isSelected: chan.id == controller.selectedChannelId.value,
-                          onTap: () => controller.selectChannel(chan.id),
-                        );
-                      },
-                    ),
+          child: Obx(() {
+            if (controller.isLoadingChannels.value && controller.channels.isEmpty) {
+              return const Center(
+                child: CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primary),
+                ),
+              );
+            }
+            if (_filterType == 'colleagues') {
+              return _buildColleaguesList();
+            }
+            final filtered = controller.channels.where((c) {
+              if (_filterType == 'chat') return c.channelType == 'chat';
+              if (_filterType == 'channel') return c.channelType != 'chat';
+              return true;
+            }).toList();
+
+            if (filtered.isEmpty) {
+              return _buildEmptyChannelsState();
+            }
+
+            return ListView.separated(
+              itemCount: filtered.length,
+              separatorBuilder: (context, index) => Divider(
+                height: 1,
+                thickness: 0.5,
+                color: Colors.grey.shade200,
+                indent: 64,
+                endIndent: 12,
+              ),
+              itemBuilder: (context, index) {
+                final chan = filtered[index];
+                return ChannelListTile(
+                  key: ValueKey('chan_${chan.id}'),
+                  channel: chan,
+                  isSelected:
+                      chan.id == controller.selectedChannelId.value,
+                  onTap: () => controller.selectChannel(chan.id),
+                );
+              },
+            );
+          }),
         ),
       ],
     );
@@ -363,50 +369,75 @@ class _DiscussScreenState extends State<DiscussScreen> {
   // --- Section: Active Chat Thread ---
 
   Widget _buildChatThreadSection({bool showBackButton = false}) {
-    final activeId = controller.selectedChannelId.value;
-    if (activeId == -1) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.chat_bubble_outline_rounded,
-              size: 48,
-              color: Colors.grey.shade300,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Select a conversation to start chatting',
-              style: GoogleFonts.inter(
-                fontSize: 12,
-                color: Colors.grey.shade500,
-                fontWeight: FontWeight.w500,
+    return Obx(() {
+      final activeId = controller.selectedChannelId.value;
+      if (activeId == -1) {
+        return Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.chat_bubble_outline_rounded,
+                size: 48,
+                color: Colors.grey.shade300,
               ),
-            ),
-          ],
-        ),
-      );
-    }
+              const SizedBox(height: 12),
+              Text(
+                'Select a conversation to start chatting',
+                style: GoogleFonts.inter(
+                  fontSize: 12,
+                  color: Colors.grey.shade500,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        );
+      }
 
-    final activeChannel = controller.channels.firstWhere((c) => c.id == activeId);
-    final msgs = controller.channelMessages[activeId] ?? [];
-    final isLoading = controller.isLoadingMessages[activeId] ?? false;
+      final channelIdx =
+          controller.channels.indexWhere((c) => c.id == activeId);
+      if (channelIdx == -1) {
+        return Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.chat_bubble_outline_rounded,
+                size: 48,
+                color: Colors.grey.shade300,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Select a conversation to start chatting',
+                style: GoogleFonts.inter(
+                  fontSize: 12,
+                  color: Colors.grey.shade500,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        );
+      }
 
-    // Avatar color determination
-    final nameHash = activeChannel.name.hashCode.abs();
-    final avatarColors = [
-      const Color(0xFFE2165F),
-      const Color(0xFF006D37),
-      const Color(0xFF0F52BA),
-      const Color(0xFFD4AF37),
-      const Color(0xFF8A2BE2),
-      const Color(0xFFE65C00),
-    ];
-    final avatarColor = avatarColors[nameHash % avatarColors.length];
+      final activeChannel = controller.channels[channelIdx];
 
-    return Column(
-      children: [
-        // Chat Header
+      // Avatar color determination
+      final nameHash = activeChannel.name.hashCode.abs();
+      final avatarColors = [
+        const Color(0xFFE2165F),
+        const Color(0xFF006D37),
+        const Color(0xFF0F52BA),
+        const Color(0xFFD4AF37),
+        const Color(0xFF8A2BE2),
+        const Color(0xFFE65C00),
+      ];
+      final avatarColor = avatarColors[nameHash % avatarColors.length];
+
+      return Column(
+        children: [
+          // Chat Header
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
@@ -518,40 +549,339 @@ class _DiscussScreenState extends State<DiscussScreen> {
                 ),
               ),
 
-              // Action Buttons
-              IconButton(
-                onPressed: () => _showChannelInfo(activeChannel),
-                icon: const Icon(Icons.info_outline_rounded, size: 18),
-                color: Colors.grey.shade600,
-                tooltip: 'Profile & Info',
-                style: IconButton.styleFrom(minimumSize: const Size(32, 32)),
+              // Action Buttons Matching Odoo Top Bar (Image 1)
+              // 1. Green Circular Video Call Button
+              Tooltip(
+                message: 'Start Video Call (with Screen Share)',
+                child: InkWell(
+                  onTap: () => OdooCallDialog.startCall(
+                    context,
+                    channel: activeChannel,
+                    isVideoCall: true,
+                  ),
+                  borderRadius: BorderRadius.circular(20),
+                  child: Container(
+                    width: 30,
+                    height: 30,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF28A745).withOpacity(0.12),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.videocam_rounded,
+                      size: 16,
+                      color: Color(0xFF28A745),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 4),
+
+              // 2. Green Circular Audio Call Button
+              Tooltip(
+                message: 'Start Audio Call',
+                child: InkWell(
+                  onTap: () => OdooCallDialog.startCall(
+                    context,
+                    channel: activeChannel,
+                    isVideoCall: false,
+                  ),
+                  borderRadius: BorderRadius.circular(20),
+                  child: Container(
+                    width: 30,
+                    height: 30,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF28A745).withOpacity(0.12),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.phone_rounded,
+                      size: 15,
+                      color: Color(0xFF28A745),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 2),
+
+              // 3. More Actions Menu (Notifications, Member Invite, Search, Attach, Pinned, Info)
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.more_vert_rounded,
+                    size: 18, color: Color(0xFF555555)),
+                tooltip: 'More actions',
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 190),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10)),
+                onSelected: (value) async {
+                  if (value == 'notifications') {
+                    showToast(
+                        'Notifications are active for this conversation',
+                        idSuccess: true);
+                  } else if (value == 'add_member') {
+                    _showNewChatDrawer();
+                  } else if (value == 'search') {
+                    showToast('Search mode active', idSuccess: true);
+                  } else if (value == 'attach') {
+                    final result = await FilePicker.platform.pickFiles(
+                      withData: true,
+                      allowMultiple: false,
+                    );
+                    if (result != null &&
+                        result.files.isNotEmpty &&
+                        result.files.first.bytes != null) {
+                      await controller.sendAttachment(
+                          result.files.first.name,
+                          result.files.first.bytes!);
+                    }
+                  } else if (value == 'pinned') {
+                    showToast('No pinned messages in this channel',
+                        idSuccess: true);
+                  } else if (value == 'info') {
+                    _showChannelInfo(activeChannel);
+                  }
+                },
+                itemBuilder: (ctx) => [
+                  const PopupMenuItem(
+                    value: 'notifications',
+                    child: Row(
+                      children: [
+                        Icon(Icons.notifications_none_rounded,
+                            size: 17, color: Colors.grey),
+                        SizedBox(width: 10),
+                        Text('Notifications', style: TextStyle(fontSize: 12.5)),
+                      ],
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'add_member',
+                    child: Row(
+                      children: [
+                        Icon(Icons.person_add_alt_1_rounded,
+                            size: 17, color: Colors.grey),
+                        SizedBox(width: 10),
+                        Text('Add Member / Invite',
+                            style: TextStyle(fontSize: 12.5)),
+                      ],
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'search',
+                    child: Row(
+                      children: [
+                        Icon(Icons.search_rounded, size: 17, color: Colors.grey),
+                        SizedBox(width: 10),
+                        Text('Search Messages',
+                            style: TextStyle(fontSize: 12.5)),
+                      ],
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'attach',
+                    child: Row(
+                      children: [
+                        Icon(Icons.attach_file_rounded,
+                            size: 17, color: Colors.grey),
+                        SizedBox(width: 10),
+                        Text('Attach File', style: TextStyle(fontSize: 12.5)),
+                      ],
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'pinned',
+                    child: Row(
+                      children: [
+                        Icon(Icons.push_pin_outlined,
+                            size: 17, color: Colors.grey),
+                        SizedBox(width: 10),
+                        Text('Pinned Messages',
+                            style: TextStyle(fontSize: 12.5)),
+                      ],
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'info',
+                    child: Row(
+                      children: [
+                        Icon(Icons.info_outline_rounded,
+                            size: 17, color: Colors.grey),
+                        SizedBox(width: 10),
+                        Text('Profile & Details',
+                            style: TextStyle(fontSize: 12.5)),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
         ),
 
+        // Pinned Message Banner (WhatsApp Style)
+        Obx(() {
+          final pinned = controller.pinnedMessages[activeId];
+          if (pinned == null) return const SizedBox.shrink();
+          return Container(
+            margin: const EdgeInsets.fromLTRB(10, 6, 10, 2),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: AppTheme.primary.withOpacity(0.08),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: AppTheme.primary.withOpacity(0.25),
+                width: 1,
+              ),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.push_pin_rounded,
+                    size: 15, color: AppTheme.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Pinned by ${pinned.authorName}',
+                        style: GoogleFonts.inter(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.primary,
+                        ),
+                      ),
+                      Text(
+                        pinned.cleanBody.isNotEmpty
+                            ? pinned.cleanBody
+                            : (pinned.attachments.isNotEmpty
+                                ? '📎 ${pinned.attachments.first.name}'
+                                : 'Pinned message'),
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade800,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close_rounded,
+                      size: 14, color: Colors.grey),
+                  onPressed: () => controller.unpinMessage(activeId),
+                  tooltip: 'Unpin message',
+                  style: IconButton.styleFrom(
+                    minimumSize: const Size(22, 22),
+                    padding: EdgeInsets.zero,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }),
+
         // Messages area
         Expanded(
-          child: isLoading && msgs.isEmpty
-              ? const Center(
-                  child: CircularProgressIndicator(
-                    valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primary),
-                  ),
-                )
-              : msgs.isEmpty
-                  ? _buildEmptyConversationState()
-                  : ListView.builder(
-                      controller: controller.chatScrollController,
-                      reverse: true, // pin to bottom
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      itemCount: msgs.length,
-                      itemBuilder: (context, index) {
-                        // Display chronological order (oldest at top, newest at bottom)
-                        final msg = msgs[msgs.length - 1 - index];
-                        return MessageBubble(message: msg);
-                      },
-                    ),
+          child: Obx(() {
+            final msgs = controller.channelMessages[activeId] ?? [];
+            final isLoading = controller.isLoadingMessages[activeId] ?? false;
+
+            if (isLoading && msgs.isEmpty) {
+              return const Center(
+                child: CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primary),
+                ),
+              );
+            }
+
+            if (msgs.isEmpty) {
+              return _buildEmptyConversationState();
+            }
+
+            return ListView.builder(
+              controller: controller.chatScrollController,
+              reverse: true, // pin to bottom
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              itemCount: msgs.length,
+              itemBuilder: (context, index) {
+                // Display chronological order (oldest at top, newest at bottom)
+                final msg = msgs[msgs.length - 1 - index];
+                return MessageBubble(
+                  key: ValueKey('msg_${msg.id}'),
+                  message: msg,
+                );
+              },
+            );
+          }),
         ),
+
+        // Replying to Message Bar (WhatsApp Style)
+        Obx(() {
+          final replying = controller.replyingMessage.value;
+          if (replying == null) return const SizedBox.shrink();
+          return Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade100,
+              border: Border(
+                top: BorderSide(color: Colors.grey.shade300, width: 0.5),
+              ),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 3.5,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: AppTheme.primary,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Replying to ${replying.authorName}',
+                        style: GoogleFonts.inter(
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.primary,
+                        ),
+                      ),
+                      Text(
+                        replying.cleanBody.isNotEmpty
+                            ? replying.cleanBody
+                            : (replying.attachments.isNotEmpty
+                                ? '📎 ${replying.attachments.first.name}'
+                                : 'Attachment'),
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade700,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close_rounded,
+                      size: 16, color: Colors.grey),
+                  onPressed: () => controller.setReplyMessage(null),
+                  style: IconButton.styleFrom(
+                    minimumSize: const Size(26, 26),
+                    padding: EdgeInsets.zero,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }),
 
         // Input area
         ChatInputArea(
@@ -561,6 +891,7 @@ class _DiscussScreenState extends State<DiscussScreen> {
         ),
       ],
     );
+    });
   }
 
   Widget _buildEmptyConversationState() {

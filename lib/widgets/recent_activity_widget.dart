@@ -1,6 +1,8 @@
 import 'package:pi_task_watch/controllers/timesheet_controller.dart';
 import 'package:pi_task_watch/exports.dart';
+import 'package:pi_task_watch/models/task_details_model.dart';
 import 'package:pi_task_watch/models/timesheet_model.dart';
+import 'package:pi_task_watch/screens/task_detail_screen.dart';
 
 class RecentActivityWidget extends StatelessWidget {
   final void Function({TaskModel? exitingTask}) handleStartTask;
@@ -206,6 +208,43 @@ class RecentActivityWidget extends StatelessWidget {
                     color: Theme.of(context).colorScheme.primary,
                   ),
                 ),
+                if (timesheet.taskId != null && timesheet.taskId! > 0) ...[
+                  const SizedBox(width: 6),
+                  Tooltip(
+                    message: 'View task details fullscreen',
+                    child: InkWell(
+                      onTap: () {
+                        Get.toNamed(
+                          TaskDetailScreen.routeName,
+                          arguments: TaskDetailsModel(
+                            id: timesheet.taskId!,
+                            name: timesheet.taskName ?? 'Task',
+                            projectId: timesheet.projectId,
+                            projectName: timesheet.projectName,
+                            stageId: 0,
+                            description: timesheet.description,
+                          ),
+                        );
+                      },
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .primary
+                              .withValues(alpha: 0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.visibility_rounded,
+                          size: 14,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
             if (timesheet.description.isNotEmpty) ...[

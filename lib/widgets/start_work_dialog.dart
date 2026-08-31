@@ -1,10 +1,10 @@
 import 'package:pi_task_watch/exports.dart';
 
 import 'package:pi_task_watch/controllers/timesheet_controller.dart';
+import 'package:pi_task_watch/models/task_details_model.dart';
 import 'package:pi_task_watch/models/timesheet_model.dart';
+import 'package:pi_task_watch/screens/task_detail_screen.dart';
 
-// Jayadrata dxx ggJaYadf
-//
 import 'package:google_fonts/google_fonts.dart';
 
 class StartTrackerForm extends StatefulWidget {
@@ -277,11 +277,42 @@ class _StartTrackerFormState extends State<StartTrackerForm> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildInfoRow('Project', selectedProjectName ?? 'No project',
-              Icons.folder_open_rounded, _isLoadingProjects),
+          _buildInfoRow(
+            'Project',
+            selectedProjectName ?? 'No project',
+            Icons.folder_open_rounded,
+            _isLoadingProjects,
+          ),
           const SizedBox(height: 12),
-          _buildInfoRow('Task', selectedTaskName ?? 'No task',
-              Icons.assignment_rounded, _isLoadingTasks),
+          _buildInfoRow(
+            'Task',
+            selectedTaskName ?? 'No task',
+            Icons.assignment_rounded,
+            _isLoadingTasks,
+            onViewDetails: selectedTaskId != null
+                ? () {
+                    final selectedTaskModel = tasks.firstWhereOrNull(
+                      (task) => task.id == selectedTaskId,
+                    ) ?? widget.task;
+                    if (selectedTaskModel != null) {
+                      Get.toNamed(
+                        TaskDetailScreen.routeName,
+                        arguments: TaskDetailsModel(
+                          id: selectedTaskModel.id,
+                          name: selectedTaskModel.name,
+                          projectId: selectedTaskModel.projectId ?? selectedProjectId,
+                          projectName: selectedTaskModel.projectName ?? selectedProjectName,
+                          stageId: selectedTaskModel.stageId ?? 0,
+                          stageName: selectedTaskModel.stageName,
+                          dateDeadline: selectedTaskModel.getEndDateTime(),
+                          dateStart: selectedTaskModel.getStartDateTime(),
+                          allocatedHours: selectedTaskModel.allocatedHours ?? 0.0,
+                        ),
+                      );
+                    }
+                  }
+                : null,
+          ),
           const SizedBox(height: 20),
           Text(
             'Notes *',
@@ -330,7 +361,12 @@ class _StartTrackerFormState extends State<StartTrackerForm> {
   }
 
   Widget _buildInfoRow(
-      String label, String value, IconData icon, bool isLoading) {
+    String label,
+    String value,
+    IconData icon,
+    bool isLoading, {
+    VoidCallback? onViewDetails,
+  }) {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -381,6 +417,28 @@ class _StartTrackerFormState extends State<StartTrackerForm> {
               ],
             ),
           ),
+          if (onViewDetails != null && !isLoading) ...[
+            const SizedBox(width: 6),
+            Tooltip(
+              message: 'View task details fullscreen',
+              child: InkWell(
+                onTap: onViewDetails,
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primary.withValues(alpha: 0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.visibility_rounded,
+                    size: 14,
+                    color: AppTheme.primary,
+                  ),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );

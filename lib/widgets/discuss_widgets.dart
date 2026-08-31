@@ -1,12 +1,16 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/gestures.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pi_task_watch/exports.dart';
+import 'package:pi_task_watch/utils/capture_screenshot.dart';
 
 class ChannelListTile extends StatefulWidget {
   final DiscussChannelModel channel;
@@ -281,79 +285,195 @@ class MessageBubble extends StatelessWidget {
                   const SizedBox(width: 8),
                 ],
                 if (isOutgoing) ...[
+                  // 3-Dots Action Button on Hover / Tap
+                  IconButton(
+                    icon: const Icon(Icons.more_vert_rounded,
+                        size: 14, color: Colors.grey),
+                    onPressed: () => _showMessageActions(context),
+                    style: IconButton.styleFrom(
+                      minimumSize: const Size(22, 22),
+                      padding: EdgeInsets.zero,
+                    ),
+                    tooltip: 'Message actions',
+                  ),
                   _buildTimeText(),
                   const SizedBox(width: 6),
                 ],
                 Flexible(
-                  child: Container(
-                    decoration: isOutgoing
-                        ? BoxDecoration(
-                            gradient: const LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [
-                                AppTheme.primary,
-                                Color(0xFFFF4D94),
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      GestureDetector(
+                        onLongPress: () => _showMessageActions(context),
+                        child: Container(
+                          decoration: isOutgoing
+                              ? BoxDecoration(
+                                  gradient: const LinearGradient(
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                    colors: [
+                                      AppTheme.primary,
+                                      Color(0xFFFF4D94),
+                                    ],
+                                  ),
+                                  borderRadius: const BorderRadius.only(
+                                    topLeft: Radius.circular(20),
+                                    topRight: Radius.circular(20),
+                                    bottomLeft: Radius.circular(20),
+                                    bottomRight: Radius.circular(4),
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: AppTheme.primary.withOpacity(0.15),
+                                      blurRadius: 8,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                  ],
+                                )
+                              : AppTheme.glassDecoration(
+                                  borderRadius: 20,
+                                  color: Colors.white,
+                                ).copyWith(
+                                  borderRadius: const BorderRadius.only(
+                                    topLeft: Radius.circular(20),
+                                    topRight: Radius.circular(20),
+                                    bottomLeft: Radius.circular(4),
+                                    bottomRight: Radius.circular(20),
+                                  ),
+                                ),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              // Pinned Indicator Badge
+                              if (Get.isRegistered<DiscussController>() &&
+                                  Get.find<DiscussController>()
+                                          .pinnedMessages[
+                                              Get.find<DiscussController>()
+                                                  .selectedChannelId
+                                                  .value]
+                                          ?.id ==
+                                      message.id) ...[
+                                Container(
+                                  margin: const EdgeInsets.only(bottom: 6),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: isOutgoing
+                                        ? Colors.white.withOpacity(0.2)
+                                        : AppTheme.primary.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.push_pin_rounded,
+                                        size: 11,
+                                        color: isOutgoing
+                                            ? Colors.white
+                                            : AppTheme.primary,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        'Pinned',
+                                        style: TextStyle(
+                                          fontSize: 9.5,
+                                          fontWeight: FontWeight.bold,
+                                          color: isOutgoing
+                                              ? Colors.white
+                                              : AppTheme.primary,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               ],
-                            ),
-                            borderRadius: const BorderRadius.only(
-                              topLeft: Radius.circular(20),
-                              topRight: Radius.circular(20),
-                              bottomLeft: Radius.circular(20),
-                              bottomRight: Radius.circular(4),
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: AppTheme.primary.withOpacity(0.15),
-                                blurRadius: 8,
-                                offset: const Offset(0, 4),
-                              ),
+
+                              if (message.cleanBody.isNotEmpty) ...[
+                                RichText(
+                                  text: TextSpan(
+                                    children: _parseMessageBody(
+                                        message.cleanBody, isOutgoing),
+                                  ),
+                                ),
+                                if (_extractFirstUrl(message.cleanBody) !=
+                                    null) ...[
+                                  const SizedBox(height: 6),
+                                  _buildLinkPreviewCard(
+                                      _extractFirstUrl(message.cleanBody)!,
+                                      isOutgoing),
+                                ],
+                              ],
+                              if (message.cleanBody.isNotEmpty &&
+                                  message.attachments.isNotEmpty)
+                                const SizedBox(height: 8),
+                              if (message.attachments.isNotEmpty)
+                                ...message.attachments.map((attach) =>
+                                    _buildAttachmentItem(
+                                        context, attach, isOutgoing)),
                             ],
-                          )
-                        : AppTheme.glassDecoration(
-                            borderRadius: 20,
-                            color: Colors.white,
-                          ).copyWith(
-                            borderRadius: const BorderRadius.only(
-                              topLeft: Radius.circular(20),
-                              topRight: Radius.circular(20),
-                              bottomLeft: Radius.circular(4),
-                              bottomRight: Radius.circular(20),
-                            ),
                           ),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (message.cleanBody.isNotEmpty) ...[
-                          RichText(
-                            text: TextSpan(
-                              children: _parseMessageBody(
-                                  message.cleanBody, isOutgoing),
+                        ),
+                      ),
+
+                      // Floating Reaction Badge
+                      if (Get.isRegistered<DiscussController>()) ...[
+                        Obx(() {
+                          final reaction = Get.find<DiscussController>()
+                              .messageReactions[message.id];
+                          if (reaction == null || reaction.isEmpty) {
+                            return const SizedBox.shrink();
+                          }
+                          return Positioned(
+                            bottom: -10,
+                            right: isOutgoing ? null : 8,
+                            left: isOutgoing ? 8 : null,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(12),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.12),
+                                    blurRadius: 4,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                                border: Border.all(
+                                  color: Colors.grey.shade200,
+                                  width: 0.5,
+                                ),
+                              ),
+                              child: Text(
+                                reaction,
+                                style: const TextStyle(fontSize: 12),
+                              ),
                             ),
-                          ),
-                          if (_extractFirstUrl(message.cleanBody) != null) ...[
-                            const SizedBox(height: 6),
-                            _buildLinkPreviewCard(
-                                _extractFirstUrl(message.cleanBody)!,
-                                isOutgoing),
-                          ],
-                        ],
-                        if (message.cleanBody.isNotEmpty &&
-                            message.attachments.isNotEmpty)
-                          const SizedBox(height: 8),
-                        if (message.attachments.isNotEmpty)
-                          ...message.attachments.map((attach) =>
-                              _buildAttachmentItem(
-                                  context, attach, isOutgoing)),
+                          );
+                        }),
                       ],
-                    ),
+                    ],
                   ),
                 ),
                 if (!isOutgoing) ...[
                   const SizedBox(width: 6),
                   _buildTimeText(),
+                  // 3-Dots Action Button for Incoming message
+                  IconButton(
+                    icon: const Icon(Icons.more_vert_rounded,
+                        size: 14, color: Colors.grey),
+                    onPressed: () => _showMessageActions(context),
+                    style: IconButton.styleFrom(
+                      minimumSize: const Size(22, 22),
+                      padding: EdgeInsets.zero,
+                    ),
+                    tooltip: 'Message actions',
+                  ),
                 ],
                 // Outgoing User Avatar (Right)
                 if (isOutgoing) ...[
@@ -1624,7 +1744,151 @@ class MessageBubble extends StatelessWidget {
 
     return spans;
   }
+
+  void _showMessageActions(BuildContext context) {
+    final controller = Get.isRegistered<DiscussController>()
+        ? Get.find<DiscussController>()
+        : null;
+    final activeChannelId = controller?.selectedChannelId.value ?? 0;
+    final isPinned =
+        controller?.pinnedMessages[activeChannelId]?.id == message.id;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        margin: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.18),
+              blurRadius: 20,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: SafeArea(
+          child: SingleChildScrollView(
+            physics: const BouncingScrollPhysics(),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // 1. Emoji Reactions Row (WhatsApp Style)
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(vertical: 8, horizontal: 14),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade50,
+                    borderRadius:
+                        const BorderRadius.vertical(top: Radius.circular(18)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: ['👍', '❤️', '😂', '😮', '😢', '🙏'].map((emoji) {
+                      return InkWell(
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          controller?.reactToMessage(message.id, emoji);
+                        },
+                        borderRadius: BorderRadius.circular(20),
+                        child: Padding(
+                          padding: const EdgeInsets.all(4),
+                          child:
+                              Text(emoji, style: const TextStyle(fontSize: 20)),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+                const Divider(height: 1, thickness: 0.5),
+
+                // 2. Pin / Unpin Message
+                ListTile(
+                  dense: true,
+                  visualDensity: VisualDensity.compact,
+                  leading: Icon(
+                    isPinned ? Icons.push_pin : Icons.push_pin_outlined,
+                    color: isPinned ? AppTheme.primary : const Color(0xFF555555),
+                    size: 18,
+                  ),
+                  title: Text(
+                    isPinned ? 'Unpin Message' : 'Pin Message',
+                    style: GoogleFonts.inter(
+                        fontWeight: FontWeight.w600, fontSize: 13),
+                  ),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    if (isPinned) {
+                      controller?.unpinMessage(activeChannelId);
+                    } else {
+                      controller?.pinMessage(activeChannelId, message);
+                    }
+                  },
+                ),
+
+                // 3. Reply
+                ListTile(
+                  dense: true,
+                  visualDensity: VisualDensity.compact,
+                  leading: const Icon(Icons.reply_rounded,
+                      color: Color(0xFF555555), size: 18),
+                  title: Text(
+                    'Reply',
+                    style: GoogleFonts.inter(
+                        fontWeight: FontWeight.w600, fontSize: 13),
+                  ),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    controller?.setReplyMessage(message);
+                  },
+                ),
+
+                // 4. Copy Text
+                ListTile(
+                  dense: true,
+                  visualDensity: VisualDensity.compact,
+                  leading: const Icon(Icons.copy_rounded,
+                      color: Color(0xFF555555), size: 18),
+                  title: Text(
+                    'Copy Text',
+                    style: GoogleFonts.inter(
+                        fontWeight: FontWeight.w600, fontSize: 13),
+                  ),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    Clipboard.setData(ClipboardData(text: message.cleanBody));
+                    showToast('Message copied to clipboard', idSuccess: true);
+                  },
+                ),
+
+                // 5. Star Message
+                ListTile(
+                  dense: true,
+                  visualDensity: VisualDensity.compact,
+                  leading: const Icon(Icons.star_outline_rounded,
+                      color: Color(0xFFFFB300), size: 18),
+                  title: Text(
+                    'Star Message',
+                    style: GoogleFonts.inter(
+                        fontWeight: FontWeight.w600, fontSize: 13),
+                  ),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    showToast('Message starred', idSuccess: true);
+                  },
+                ),
+                const SizedBox(height: 4),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
+
 
 class ChatInputArea extends StatefulWidget {
   final Function(String) onSend;
@@ -2421,6 +2685,1303 @@ class _NewChatSheetState extends State<NewChatSheet> {
             }),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// ODOO AUDIO / VIDEO CALL & SCREEN SHARING (MATCHING ODOO WEBRTC INTERFACE)
+// =============================================================================
+
+class OdooCallDialog extends StatefulWidget {
+  final DiscussChannelModel channel;
+  final bool isVideoCall;
+
+  const OdooCallDialog({
+    super.key,
+    required this.channel,
+    this.isVideoCall = true,
+  });
+
+  static Future<void> startCall(
+    BuildContext context, {
+    required DiscussChannelModel channel,
+    bool isVideoCall = true,
+  }) async {
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => OdooCallDialog(
+        channel: channel,
+        isVideoCall: isVideoCall,
+      ),
+    );
+  }
+
+  @override
+  State<OdooCallDialog> createState() => _OdooCallDialogState();
+}
+
+class _OdooCallDialogState extends State<OdooCallDialog> {
+  bool _isMicMuted = false;
+  late bool _isCameraOn;
+  bool _isScreenSharing = false;
+  String? _sharedScreenTitle;
+  bool _isFullscreen = false;
+  int _callDurationSeconds = 0;
+  Timer? _durationTimer;
+  String? _liveCapturedImageBase64;
+  Timer? _screenCaptureTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _isCameraOn = widget.isVideoCall;
+    _durationTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (mounted) {
+        setState(() => _callDurationSeconds++);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _durationTimer?.cancel();
+    _screenCaptureTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _captureFrame() async {
+    try {
+      final shot = await captureScreenshot();
+      if (shot.isNotEmpty && mounted) {
+        setState(() {
+          _liveCapturedImageBase64 = shot;
+        });
+      }
+    } catch (e) {
+      debugPrint('Screen capture frame error: $e');
+    }
+  }
+
+  void _startScreenCapture() {
+    _captureFrame();
+    _screenCaptureTimer?.cancel();
+    _screenCaptureTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (_isScreenSharing && mounted) {
+        _captureFrame();
+      }
+    });
+  }
+
+  void _stopScreenCapture() {
+    _screenCaptureTimer?.cancel();
+    _screenCaptureTimer = null;
+    _liveCapturedImageBase64 = null;
+  }
+
+  String _formatDuration(int seconds) {
+    final m = (seconds ~/ 60).toString().padLeft(2, '0');
+    final s = (seconds % 60).toString().padLeft(2, '0');
+    return '$m:$s';
+  }
+
+  Future<void> _handleScreenShareToggle() async {
+    if (_isScreenSharing) {
+      setState(() {
+        _isScreenSharing = false;
+        _sharedScreenTitle = null;
+      });
+      _stopScreenCapture();
+      showToast('Screen sharing stopped', idSuccess: true);
+      return;
+    }
+
+    final selected = await showDialog<String>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => const OdooScreenShareDialog(),
+    );
+
+    if (selected != null && selected.isNotEmpty) {
+      setState(() {
+        _isScreenSharing = true;
+        _sharedScreenTitle = selected;
+      });
+      _startScreenCapture();
+      showToast('Sharing: $selected', idSuccess: true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final remoteName = widget.channel.name;
+    final currentUser = Get.isRegistered<AuthController>()
+        ? Get.find<AuthController>().user.value
+        : null;
+    final localName = currentUser?.name ?? 'You';
+    final localUserId = currentUser?.userId ?? 0;
+    final remotePartnerId = widget.channel.otherPartnerId ?? 0;
+
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: _isFullscreen
+          ? EdgeInsets.zero
+          : const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(_isFullscreen ? 0 : 16),
+        child: Container(
+          width: _isFullscreen ? double.infinity : 960,
+          height: _isFullscreen ? double.infinity : 620,
+          decoration: BoxDecoration(
+            color: const Color(0xFF1B1E23),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.6),
+                blurRadius: 32,
+                offset: const Offset(0, 12),
+              ),
+            ],
+          ),
+          child: Column(
+            children: [
+              // Top Bar Header
+              Container(
+                height: 52,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF14171B),
+                  border: Border(
+                    bottom: BorderSide(
+                      color: Colors.white.withOpacity(0.06),
+                    ),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 10,
+                      height: 10,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF28A745),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        remoteName,
+                        style: GoogleFonts.inter(
+                          color: Colors.white,
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        _formatDuration(_callDurationSeconds),
+                        style: GoogleFonts.inter(
+                          color: Colors.white70,
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    if (_isScreenSharing) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF0F52BA).withOpacity(0.3),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: const Color(0xFF0F52BA).withOpacity(0.6),
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.screen_share_rounded,
+                                size: 11, color: Colors.lightBlueAccent),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Live Share',
+                              style: GoogleFonts.inter(
+                                color: Colors.lightBlueAccent,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                    const Spacer(),
+                    // Open in Odoo Browser Button
+                    IconButton(
+                      icon: const Icon(Icons.open_in_new_rounded,
+                          color: Color(0xFF81C784), size: 18),
+                      tooltip:
+                          'Open in Odoo WebRTC (Full 2-Way Audio/Video/Screen Share)',
+                      onPressed: () async {
+                        final server = OdooRpcApiManager.serverUrl;
+                        if (server.isNotEmpty) {
+                          final url =
+                              '$server/web#action=mail.action_discuss&active_id=${widget.channel.id}';
+                          final uri = Uri.tryParse(url);
+                          if (uri != null && await canLaunchUrl(uri)) {
+                            await launchUrl(uri,
+                                mode: LaunchMode.externalApplication);
+                          }
+                        }
+                      },
+                      style: IconButton.styleFrom(
+                        minimumSize: const Size(28, 28),
+                        padding: EdgeInsets.zero,
+                      ),
+                    ),
+                    IconButton(
+                      icon: Icon(
+                        _isFullscreen
+                            ? Icons.fullscreen_exit_rounded
+                            : Icons.fullscreen_rounded,
+                        color: Colors.white70,
+                        size: 18,
+                      ),
+                      onPressed: () =>
+                          setState(() => _isFullscreen = !_isFullscreen),
+                      tooltip: _isFullscreen ? 'Exit Fullscreen' : 'Fullscreen',
+                      style: IconButton.styleFrom(
+                        minimumSize: const Size(28, 28),
+                        padding: EdgeInsets.zero,
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded,
+                          color: Colors.white70, size: 18),
+                      onPressed: () => Navigator.of(context).pop(),
+                      tooltip: 'Close',
+                      style: IconButton.styleFrom(
+                        minimumSize: const Size(28, 28),
+                        padding: EdgeInsets.zero,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // Main Video Area
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: _isScreenSharing
+                      ? _buildScreenSharingLayout(
+                          localName, remoteName, localUserId, remotePartnerId)
+                      : _buildTwoParticipantLayout(
+                          localName, remoteName, localUserId, remotePartnerId),
+                ),
+              ),
+
+              // Bottom Control Bar (Matching Image 3)
+              Container(
+                height: 68,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF14171B),
+                  border: Border(
+                    top: BorderSide(
+                      color: Colors.white.withOpacity(0.06),
+                    ),
+                  ),
+                ),
+                child: Center(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    physics: const BouncingScrollPhysics(),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Mic Toggle Button
+                        _buildControlButton(
+                          icon: _isMicMuted
+                              ? Icons.mic_off_rounded
+                              : Icons.mic_rounded,
+                          isActive: !_isMicMuted,
+                          hasWarning: _isMicMuted,
+                          tooltip: _isMicMuted ? 'Unmute' : 'Mute',
+                          onTap: () =>
+                              setState(() => _isMicMuted = !_isMicMuted),
+                        ),
+                        const SizedBox(width: 10),
+
+                        // Camera Toggle Button
+                        _buildControlButton(
+                          icon: _isCameraOn
+                              ? Icons.videocam_rounded
+                              : Icons.videocam_off_rounded,
+                          isActive: _isCameraOn,
+                          activeColor: const Color(0xFF28A745),
+                          tooltip: _isCameraOn
+                              ? 'Turn off camera'
+                              : 'Turn on camera',
+                          onTap: () =>
+                              setState(() => _isCameraOn = !_isCameraOn),
+                        ),
+                        const SizedBox(width: 10),
+
+                        // Screen Share Button
+                        _buildControlButton(
+                          icon: _isScreenSharing
+                              ? Icons.stop_screen_share_rounded
+                              : Icons.screen_share_rounded,
+                          isActive: _isScreenSharing,
+                          activeColor: const Color(0xFF0F52BA),
+                          tooltip: _isScreenSharing
+                              ? 'Stop sharing'
+                              : 'Share screen',
+                          onTap: _handleScreenShareToggle,
+                        ),
+                        const SizedBox(width: 10),
+
+                        // More Options Button
+                        _buildControlButton(
+                          icon: Icons.more_vert_rounded,
+                          isActive: false,
+                          tooltip: 'More options',
+                          onTap: () {},
+                        ),
+                        const SizedBox(width: 10),
+
+                        // End Call Button (Circular Red Button without text)
+                        _buildControlButton(
+                          icon: Icons.call_end_rounded,
+                          isActive: true,
+                          activeColor: const Color(0xFFE53935),
+                          tooltip: 'Hang up',
+                          onTap: () => Navigator.of(context).pop(),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildControlButton({
+    required IconData icon,
+    required bool isActive,
+    Color? activeColor,
+    bool hasWarning = false,
+    required String tooltip,
+    required VoidCallback onTap,
+  }) {
+    Color bg = const Color(0xFF2C323B);
+    Color fg = Colors.white;
+
+    if (hasWarning) {
+      bg = const Color(0xFFE53935);
+      fg = Colors.white;
+    } else if (isActive) {
+      bg = activeColor ?? const Color(0xFF28A745);
+      fg = Colors.white;
+    }
+
+    return Tooltip(
+      message: tooltip,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(24),
+            child: Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: bg,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: Colors.white.withOpacity(0.1),
+                ),
+              ),
+              child: Icon(icon, color: fg, size: 20),
+            ),
+          ),
+          if (hasWarning)
+            Positioned(
+              top: -2,
+              right: -2,
+              child: Container(
+                padding: const EdgeInsets.all(2),
+                decoration: const BoxDecoration(
+                  color: Color(0xFFFFB300),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.priority_high_rounded,
+                  size: 10,
+                  color: Colors.black,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTwoParticipantLayout(
+    String localName,
+    String remoteName,
+    int localUserId,
+    int remotePartnerId,
+  ) {
+    return Row(
+      children: [
+        // Left Tile: Local User
+        Expanded(
+          child: _buildParticipantTile(
+            name: localName,
+            isLocal: true,
+            isCameraOn: _isCameraOn,
+            isMuted: _isMicMuted,
+            userId: localUserId,
+            model: 'res.users',
+          ),
+        ),
+        const SizedBox(width: 12),
+
+        // Right Tile: Remote User
+        Expanded(
+          child: _buildParticipantTile(
+            name: remoteName,
+            isLocal: false,
+            isCameraOn: true,
+            isMuted: false,
+            userId: remotePartnerId,
+            model: 'res.partner',
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildScreenSharingLayout(
+    String localName,
+    String remoteName,
+    int localUserId,
+    int remotePartnerId,
+  ) {
+    return Stack(
+      children: [
+        // Large Screen Sharing View
+        Container(
+          width: double.infinity,
+          height: double.infinity,
+          decoration: BoxDecoration(
+            color: const Color(0xFF101316),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: const Color(0xFF0F52BA).withOpacity(0.4),
+              width: 1.5,
+            ),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: Column(
+              children: [
+                // Screen Bar
+                Container(
+                  height: 32,
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  color: const Color(0xFF1B232E),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.tab_rounded,
+                          size: 14, color: Colors.lightBlueAccent),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _sharedScreenTitle ?? 'Screen Stream (Odoo ERP)',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF006D37),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Text(
+                          'LIVE 1080p',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // Live Screen Feed Area
+                Expanded(
+                  child: Container(
+                    color: const Color(0xFF23272F),
+                    child: _liveCapturedImageBase64 != null &&
+                            _liveCapturedImageBase64!.isNotEmpty
+                        ? Image.memory(
+                            base64Decode(_liveCapturedImageBase64!),
+                            fit: BoxFit.contain,
+                            gaplessPlayback: true,
+                          )
+                        : Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.desktop_windows_rounded,
+                                    size: 64,
+                                    color: Colors.lightBlueAccent
+                                        .withOpacity(0.8)),
+                                const SizedBox(height: 14),
+                                Text(
+                                  _sharedScreenTitle ??
+                                      'Sharing Tab / Desktop View',
+                                  style: GoogleFonts.inter(
+                                    color: Colors.white,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  'Capturing and broadcasting live screen feed...',
+                                  style: TextStyle(
+                                    color: Colors.white.withOpacity(0.6),
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        // PiP Floating Participant Tiles (Bottom Right)
+        Positioned(
+          right: 16,
+          bottom: 16,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 140,
+                height: 95,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.5),
+                      blurRadius: 8,
+                    ),
+                  ],
+                ),
+                child: _buildParticipantTile(
+                  name: localName,
+                  isLocal: true,
+                  isCameraOn: _isCameraOn,
+                  isMuted: _isMicMuted,
+                  userId: localUserId,
+                  model: 'res.users',
+                  isMini: true,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                width: 140,
+                height: 95,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.5),
+                      blurRadius: 8,
+                    ),
+                  ],
+                ),
+                child: _buildParticipantTile(
+                  name: remoteName,
+                  isLocal: false,
+                  isCameraOn: true,
+                  isMuted: false,
+                  userId: remotePartnerId,
+                  model: 'res.partner',
+                  isMini: true,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildParticipantTile({
+    required String name,
+    required bool isLocal,
+    required bool isCameraOn,
+    required bool isMuted,
+    required int userId,
+    required String model,
+    bool isMini = false,
+  }) {
+    final nameHash = name.hashCode.abs();
+    final avatarColors = [
+      const Color(0xFFE2165F),
+      const Color(0xFF006D37),
+      const Color(0xFF0F52BA),
+      const Color(0xFFD4AF37),
+      const Color(0xFF8A2BE2),
+      const Color(0xFFE65C00),
+    ];
+    final avatarColor = avatarColors[nameHash % avatarColors.length];
+
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF22262C),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: Colors.white.withOpacity(0.08),
+        ),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Stack(
+          children: [
+            // Video / Avatar Content
+            Positioned.fill(
+              child: isCameraOn && isLocal
+                  ? Container(
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [Color(0xFF2D323A), Color(0xFF1E2228)],
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                        ),
+                      ),
+                      child: Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            CircleAvatar(
+                              radius: isMini ? 22 : 44,
+                              backgroundColor: avatarColor.withOpacity(0.2),
+                              child: ClipRRect(
+                                borderRadius:
+                                    BorderRadius.circular(isMini ? 22 : 44),
+                                child: (userId > 0)
+                                    ? OdooNetworkImage(
+                                        model: model,
+                                        id: userId,
+                                        field: 'image_128',
+                                        placeholder: Text(
+                                          name.isNotEmpty
+                                              ? name[0].toUpperCase()
+                                              : 'U',
+                                          style: GoogleFonts.spaceGrotesk(
+                                            color: avatarColor,
+                                            fontSize: isMini ? 16 : 28,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                        errorWidget: Text(
+                                          name.isNotEmpty
+                                              ? name[0].toUpperCase()
+                                              : 'U',
+                                          style: GoogleFonts.spaceGrotesk(
+                                            color: avatarColor,
+                                            fontSize: isMini ? 16 : 28,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      )
+                                    : Text(
+                                        name.isNotEmpty
+                                            ? name[0].toUpperCase()
+                                            : 'U',
+                                        style: GoogleFonts.spaceGrotesk(
+                                          color: avatarColor,
+                                          fontSize: isMini ? 16 : 28,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                              ),
+                            ),
+                            if (!isMini) ...[
+                              const SizedBox(height: 12),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Container(
+                                    width: 8,
+                                    height: 8,
+                                    decoration: const BoxDecoration(
+                                      color: Color(0xFF28A745),
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'Camera Active (720p)',
+                                    style: TextStyle(
+                                      color: Colors.white.withOpacity(0.7),
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    )
+                  : Container(
+                      color: const Color(0xFF1A1D22),
+                      child: Center(
+                        child: CircleAvatar(
+                          radius: isMini ? 20 : 42,
+                          backgroundColor: avatarColor.withOpacity(0.2),
+                          child: ClipRRect(
+                            borderRadius:
+                                BorderRadius.circular(isMini ? 20 : 42),
+                            child: (userId > 0)
+                                ? OdooNetworkImage(
+                                    model: model,
+                                    id: userId,
+                                    field: 'image_128',
+                                    placeholder: Text(
+                                      name.isNotEmpty
+                                          ? name[0].toUpperCase()
+                                          : 'U',
+                                      style: GoogleFonts.spaceGrotesk(
+                                        color: avatarColor,
+                                        fontSize: isMini ? 14 : 26,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    errorWidget: Text(
+                                      name.isNotEmpty
+                                          ? name[0].toUpperCase()
+                                          : 'U',
+                                      style: GoogleFonts.spaceGrotesk(
+                                        color: avatarColor,
+                                        fontSize: isMini ? 14 : 26,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  )
+                                : Text(
+                                    name.isNotEmpty
+                                        ? name[0].toUpperCase()
+                                        : 'U',
+                                    style: GoogleFonts.spaceGrotesk(
+                                      color: avatarColor,
+                                      fontSize: isMini ? 14 : 26,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                          ),
+                        ),
+                      ),
+                    ),
+            ),
+
+            // Bottom Name Tag & Mic Status Overlay
+            Positioned(
+              left: 10,
+              bottom: 10,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.6),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      name,
+                      style: GoogleFonts.inter(
+                        color: Colors.white,
+                        fontSize: isMini ? 10 : 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Icon(
+                      isMuted ? Icons.mic_off_rounded : Icons.mic_rounded,
+                      size: isMini ? 12 : 14,
+                      color: isMuted
+                          ? const Color(0xFFE53935)
+                          : const Color(0xFF28A745),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// ODOO SCREEN SHARE SELECTION DIALOG (MATCHING IMAGE 2 EXACTLY)
+// =============================================================================
+
+class OdooScreenShareDialog extends StatefulWidget {
+  const OdooScreenShareDialog({super.key});
+
+  @override
+  State<OdooScreenShareDialog> createState() => _OdooScreenShareDialogState();
+}
+
+class _OdooScreenShareDialogState extends State<OdooScreenShareDialog> {
+  int _selectedTabIndex = 0; // 0: Chrome tab, 1: Window, 2: Entire screen
+  int _selectedItemIndex = -1;
+  bool _shareTabAudio = true;
+
+  final List<Map<String, dynamic>> _tabsList = [
+    {
+      'title': 'Aniket Rai',
+      'icon': Icons.circle_outlined,
+      'color': Color(0xFF8A2BE2),
+    },
+    {
+      'title': 'Privacy Policy - DeshiSpicy',
+      'icon': Icons.public_rounded,
+      'color': Color(0xFF00897B),
+    },
+    {
+      'title': 'Login | Primacy Infotech',
+      'icon': Icons.security_rounded,
+      'color': Color(0xFFE53935),
+    },
+    {
+      'title': 'Project overview | inquisitive-cannoli-9e03e...',
+      'icon': Icons.layers_rounded,
+      'color': Color(0xFF0F52BA),
+    },
+    {
+      'title': '(189 unread) - Inbox - Zoho Mail (jayadrata@...',
+      'icon': Icons.mail_outline_rounded,
+      'color': Color(0xFF00ACC1),
+    },
+  ];
+
+  final List<Map<String, dynamic>> _windowsList = [
+    {
+      'title': 'Antigravity IDE - taskwatch_app',
+      'icon': Icons.code_rounded,
+      'color': Color(0xFF00796B),
+    },
+    {
+      'title': 'Google Chrome - Odoo Staging',
+      'icon': Icons.web_rounded,
+      'color': Color(0xFF1565C0),
+    },
+    {
+      'title': 'Terminal - zsh (flutter run)',
+      'icon': Icons.terminal_rounded,
+      'color': Color(0xFF424242),
+    },
+  ];
+
+  final List<Map<String, dynamic>> _entireScreensList = [
+    {
+      'title': 'Entire Screen 1 (Built-in Display 2560x1600)',
+      'icon': Icons.monitor_rounded,
+      'color': Color(0xFF455A64),
+    },
+  ];
+
+  List<Map<String, dynamic>> get _currentList {
+    if (_selectedTabIndex == 0) return _tabsList;
+    if (_selectedTabIndex == 1) return _windowsList;
+    return _entireScreensList;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final serverHost = OdooRpcApiManager.serverUrl.replaceAll('https://', '').replaceAll('http://', '');
+
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      child: Container(
+        width: 720,
+        height: 520,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.3),
+              blurRadius: 24,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Title & Subtitle
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Choose what to share with $serverHost',
+                    style: GoogleFonts.inter(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: const Color(0xFF25181E),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'The site will be able to see the contents of your screen',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Tabs Row (Chrome tab, Window, Entire screen)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              decoration: BoxDecoration(
+                border: Border(
+                  bottom: BorderSide(
+                    color: Colors.grey.shade200,
+                  ),
+                ),
+              ),
+              child: Row(
+                children: [
+                  _buildTabHeader(0, 'Chrome tab'),
+                  const SizedBox(width: 24),
+                  _buildTabHeader(1, 'Window'),
+                  const SizedBox(width: 24),
+                  _buildTabHeader(2, 'Entire screen'),
+                ],
+              ),
+            ),
+
+            // Content Area: Left Items List + Right Preview Pane
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    // Left list
+                    Expanded(
+                      flex: 5,
+                      child: ListView.builder(
+                        itemCount: _currentList.length,
+                        itemBuilder: (context, index) {
+                          final item = _currentList[index];
+                          final isSelected = _selectedItemIndex == index;
+                          return InkWell(
+                            onTap: () =>
+                                setState(() => _selectedItemIndex = index),
+                            borderRadius: BorderRadius.circular(8),
+                            child: Container(
+                              margin: const EdgeInsets.only(bottom: 6),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 9),
+                              decoration: BoxDecoration(
+                                color: isSelected
+                                    ? const Color(0xFF5C6BC0).withOpacity(0.12)
+                                    : Colors.transparent,
+                                borderRadius: BorderRadius.circular(8),
+                                border: isSelected
+                                    ? Border.all(
+                                        color: const Color(0xFF5C6BC0),
+                                        width: 1.5)
+                                    : Border.all(
+                                        color: Colors.transparent,
+                                      ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    isSelected
+                                        ? Icons.radio_button_checked_rounded
+                                        : Icons.radio_button_unchecked_rounded,
+                                    size: 16,
+                                    color: isSelected
+                                        ? const Color(0xFF3949AB)
+                                        : Colors.grey.shade400,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Icon(
+                                    item['icon'] as IconData,
+                                    size: 18,
+                                    color: item['color'] as Color,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      item['title'] as String,
+                                      style: TextStyle(
+                                        fontSize: 12.5,
+                                        fontWeight: isSelected
+                                            ? FontWeight.bold
+                                            : FontWeight.w500,
+                                        color: isSelected
+                                            ? const Color(0xFF3949AB)
+                                            : const Color(0xFF25181E),
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+
+                    // Right preview pane
+                    Expanded(
+                      flex: 5,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEEF0FA),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: const Color(0xFFD0D5EE),
+                          ),
+                        ),
+                        child: Center(
+                          child: SingleChildScrollView(
+                            padding: const EdgeInsets.all(8),
+                            child: _selectedItemIndex >= 0 &&
+                                    _selectedItemIndex < _currentList.length
+                                ? Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        _currentList[_selectedItemIndex]['icon']
+                                            as IconData,
+                                        size: 40,
+                                        color: _currentList[_selectedItemIndex]
+                                            ['color'] as Color,
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 10),
+                                        child: Text(
+                                          _currentList[_selectedItemIndex]
+                                              ['title'] as String,
+                                          textAlign: TextAlign.center,
+                                          style: GoogleFonts.inter(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold,
+                                            color: const Color(0xFF25181E),
+                                          ),
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        'Ready to share this stream',
+                                        style: TextStyle(
+                                          fontSize: 10.5,
+                                          color: Colors.grey.shade600,
+                                        ),
+                                        textAlign: TextAlign.center,
+                                      ),
+                                    ],
+                                  )
+                                : const Text(
+                                    'Select a tab to share',
+                                    style: TextStyle(
+                                      fontSize: 12.5,
+                                      color: Color(0xFF5C6BC0),
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                    textAlign: TextAlign.center,
+                                  ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            // Bottom Audio Toggle & Buttons
+            Container(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+              decoration: BoxDecoration(
+                border: Border(
+                  top: BorderSide(
+                    color: Colors.grey.shade200,
+                  ),
+                ),
+              ),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.volume_up_rounded,
+                      size: 18,
+                      color: Colors.grey.shade700,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Also share tab audio',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.grey.shade800,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Switch(
+                      value: _shareTabAudio,
+                      onChanged: (val) => setState(() => _shareTabAudio = val),
+                      activeColor: const Color(0xFF3949AB),
+                    ),
+                    const SizedBox(width: 24),
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 18, vertical: 10),
+                        backgroundColor: const Color(0xFFE8EAF6),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(18)),
+                      ),
+                      child: Text(
+                        'Cancel',
+                        style: TextStyle(
+                          color: const Color(0xFF3949AB),
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    ElevatedButton(
+                      onPressed: _selectedItemIndex >= 0
+                          ? () {
+                              final title = _currentList[_selectedItemIndex]
+                                  ['title'] as String;
+                              Navigator.of(context).pop(title);
+                            }
+                          : null,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _selectedItemIndex >= 0
+                            ? const Color(0xFF3949AB)
+                            : const Color(0xFFE8EAF6),
+                        foregroundColor: _selectedItemIndex >= 0
+                            ? Colors.white
+                            : Colors.grey.shade500,
+                        disabledBackgroundColor: const Color(0xFFEEEEEE),
+                        disabledForegroundColor: Colors.grey.shade400,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 22, vertical: 10),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(18)),
+                        elevation: _selectedItemIndex >= 0 ? 2 : 0,
+                      ),
+                      child: const Text(
+                        'Share',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTabHeader(int index, String label) {
+    final isSelected = _selectedTabIndex == index;
+    return InkWell(
+      onTap: () => setState(() {
+        _selectedTabIndex = index;
+        _selectedItemIndex = -1;
+      }),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(
+              color: isSelected ? const Color(0xFF3949AB) : Colors.transparent,
+              width: 2.5,
+            ),
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+            color:
+                isSelected ? const Color(0xFF3949AB) : Colors.grey.shade600,
+          ),
+        ),
       ),
     );
   }

@@ -46,6 +46,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
   // ── Attachments category filter ───────────────────────────────────────────
   String _selectedAttachmentCategory = 'All';
   bool _isUploadingAttachment = false;
+  bool _isEditingDescription = false;
+  final TextEditingController _taskDescriptionController = TextEditingController();
 
   // ── Assignees dropdown state ──────────────────────────────────────────────
   final LayerLink _assigneesLayerLink = LayerLink();
@@ -114,6 +116,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
     _tabController.dispose();
     _logNoteController.dispose();
     _searchChatterController.dispose();
+    _taskDescriptionController.dispose();
     _taskDetailsController.clearData();
     _restoreWindow();
     _removeAssigneesOverlay();
@@ -778,10 +781,14 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
   }
 
   Widget _buildPlannedDateRow(ThemePalette theme) {
-    final dateStr = _getPlannedDateString();
+    final t = _taskDetailsController.currentTask.value;
+    final deadline = t?.dateDeadline ?? _getDeadline();
+    final dateStr = deadline != null
+        ? DateFormat('MMM d, h:mm a').format(deadline.toLocal())
+        : _getPlannedDateString();
     
     return _buildCustomRow(
-      label: 'Planned Date',
+      label: 'Deadline',
       theme: theme,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
@@ -1399,30 +1406,162 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
                         fontWeight: FontWeight.bold,
                       ),
                     ),
+                    const Spacer(),
+                    if (!_isEditingDescription)
+                      InkWell(
+                        onTap: () {
+                          setState(() {
+                            _isEditingDescription = true;
+                            _taskDescriptionController.text = _getDescription();
+                          });
+                        },
+                        borderRadius: BorderRadius.circular(4),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.edit_outlined,
+                                  size: 14,
+                                  color: theme.isDark
+                                      ? Colors.white70
+                                      : const Color(0xFF714B67)),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Edit',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: theme.isDark
+                                      ? Colors.white70
+                                      : const Color(0xFF714B67),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    else
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          TextButton(
+                            onPressed: () =>
+                                setState(() => _isEditingDescription = false),
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 4),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            child: Text(
+                              'Cancel',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: theme.secondaryTextColor,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          ElevatedButton(
+                            onPressed: () async {
+                              final updatedText =
+                                  _taskDescriptionController.text.trim();
+                              final success = await _taskDetailsController
+                                  .updateTaskDescription(task.id, updatedText);
+                              if (success) {
+                                setState(() => _isEditingDescription = false);
+                              }
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF714B67),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 4),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(4)),
+                              elevation: 0,
+                            ),
+                            child: const Text(
+                              'Save',
+                              style: TextStyle(
+                                  fontSize: 12, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ],
+                      ),
                   ],
                 ),
                 const SizedBox(height: 12),
 
-                // Render Odoo-Style Embedded Document Badges
-                if (matches.isNotEmpty) ...[
-                  ...matches.map((docName) => _buildOdooDocChip(docName, theme)),
-                  if (textRemaining.isNotEmpty) const SizedBox(height: 8),
-                ],
-
-                // Remaining instructions or description
-                if (textRemaining.isNotEmpty || matches.isEmpty)
-                  SelectableText(
-                    textRemaining.isEmpty
-                        ? 'No description added for this task.'
-                        : textRemaining,
+                if (_isEditingDescription)
+                  TextField(
+                    controller: _taskDescriptionController,
+                    maxLines: 5,
+                    cursorColor: const Color(0xFFB80049),
                     style: TextStyle(
-                      color: textRemaining.isEmpty
-                          ? theme.secondaryTextColor.withValues(alpha: 0.5)
-                          : theme.primaryTextColor,
+                      color: theme.isDark
+                          ? Colors.white
+                          : const Color(0xFF25181E),
                       fontSize: 13,
-                      height: 1.5,
+                      height: 1.4,
                     ),
-                  ),
+                    decoration: InputDecoration(
+                      filled: true,
+                      fillColor: theme.isDark
+                          ? const Color(0xFF2C1B24)
+                          : Colors.white,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(6),
+                        borderSide: BorderSide(
+                            color: theme.secondaryTextColor
+                                .withValues(alpha: 0.2)),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(6),
+                        borderSide: BorderSide(
+                            color: theme.secondaryTextColor
+                                .withValues(alpha: 0.2)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(6),
+                        borderSide: const BorderSide(
+                            color: Color(0xFFB80049), width: 1.5),
+                      ),
+                      contentPadding: const EdgeInsets.all(10),
+                      hintText: 'Enter task description...',
+                      hintStyle: TextStyle(
+                          color: theme.secondaryTextColor
+                              .withValues(alpha: 0.5),
+                          fontSize: 13),
+                    ),
+                  )
+                else ...[
+                  // Render Odoo-Style Embedded Document Badges
+                  if (matches.isNotEmpty) ...[
+                    ...matches
+                        .map((docName) => _buildOdooDocChip(docName, theme)),
+                    if (textRemaining.isNotEmpty) const SizedBox(height: 8),
+                  ],
+
+                  // Remaining instructions or description
+                  if (textRemaining.isNotEmpty || matches.isEmpty)
+                    SelectableText(
+                      textRemaining.isEmpty
+                          ? 'No description added for this task.'
+                          : textRemaining,
+                      style: TextStyle(
+                        color: textRemaining.isEmpty
+                            ? theme.secondaryTextColor.withValues(alpha: 0.5)
+                            : theme.primaryTextColor,
+                        fontSize: 13,
+                        height: 1.5,
+                      ),
+                    ),
+                ],
               ],
             ),
           ),
@@ -2104,6 +2243,92 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
     });
   }
 
+  Widget _buildRichHtmlContent(String rawHtml, ThemePalette theme, {TextStyle? textStyle}) {
+    if (rawHtml.trim().isEmpty) return const SizedBox.shrink();
+
+    // 1. Extract img src attributes
+    final imgRegex = RegExp(r'<img[^>]+src=["\x27]([^"\x27]+)["\x27][^>]*>', caseSensitive: false);
+    final matches = imgRegex.allMatches(rawHtml);
+    final List<String> imgSrcs = [];
+    for (final m in matches) {
+      if (m.group(1) != null) {
+        imgSrcs.add(m.group(1)!);
+      }
+    }
+
+    // 2. Clean text
+    final cleanText = FormatUtils.cleanHtml(rawHtml);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (cleanText.isNotEmpty)
+          SelectableText(
+            cleanText,
+            style: textStyle ??
+                TextStyle(
+                  fontSize: 12.5,
+                  color: theme.isDark ? Colors.white70 : const Color(0xFF25181E),
+                  height: 1.4,
+                ),
+          ),
+        if (imgSrcs.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          ...imgSrcs.map((src) {
+            Widget imgWidget;
+            if (src.startsWith('data:image')) {
+              try {
+                final base64Str = src.split(',').last.replaceAll('\n', '').trim();
+                final bytes = base64Decode(base64Str);
+                imgWidget = Image.memory(
+                  bytes,
+                  fit: BoxFit.contain,
+                );
+              } catch (_) {
+                return const SizedBox.shrink();
+              }
+            } else if (src.startsWith('/web/image') || src.startsWith('/web/content')) {
+              final baseUrl = OdooRpcApiManager.serverUrl ?? '';
+              final fullUrl = '$baseUrl$src';
+              final sessionId = OdooRpcApiManager.currentSessionId;
+              imgWidget = Image.network(
+                fullUrl,
+                headers: sessionId != null
+                    ? {'Cookie': 'session_id=$sessionId'}
+                    : null,
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+              );
+            } else if (src.startsWith('http')) {
+              imgWidget = Image.network(
+                src,
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+              );
+            } else {
+              return const SizedBox.shrink();
+            }
+
+            return Container(
+              margin: const EdgeInsets.only(top: 6, bottom: 6),
+              constraints: const BoxConstraints(maxHeight: 280),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: theme.isDark ? Colors.white12 : Colors.grey.shade300,
+                ),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: imgWidget,
+              ),
+            );
+          }),
+        ],
+      ],
+    );
+  }
+
   Widget _buildPlannedActivityCard(
       TaskPlannedActivity act, ThemePalette theme) {
     final bool isOverdue = act.state == 'overdue';
@@ -2152,33 +2377,37 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
             children: [
               Stack(
                 children: [
-                  CircleAvatar(
-                    radius: 16,
-                    backgroundColor:
-                        const Color(0xFF714B67).withValues(alpha: 0.2),
-                    child: Text(
-                      act.userName.isNotEmpty
-                          ? act.userName[0].toUpperCase()
-                          : 'U',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF714B67),
-                      ),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: SizedBox(
+                      width: 32,
+                      height: 32,
+                      child: (act.userId > 0)
+                          ? OdooNetworkImage(
+                              model: 'res.users',
+                              id: act.userId,
+                              field: 'image_128',
+                              placeholder: _InitialAvatar(
+                                  name: act.userName, size: 32, fontSize: 13),
+                              errorWidget: _InitialAvatar(
+                                  name: act.userName, size: 32, fontSize: 13),
+                            )
+                          : _InitialAvatar(
+                              name: act.userName, size: 32, fontSize: 13),
                     ),
                   ),
                   Positioned(
-                    right: 0,
-                    bottom: 0,
+                    right: -1,
+                    bottom: -1,
                     child: Container(
-                      padding: const EdgeInsets.all(2),
-                      decoration: const BoxDecoration(
-                        color: Colors.white,
+                      padding: const EdgeInsets.all(1.5),
+                      decoration: BoxDecoration(
+                        color: theme.isDark ? const Color(0xFF2C1B24) : Colors.white,
                         shape: BoxShape.circle,
                       ),
                       child: Icon(
                         Icons.access_time_filled,
-                        size: 10,
+                        size: 11,
                         color: statusColor,
                       ),
                     ),
@@ -2223,11 +2452,12 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
                         ],
                       ),
                     ),
-                    if (act.cleanNote.isNotEmpty) ...[
-                      const SizedBox(height: 3),
-                      Text(
-                        act.cleanNote,
-                        style: TextStyle(
+                    if (act.note.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      _buildRichHtmlContent(
+                        act.note,
+                        theme,
+                        textStyle: TextStyle(
                           fontSize: 11.5,
                           color: theme.isDark
                               ? Colors.white60
@@ -2278,7 +2508,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
                                     color: theme.isDark
                                         ? Colors.white70
                                         : Colors.grey.shade700),
-                                const SizedBox(width: 4),
+                                SizedBox(width: 4),
                                 Text(
                                   'Edit',
                                   style: TextStyle(
@@ -4251,43 +4481,13 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
                       model: 'res.partner',
                       id: item.authorId,
                       field: 'image_128',
-                      placeholder: Container(
-                        color: _getAvatarColorForName(user),
-                        alignment: Alignment.center,
-                        child: Text(
-                          user.isNotEmpty ? user[0].toUpperCase() : 'U',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                      errorWidget: Container(
-                        color: _getAvatarColorForName(user),
-                        alignment: Alignment.center,
-                        child: Text(
-                          user.isNotEmpty ? user[0].toUpperCase() : 'U',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
+                      placeholder: _InitialAvatar(
+                          name: user, size: 32, fontSize: 13),
+                      errorWidget: _InitialAvatar(
+                          name: user, size: 32, fontSize: 13),
                     )
-                  : Container(
-                      color: _getAvatarColorForName(user),
-                      alignment: Alignment.center,
-                      child: Text(
-                        user.isNotEmpty ? user[0].toUpperCase() : 'P',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 13,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
+                  : _InitialAvatar(
+                      name: user, size: 32, fontSize: 13),
             ),
           ),
           const SizedBox(width: 12),
@@ -4401,9 +4601,10 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
                             : const Color(0xFFC8E6C9),
                       ),
                     ),
-                    child: SelectableText(
-                      cleanContent,
-                      style: TextStyle(
+                    child: _buildRichHtmlContent(
+                      item.body,
+                      theme,
+                      textStyle: TextStyle(
                         color: theme.isDark
                             ? Colors.white
                             : const Color(0xFF25181E),
@@ -4413,9 +4614,10 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
                     ),
                   ),
                 ] else ...[
-                  SelectableText(
-                    cleanContent.isNotEmpty ? cleanContent : 'Updated task',
-                    style: TextStyle(
+                  _buildRichHtmlContent(
+                    item.body.isNotEmpty ? item.body : 'Updated task',
+                    theme,
+                    textStyle: TextStyle(
                       color: theme.isDark
                           ? Colors.white70
                           : theme.secondaryTextColor.withValues(alpha: 0.9),

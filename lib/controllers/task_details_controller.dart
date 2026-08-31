@@ -538,7 +538,7 @@ class TaskDetailsController extends GetxController {
     return null;
   }
 
-  /// 6b. Schedule Odoo Activity (with optional file attachments)
+  /// 6b. Schedule Odoo Activity (with inline image attachments embedded in activity note)
   Future<bool> scheduleActivity({
     required int taskId,
     required int activityTypeId,
@@ -558,7 +558,30 @@ class TaskDetailsController extends GetxController {
         return false;
       }
 
-      final effectiveNote = note?.trim() ?? '';
+      String effectiveNote = note?.trim() ?? '';
+      
+      // If user attached images to the activity, embed them directly in the activity note HTML
+      if (attachments != null && attachments.isNotEmpty) {
+        for (final att in attachments) {
+          final ext = att.extension?.toLowerCase() ?? '';
+          if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].contains(ext) &&
+              att.bytes != null &&
+              att.bytes!.isNotEmpty) {
+            final b64 = base64Encode(att.bytes!);
+            final mime = ext == 'png'
+                ? 'image/png'
+                : (ext == 'webp' ? 'image/webp' : (ext == 'gif' ? 'image/gif' : 'image/jpeg'));
+            if (effectiveNote.isNotEmpty) {
+              effectiveNote += '<br/>';
+            }
+            effectiveNote += '<p><img src="data:$mime;base64,$b64" alt="${att.name}" /></p>';
+          } else if (att.name.isNotEmpty) {
+            if (effectiveNote.isNotEmpty) effectiveNote += '<br/>';
+            effectiveNote += '<p>Attached: <b>${att.name}</b></p>';
+          }
+        }
+      }
+
       final effectiveSummary = summary.trim();
       final effectiveBody = effectiveNote.isNotEmpty
           ? effectiveNote
@@ -637,16 +660,7 @@ class TaskDetailsController extends GetxController {
       }
 
       if (isSuccess) {
-        // Upload any attached files to Odoo ir.attachment linked to the task
-        if (attachments != null && attachments.isNotEmpty) {
-          await uploadMultipleTaskAttachments(
-            taskId: validTaskId,
-            files: attachments,
-          );
-        }
-
         await getTaskActivities(validTaskId);
-        await getTaskAttachments(validTaskId);
         showToast('Activity scheduled successfully', idSuccess: true);
         return true;
       }
@@ -655,6 +669,41 @@ class TaskDetailsController extends GetxController {
     } catch (e) {
       _handleError(e, 'schedule activity');
       showToast('Error scheduling activity: $e', idSuccess: false);
+      return false;
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  /// Update Task Description in Odoo project.task
+  Future<bool> updateTaskDescription(int taskId, String newDescription) async {
+    try {
+      isLoading.value = true;
+      final validTaskId = taskId > 0 ? taskId : (currentTask.value?.id ?? 0);
+      if (validTaskId <= 0) return false;
+
+      final res = await OdooRpcApiManager.write(
+        model: 'project.task',
+        ids: [validTaskId],
+        values: {
+          'description': newDescription,
+        },
+      );
+
+      if (res.isSuccess) {
+        if (currentTask.value != null) {
+          currentTask.value =
+              currentTask.value!.copyWith(description: newDescription);
+        }
+        showToast('Description updated', idSuccess: true);
+        return true;
+      } else {
+        showToast('Failed to update description: ${res.message}',
+            idSuccess: false);
+        return false;
+      }
+    } catch (e) {
+      showToast('Error updating description: $e', idSuccess: false);
       return false;
     } finally {
       isLoading.value = false;
@@ -808,7 +857,7 @@ class TaskDetailsController extends GetxController {
       isLoadingAttachments.value = true;
       final combined = <int, TaskAttachment>{};
 
-      // 1. Direct attachments on project.task
+      // Direct attachments on project.task (Description media & files only)
       final response = await OdooRpcApiManager.searchRead(
         model: 'ir.attachment',
         domain: [
@@ -830,40 +879,6 @@ class TaskDetailsController extends GetxController {
         for (var x in response.data as List) {
           final att = TaskAttachment.fromJson(x as Map<String, dynamic>);
           combined[att.id] = att;
-        }
-      }
-
-      // 2. Attachments referenced in chatter messages (mail.message)
-      final allMsgAttIds = <int>[];
-      for (var act in activities) {
-        if (act.attachmentIds != null) {
-          for (var a in act.attachmentIds!) {
-            if (a.id > 0) allMsgAttIds.add(a.id);
-          }
-        }
-      }
-
-      if (allMsgAttIds.isNotEmpty) {
-        final msgAttRes = await OdooRpcApiManager.searchRead(
-          model: 'ir.attachment',
-          domain: [
-            ['id', 'in', allMsgAttIds]
-          ],
-          fields: [
-            'id',
-            'name',
-            'mimetype',
-            'file_size',
-            'create_date',
-            'create_uid'
-          ],
-          limit: 100,
-        );
-        if (msgAttRes.isSuccess && msgAttRes.data is List) {
-          for (var x in msgAttRes.data as List) {
-            final att = TaskAttachment.fromJson(x as Map<String, dynamic>);
-            combined[att.id] = att;
-          }
         }
       }
 

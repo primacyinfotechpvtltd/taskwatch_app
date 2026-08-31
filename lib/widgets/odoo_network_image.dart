@@ -124,13 +124,43 @@ class _OdooNetworkImageState extends State<OdooNetworkImage> {
     }
   }
 
+  bool _isValidImageBytes(List<int> bytes) {
+    if (bytes.length < 4) return false;
+    // JPEG (FF D8)
+    if (bytes[0] == 0xFF && bytes[1] == 0xD8) return true;
+    // PNG (89 50 4E 47)
+    if (bytes[0] == 0x89 &&
+        bytes[1] == 0x50 &&
+        bytes[2] == 0x4E &&
+        bytes[3] == 0x47) return true;
+    // GIF (47 49 46)
+    if (bytes[0] == 0x47 && bytes[1] == 0x49 && bytes[2] == 0x46) return true;
+    // WEBP (RIFF....WEBP)
+    if (bytes.length >= 12 &&
+        bytes[0] == 0x52 &&
+        bytes[1] == 0x49 &&
+        bytes[2] == 0x46 &&
+        bytes[3] == 0x46 &&
+        bytes[8] == 0x57 &&
+        bytes[9] == 0x45 &&
+        bytes[10] == 0x42 &&
+        bytes[11] == 0x50) {
+      return true;
+    }
+    // BMP (42 4D)
+    if (bytes[0] == 0x42 && bytes[1] == 0x4D) return true;
+    return false;
+  }
+
   @override
   Widget build(BuildContext context) {
     // 1. base64 data
     if (widget.base64Data != null && widget.base64Data!.isNotEmpty) {
       try {
+        final decoded = base64Decode(widget.base64Data!);
+        if (!_isValidImageBytes(decoded)) return _buildErrorWidget();
         return Image.memory(
-          base64Decode(widget.base64Data!),
+          decoded,
           width: widget.width,
           height: widget.height,
           fit: widget.fit ?? BoxFit.cover,
@@ -159,6 +189,7 @@ class _OdooNetworkImageState extends State<OdooNetworkImage> {
     // 3. Odoo model image via authenticated Dio (session cookie in headers)
     if (_loading) return _buildPlaceholder(context);
     if (_hasError || _imageBytes == null || _imageBytes!.isEmpty) return _buildErrorWidget();
+    if (!_isValidImageBytes(_imageBytes!)) return _buildErrorWidget();
 
     return Image.memory(
       Uint8List.fromList(_imageBytes!),

@@ -1,4 +1,6 @@
+import 'package:pi_task_watch/models/task_details_model.dart';
 import 'package:pi_task_watch/utils/duration_utils.dart';
+import 'package:pi_task_watch/utils/format_utils.dart';
 
 class TaskModelException implements Exception {
   final String message;
@@ -90,6 +92,190 @@ class TaskModel {
   DateTime? getStartDateTime() => _parseDateTime(_startDate)?.toLocal();
   DateTime? getEndDateTime() => _parseDateTime(_endDate)?.toLocal();
 
+  // Assignee helper getters
+  List<TaskAssignee> get userIds {
+    if (json['user_ids'] is List) {
+      return (json['user_ids'] as List)
+          .map<TaskAssignee>((x) => TaskAssignee.fromJson(x))
+          .toList();
+    } else if (json['user_id'] != null) {
+      return [TaskAssignee.fromJson(json['user_id'])];
+    }
+    return [];
+  }
+
+  List<String> get userNames {
+    if (json['user_names'] is List) {
+      return List<String>.from(json['user_names'].map((x) => x.toString()));
+    }
+    if (json['user_ids'] is List) {
+      return (json['user_ids'] as List)
+          .map<String>((x) {
+            if (x is List && x.length > 1) return x[1].toString();
+            if (x is Map) return (x['name'] ?? '').toString();
+            return '';
+          })
+          .where((s) => s.isNotEmpty)
+          .toList();
+    }
+    if (json['user_name'] != null && json['user_name'].toString().isNotEmpty) {
+      return [json['user_name'].toString()];
+    }
+    if (json['user_id'] is List && (json['user_id'] as List).length > 1) {
+      return [json['user_id'][1].toString()];
+    }
+    return [];
+  }
+
+  int? get primaryAssigneeId {
+    if (userIds.isNotEmpty && userIds.first.id > 0) {
+      return userIds.first.id;
+    }
+    if (json['user_id'] is List && (json['user_id'] as List).isNotEmpty) {
+      return json['user_id'][0] is int
+          ? json['user_id'][0]
+          : int.tryParse(json['user_id'][0].toString());
+    }
+    if (json['user_id'] is int) return json['user_id'];
+    return null;
+  }
+
+  String? get primaryAssigneeName {
+    if (userIds.isNotEmpty &&
+        userIds.first.name.isNotEmpty &&
+        userIds.first.name != 'Unknown') {
+      return userIds.first.name;
+    }
+    if (userNames.isNotEmpty && userNames.first.isNotEmpty) {
+      return userNames.first;
+    }
+    if (json['user_id'] is List && (json['user_id'] as List).length > 1) {
+      return json['user_id'][1].toString();
+    }
+    if (json['user_name'] != null) return json['user_name'].toString();
+    return null;
+  }
+
+  String? get primaryAssigneeEmail {
+    if (json['user_email'] != null && json['user_email'].toString().isNotEmpty) {
+      return json['user_email'].toString();
+    }
+    if (json['email'] != null && json['email'].toString().isNotEmpty) {
+      return json['email'].toString();
+    }
+    if (json['login'] != null && json['login'].toString().contains('@')) {
+      return json['login'].toString();
+    }
+    return null;
+  }
+
+  // Assigner / Creator (Who assigned this task)
+  int? get createUid {
+    // 1. json['create_uid']
+    if (json['create_uid'] is List && (json['create_uid'] as List).isNotEmpty) {
+      return json['create_uid'][0] is int
+          ? json['create_uid'][0]
+          : int.tryParse(json['create_uid'][0].toString());
+    }
+    if (json['create_uid'] is Map) {
+      return json['create_uid']['id'] is int
+          ? json['create_uid']['id']
+          : int.tryParse(json['create_uid']['id'].toString());
+    }
+    if (json['create_uid'] is int) return json['create_uid'];
+
+    // 2. json['created_by_id'] / json['create_user_id'] / json['created_by']
+    if (json['created_by_id'] is int) return json['created_by_id'];
+    if (json['create_user_id'] is int) return json['create_user_id'];
+    if (json['created_by'] is List && (json['created_by'] as List).isNotEmpty) {
+      return json['created_by'][0] is int
+          ? json['created_by'][0]
+          : int.tryParse(json['created_by'][0].toString());
+    }
+    if (json['created_by'] is Map) {
+      return json['created_by']['id'] is int
+          ? json['created_by']['id']
+          : int.tryParse(json['created_by']['id'].toString());
+    }
+    if (json['created_by'] is int) return json['created_by'];
+
+    // 3. json['assigned_by_id'] / json['assigned_by']
+    if (json['assigned_by_id'] is int) return json['assigned_by_id'];
+    if (json['assigned_by'] is List && (json['assigned_by'] as List).isNotEmpty) {
+      return json['assigned_by'][0] is int
+          ? json['assigned_by'][0]
+          : int.tryParse(json['assigned_by'][0].toString());
+    }
+    if (json['assigned_by'] is Map) {
+      return json['assigned_by']['id'] is int
+          ? json['assigned_by']['id']
+          : int.tryParse(json['assigned_by']['id'].toString());
+    }
+    if (json['assigned_by'] is int) return json['assigned_by'];
+
+    return null;
+  }
+
+  String? get createUserName {
+    // 1. json['create_uid']
+    if (json['create_uid'] is List && (json['create_uid'] as List).length > 1) {
+      final name = json['create_uid'][1]?.toString().trim();
+      if (name != null && name.isNotEmpty && name != 'false') return name;
+    }
+    if (json['create_uid'] is Map) {
+      final name = (json['create_uid']['name'] ?? json['create_uid']['display_name'])?.toString().trim();
+      if (name != null && name.isNotEmpty && name != 'false') return name;
+    }
+
+    // 2. json['created_by']
+    if (json['created_by'] is List && (json['created_by'] as List).length > 1) {
+      final name = json['created_by'][1]?.toString().trim();
+      if (name != null && name.isNotEmpty && name != 'false') return name;
+    }
+    if (json['created_by'] is Map) {
+      final name = (json['created_by']['name'] ?? json['created_by']['display_name'])?.toString().trim();
+      if (name != null && name.isNotEmpty && name != 'false') return name;
+    }
+    if (json['created_by'] is String && json['created_by'].toString().trim().isNotEmpty) {
+      final name = json['created_by'].toString().trim();
+      if (name != 'false') return name;
+    }
+
+    // 3. json['create_user_name'] / json['creator_name'] / json['created_by_name']
+    if (json['create_user_name'] != null && json['create_user_name'].toString().trim().isNotEmpty) {
+      final name = json['create_user_name'].toString().trim();
+      if (name != 'false') return name;
+    }
+    if (json['creator_name'] != null && json['creator_name'].toString().trim().isNotEmpty) {
+      final name = json['creator_name'].toString().trim();
+      if (name != 'false') return name;
+    }
+    if (json['created_by_name'] != null && json['created_by_name'].toString().trim().isNotEmpty) {
+      final name = json['created_by_name'].toString().trim();
+      if (name != 'false') return name;
+    }
+
+    // 4. json['assigned_by']
+    if (json['assigned_by'] is List && (json['assigned_by'] as List).length > 1) {
+      final name = json['assigned_by'][1]?.toString().trim();
+      if (name != null && name.isNotEmpty && name != 'false') return name;
+    }
+    if (json['assigned_by'] is Map) {
+      final name = (json['assigned_by']['name'] ?? json['assigned_by']['display_name'])?.toString().trim();
+      if (name != null && name.isNotEmpty && name != 'false') return name;
+    }
+    if (json['assigned_by'] is String && json['assigned_by'].toString().trim().isNotEmpty) {
+      final name = json['assigned_by'].toString().trim();
+      if (name != 'false') return name;
+    }
+    if (json['assigned_by_name'] != null && json['assigned_by_name'].toString().trim().isNotEmpty) {
+      final name = json['assigned_by_name'].toString().trim();
+      if (name != 'false') return name;
+    }
+
+    return null;
+  }
+
   // Enhanced task status methods
   bool isOverdue() {
     final endDateTime = getEndDateTime();
@@ -122,7 +308,9 @@ class TaskModel {
   String? get description {
     if (json['description'] != null) {
       final desc = json['description'].toString();
-      return desc != 'false' ? desc : null;
+      if (desc.isNotEmpty && desc != 'false') {
+        return FormatUtils.cleanHtml(desc);
+      }
     }
     return null;
   }

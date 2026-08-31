@@ -1052,6 +1052,30 @@ class OdooRpcApiManager {
     _sessionId = sessionId;
   }
 
+  /// Ensures a valid web session cookie exists for WebSockets, longpolling, and live Discuss.
+  static Future<String?> ensureWebSession() async {
+    if (_sessionId != null && _sessionId!.isNotEmpty) {
+      return _sessionId;
+    }
+
+    if (_database != null && _username != null && _password != null) {
+      try {
+        final sessionResp = await _getWebSession(
+          database: _database!,
+          username: _username!,
+          password: _password!,
+        );
+        if (sessionResp.isSuccess && sessionResp.data != null) {
+          _sessionId = sessionResp.data;
+          return _sessionId;
+        }
+      } catch (e) {
+        _logger.w('⚠️ ensureWebSession error: $e');
+      }
+    }
+    return null;
+  }
+
   static bool get isAuthenticated {
     if (_authMode == OdooAuthMode.password) {
       // Password mode: session cookie not required — uid + credentials are enough
