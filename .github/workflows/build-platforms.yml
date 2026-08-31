@@ -142,7 +142,7 @@ jobs:
       - name: Create ZIP Fallback Artifact
         run: |
           mkdir -p dist/zip
-          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath dist\zip\PI_Task_Watch_Windows_v1.0.39.zip
+          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath dist\zip\PI_Task_Watch_Windows.zip
 
       - name: Upload Windows Installer (.exe)
         uses: actions/upload-artifact@v4
@@ -150,12 +150,14 @@ jobs:
           name: PI-Task-Watch-Windows-Installer
           path: dist/windows/exe/*.exe
           if-no-files-found: ignore
+          retention-days: 1
 
       - name: Upload Windows ZIP Release
         uses: actions/upload-artifact@v4
         with:
           name: PI-Task-Watch-Windows-ZIP
           path: dist/zip/*.zip
+          retention-days: 1
 
   build-macos:
     name: Build & Package macOS App
@@ -250,7 +252,7 @@ jobs:
         run: |
           mkdir -p "$GITHUB_WORKSPACE/dist/zip"
           cd "$GITHUB_WORKSPACE/build/macos/Build/Products/Release/"
-          zip -r "$GITHUB_WORKSPACE/dist/zip/PI_Task_Watch_macOS_v1.0.39.zip" "PI Task Watch.app"
+          zip -r "$GITHUB_WORKSPACE/dist/zip/PI_Task_Watch_macOS.zip" "PI Task Watch.app"
 
       - name: Upload macOS DMG Installer
         uses: actions/upload-artifact@v4
@@ -258,12 +260,14 @@ jobs:
           name: PI-Task-Watch-macOS-DMG
           path: dist/macos/dmg/*.dmg
           if-no-files-found: ignore
+          retention-days: 1
 
       - name: Upload macOS ZIP Release
         uses: actions/upload-artifact@v4
         with:
           name: PI-Task-Watch-macOS-ZIP
           path: dist/zip/*.zip
+          retention-days: 1
 
   build-linux:
     name: Build & Package Linux App
@@ -321,7 +325,7 @@ jobs:
         run: |
           mkdir -p dist/zip
           cd build/linux/x64/release/bundle/
-          zip -r ../../../../../dist/zip/PI_Task_Watch_Linux_v1.0.39.zip .
+          zip -r ../../../../../dist/zip/PI_Task_Watch_Linux.zip .
 
       - name: Upload Linux DEB Package
         uses: actions/upload-artifact@v4
@@ -329,12 +333,14 @@ jobs:
           name: PI-Task-Watch-Linux-DEB
           path: dist/linux/deb/*.deb
           if-no-files-found: ignore
+          retention-days: 1
 
       - name: Upload Linux ZIP Release
         uses: actions/upload-artifact@v4
         with:
           name: PI-Task-Watch-Linux-ZIP
           path: dist/zip/*.zip
+          retention-days: 1
 
   publish-release:
     name: Publish GitHub Release
