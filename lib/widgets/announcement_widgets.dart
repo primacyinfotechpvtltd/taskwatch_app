@@ -14,20 +14,16 @@ class DashboardAnnouncementSection extends StatelessWidget {
         : Get.put(AnnouncementController());
 
     return Obx(() {
+      if (!controller.isModuleAvailable.value || controller.announcements.isEmpty) {
+        return const SizedBox.shrink();
+      }
+
       if (controller.isLoading.value && controller.announcements.isEmpty) {
-        return const Padding(
-          padding: EdgeInsets.symmetric(vertical: 24),
-          child: Center(
-            child: CircularProgressIndicator(
-              valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primary),
-            ),
-          ),
-        );
+        return const SizedBox.shrink();
       }
 
       // Filter active approved announcements for the dashboard preview
       final now = DateTime.now();
-      final todayStr = DateFormat('yyyy-MM-dd').format(now);
       
       final activeAnnouncements = controller.announcements.where((a) {
         // Show if state is approved
@@ -43,10 +39,8 @@ class DashboardAnnouncementSection extends StatelessWidget {
         }
       }).toList();
 
-      debugPrint("DASHBOARD_ANNOUNCEMENTS_COUNT: ${controller.announcements.length}");
-      debugPrint("DASHBOARD_ACTIVE_COUNT: ${activeAnnouncements.length}");
-      for (var a in controller.announcements) {
-        debugPrint("DASHBOARD_ANNOUNCEMENT: name=${a.name}, state=${a.state}, start=${a.dateStart}, end=${a.dateEnd}");
+      if (activeAnnouncements.isEmpty) {
+        return const SizedBox.shrink();
       }
 
       return Container(

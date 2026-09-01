@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:pi_task_watch/exports.dart';
 import 'package:pi_task_watch/utils/log_utils.dart';
 
@@ -29,21 +30,86 @@ class DiscussController extends GetxController {
   final RxList<Map<String, dynamic>> usersToChat = <Map<String, dynamic>>[].obs;
   final RxBool isLoadingUsers = false.obs;
 
-  // WhatsApp-style Pinned messages, replies, and reactions
+  // WhatsApp-style Pinned messages, replies, reactions & star list
   final RxMap<int, DiscussMessageModel?> pinnedMessages =
       <int, DiscussMessageModel?>{}.obs;
+  final RxMap<int, List<DiscussMessageModel>> channelPinnedList =
+      <int, List<DiscussMessageModel>>{}.obs;
   final Rx<DiscussMessageModel?> replyingMessage =
       Rx<DiscussMessageModel?>(null);
   final RxMap<int, String> messageReactions = <int, String>{}.obs;
+  final RxSet<int> starredMessageIds = <int>{}.obs;
 
   void pinMessage(int channelId, DiscussMessageModel message) {
     pinnedMessages[channelId] = message;
+    final list = channelPinnedList[channelId] ?? [];
+    if (!list.any((m) => m.id == message.id)) {
+      channelPinnedList[channelId] = [message, ...list];
+    }
     showToast('Message pinned to conversation', idSuccess: true);
   }
 
-  void unpinMessage(int channelId) {
-    pinnedMessages.remove(channelId);
+  void unpinMessage(int channelId, [int? messageId]) {
+    if (messageId == null || pinnedMessages[channelId]?.id == messageId) {
+      final list = channelPinnedList[channelId] ?? [];
+      pinnedMessages[channelId] = list.isNotEmpty && list.first.id != messageId ? list.first : null;
+    }
+    if (messageId != null) {
+      final list = channelPinnedList[channelId] ?? [];
+      channelPinnedList[channelId] = list.where((m) => m.id != messageId).toList();
+    } else {
+      channelPinnedList.remove(channelId);
+    }
     showToast('Message unpinned', idSuccess: true);
+  }
+
+  void toggleStarMessage(int messageId) {
+    if (starredMessageIds.contains(messageId)) {
+      starredMessageIds.remove(messageId);
+      showToast('Message unstarred', idSuccess: true);
+    } else {
+      starredMessageIds.add(messageId);
+      showToast('Message starred', idSuccess: true);
+    }
+  }
+
+  List<DiscussMessageModel> getChannelPinnedMessages(int channelId) {
+    final list = channelPinnedList[channelId] ?? [];
+    final singlePinned = pinnedMessages[channelId];
+    if (singlePinned != null && !list.any((m) => m.id == singlePinned.id)) {
+      return [singlePinned, ...list];
+    }
+    return list;
+  }
+
+  List<DiscussAttachmentModel> getActiveChannelAttachments(int channelId) {
+    final msgs = channelMessages[channelId] ?? [];
+    final List<DiscussAttachmentModel> list = [];
+    final Set<int> seenIds = {};
+    for (var m in msgs) {
+      for (var a in m.attachments) {
+        if (!seenIds.contains(a.id)) {
+          seenIds.add(a.id);
+          list.add(a);
+        }
+      }
+    }
+    return list;
+  }
+
+  Future<void> startOdooCall(int channelId, {bool isVideo = true}) async {
+    try {
+      final server = OdooRpcApiManager.serverUrl;
+      if (server.isNotEmpty) {
+        final url = '$server/web#action=mail.action_discuss&active_id=$channelId';
+        final uri = Uri.tryParse(url);
+        if (uri != null && await canLaunchUrl(uri)) {
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        }
+      }
+    } catch (e) {
+      debugPrint('START_CALL_ERROR: $e');
+    }
   }
 
   void setReplyMessage(DiscussMessageModel? message) {
@@ -549,13 +615,47 @@ class DiscussController extends GetxController {
                 await Future.wait(tasks);
               }
             } else {
-               //LogUtils.w('DISCUSS_LAST_MSG: msgResponse failed or null data: error=${msgResponse.message}');
+                //LogUtils.w('DISCUSS_LAST_MSG: msgResponse failed or null data: error=${msgResponse.message}');
             }
           } catch (e) {
             //LogUtils.e('DISCUSS_CHANNELS_LAST_MSG_ERROR: $e');
           }
         }
         
+        // Fetch partner online / im_status presence for direct chats
+        final partnerIdsToQuery = fetched
+            .where((c) => c.otherPartnerId != null && c.otherPartnerId! > 0)
+            .map((c) => c.otherPartnerId!)
+            .toSet()
+            .toList();
+        if (partnerIdsToQuery.isNotEmpty) {
+          try {
+            final presenceRes = await OdooRpcApiManager.searchRead(
+              model: 'res.partner',
+              domain: [
+                ['id', 'in', partnerIdsToQuery]
+              ],
+              fields: ['id', 'im_status'],
+            );
+            if (presenceRes.isSuccess && presenceRes.data != null) {
+              final Map<int, String> statusMap = {};
+              for (var p in presenceRes.data!) {
+                final pId = p['id'] as int;
+                final stat = p['im_status']?.toString();
+                if (stat != null) statusMap[pId] = stat;
+              }
+              for (var i = 0; i < fetched.length; i++) {
+                final oId = fetched[i].otherPartnerId;
+                if (oId != null && statusMap.containsKey(oId)) {
+                  fetched[i] = fetched[i].copyWith(imStatus: statusMap[oId]);
+                }
+              }
+            }
+          } catch (e) {
+            debugPrint('DISCUSS_PRESENCE_ERROR: $e');
+          }
+        }
+
         fetched.sort((a, b) {
           final timeA = a.lastMessageTime ?? DateTime(1970);
           final timeB = b.lastMessageTime ?? DateTime(1970);
@@ -586,7 +686,7 @@ class DiscussController extends GetxController {
           ['user_ids', '!=', false],
           ['id', '!=', partnerId.value]
         ],
-        fields: ['id', 'name', 'email'],
+        fields: ['id', 'name', 'email', 'im_status'],
         limit: 80,
       );
 
@@ -920,12 +1020,26 @@ class DiscussController extends GetxController {
 
     try {
       isSendingMessage.value = true;
+
+      // Handle reply context if active
+      String bodyToSend = text;
+      final replying = replyingMessage.value;
+      if (replying != null) {
+        final replyAuthor = replying.authorName;
+        final replyText = replying.cleanBody.isNotEmpty
+            ? replying.cleanBody
+            : (replying.attachments.isNotEmpty
+                ? '📎 ${replying.attachments.first.name}'
+                : 'Message');
+        bodyToSend = '<blockquote><b>$replyAuthor:</b> $replyText</blockquote>\n$text';
+        replyingMessage.value = null;
+      }
       
       // 1. Optimistic Local Update for UI responsiveness
       final localMsg = DiscussMessageModel(
         id: DateTime.now().millisecondsSinceEpoch, // temporary local id
-        body: text,
-        cleanBody: text,
+        body: bodyToSend,
+        cleanBody: FormatUtils.cleanHtml(bodyToSend),
         authorId: partnerId.value,
         authorName: Get.find<AuthController>().user.value?.name ?? 'Me',
         date: DateTime.now(),
@@ -946,7 +1060,7 @@ class DiscussController extends GetxController {
         method: 'message_post',
         args: [channelId],
         kwargs: {
-          'body': text,
+          'body': bodyToSend,
           'message_type': 'comment',
           'subtype_xmlid': 'mail.mt_comment',
         },

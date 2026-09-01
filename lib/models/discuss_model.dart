@@ -12,6 +12,12 @@ class DiscussChannelModel {
   final DateTime? lastMessageTime;
   final int? otherPartnerId;
   final String? otherPartnerName;
+  final String? imStatus; // 'online', 'offline', 'away', 'busy'
+
+  bool get isOnline => imStatus == 'online';
+  bool get isAway => imStatus == 'away' || imStatus == 'idle';
+  bool get isBusy => imStatus == 'busy' || imStatus == 'dnd';
+  bool get isOffline => imStatus == 'offline' || imStatus == null || imStatus!.isEmpty;
 
   DiscussChannelModel({
     required this.id,
@@ -23,6 +29,7 @@ class DiscussChannelModel {
     this.lastMessageTime,
     this.otherPartnerId,
     this.otherPartnerName,
+    this.imStatus,
   });
 
   factory DiscussChannelModel.fromJson(Map<String, dynamic> json, {int? currentPartnerId}) {
@@ -74,11 +81,11 @@ class DiscussChannelModel {
     }
 
     DateTime? lastMsgTime;
-    if (json['last_message_date'] != null && json['last_message_date'] is String) {
-      try {
-        lastMsgTime = DateTime.parse(json['last_message_date'] as String);
-      } catch (_) {}
+    if (json['last_message_date'] != null && json['last_message_date'] != false) {
+      lastMsgTime = FormatUtils.tryParseOdooDateTime(json['last_message_date']);
     }
+
+    final imStat = json['im_status'] is String ? json['im_status'] as String : null;
 
     return DiscussChannelModel(
       id: json['id'] is int ? json['id'] as int : 0,
@@ -92,6 +99,7 @@ class DiscussChannelModel {
       lastMessageTime: lastMsgTime,
       otherPartnerId: otherId,
       otherPartnerName: otherName,
+      imStatus: imStat,
     );
   }
 
@@ -105,6 +113,7 @@ class DiscussChannelModel {
     DateTime? lastMessageTime,
     int? otherPartnerId,
     String? otherPartnerName,
+    String? imStatus,
   }) {
     return DiscussChannelModel(
       id: id ?? this.id,
@@ -116,6 +125,7 @@ class DiscussChannelModel {
       lastMessageTime: lastMessageTime ?? this.lastMessageTime,
       otherPartnerId: otherPartnerId ?? this.otherPartnerId,
       otherPartnerName: otherPartnerName ?? this.otherPartnerName,
+      imStatus: imStatus ?? this.imStatus,
     );
   }
 }
@@ -151,6 +161,7 @@ class DiscussMessageModel {
   final String authorName;
   final DateTime date;
   final bool isOutgoing;
+  final bool isStarred;
   final List<int> attachmentIds;
   final List<DiscussAttachmentModel> attachments;
 
@@ -162,6 +173,7 @@ class DiscussMessageModel {
     required this.authorName,
     required this.date,
     required this.isOutgoing,
+    this.isStarred = false,
     this.attachmentIds = const [],
     this.attachments = const [],
   });
@@ -187,10 +199,8 @@ class DiscussMessageModel {
 
     String bodyStr = json['body'] ?? '';
     DateTime msgDate = DateTime.now();
-    if (json['date'] != null) {
-      try {
-        msgDate = DateTime.parse(json['date']).toLocal();
-      } catch (_) {}
+    if (json['date'] != null && json['date'] != false) {
+      msgDate = FormatUtils.parseOdooDateTime(json['date']);
     }
 
     final rawAttachments = json['attachment_ids'];
@@ -203,6 +213,8 @@ class DiscussMessageModel {
       }).where((id) => id > 0).toList();
     }
 
+    final bool starred = json['starred'] == true || json['is_starred'] == true;
+
     return DiscussMessageModel(
       id: json['id'] ?? 0,
       body: bodyStr,
@@ -211,6 +223,7 @@ class DiscussMessageModel {
       authorName: authName,
       date: msgDate,
       isOutgoing: authId == currentPartnerId,
+      isStarred: starred,
       attachmentIds: attachmentsList,
     );
   }
@@ -223,6 +236,7 @@ class DiscussMessageModel {
     String? authorName,
     DateTime? date,
     bool? isOutgoing,
+    bool? isStarred,
     List<int>? attachmentIds,
     List<DiscussAttachmentModel>? attachments,
   }) {
@@ -234,6 +248,7 @@ class DiscussMessageModel {
       authorName: authorName ?? this.authorName,
       date: date ?? this.date,
       isOutgoing: isOutgoing ?? this.isOutgoing,
+      isStarred: isStarred ?? this.isStarred,
       attachmentIds: attachmentIds ?? this.attachmentIds,
       attachments: attachments ?? this.attachments,
     );

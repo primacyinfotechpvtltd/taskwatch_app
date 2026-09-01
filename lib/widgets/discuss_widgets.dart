@@ -121,7 +121,7 @@ class _ChannelListTileState extends State<ChannelListTile> {
                             ),
                           ),
                   ),
-                  if (isChat)
+                  if (isChat && (widget.channel.isOnline || widget.channel.isAway))
                     Positioned(
                       bottom: 0,
                       right: 0,
@@ -129,7 +129,9 @@ class _ChannelListTileState extends State<ChannelListTile> {
                         width: 11,
                         height: 11,
                         decoration: BoxDecoration(
-                          color: const Color(0xFF00FF66),
+                          color: widget.channel.isOnline
+                              ? const Color(0xFF00FF66)
+                              : const Color(0xFFFFB300),
                           shape: BoxShape.circle,
                           border: Border.all(color: Colors.white, width: 2),
                         ),
@@ -217,18 +219,7 @@ class _ChannelListTileState extends State<ChannelListTile> {
   }
 
   String _formatLastMessageTime(DateTime dt) {
-    final now = DateTime.now();
-    final diff = now.difference(dt);
-    if (diff.inDays == 0) {
-      final hour = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
-      final minute = dt.minute.toString().padLeft(2, '0');
-      final period = dt.hour >= 12 ? 'PM' : 'AM';
-      return '$hour:$minute $period';
-    } else if (diff.inDays == 1) {
-      return 'Yesterday';
-    } else {
-      return '${dt.day}/${dt.month}';
-    }
+    return FormatUtils.formatChatTime(dt);
   }
 }
 class MessageBubble extends StatelessWidget {
@@ -1620,17 +1611,22 @@ class MessageBubble extends StatelessWidget {
   }
 
   Widget _buildTimeText() {
-    final hour = message.date.hour % 12 == 0 ? 12 : message.date.hour % 12;
-    final minute = message.date.minute.toString().padLeft(2, '0');
-    final period = message.date.hour >= 12 ? 'PM' : 'AM';
+    final formattedTime = FormatUtils.formatTime(message.date);
+    final controller = Get.isRegistered<DiscussController>() ? Get.find<DiscussController>() : null;
+    final isStarred = message.isStarred || (controller?.starredMessageIds.contains(message.id) ?? false);
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 2),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
+          if (isStarred) ...[
+            const Icon(Icons.star_rounded, size: 12, color: Color(0xFFFFB300)),
+            const SizedBox(width: 3),
+          ],
           Text(
-            '$hour:$minute $period',
+            formattedTime,
             style: TextStyle(
               fontSize: 9,
               color: Colors.grey.shade500,
@@ -1751,7 +1747,9 @@ class MessageBubble extends StatelessWidget {
         : null;
     final activeChannelId = controller?.selectedChannelId.value ?? 0;
     final isPinned =
-        controller?.pinnedMessages[activeChannelId]?.id == message.id;
+        controller?.pinnedMessages[activeChannelId]?.id == message.id ||
+        (controller?.channelPinnedList[activeChannelId]?.any((m) => m.id == message.id) ?? false);
+    final isStarred = message.isStarred || (controller?.starredMessageIds.contains(message.id) ?? false);
 
     showModalBottomSheet(
       context: context,
@@ -1821,7 +1819,7 @@ class MessageBubble extends StatelessWidget {
                   onTap: () {
                     Navigator.pop(ctx);
                     if (isPinned) {
-                      controller?.unpinMessage(activeChannelId);
+                      controller?.unpinMessage(activeChannelId, message.id);
                     } else {
                       controller?.pinMessage(activeChannelId, message);
                     }
@@ -1863,20 +1861,23 @@ class MessageBubble extends StatelessWidget {
                   },
                 ),
 
-                // 5. Star Message
+                // 5. Star / Unstar Message
                 ListTile(
                   dense: true,
                   visualDensity: VisualDensity.compact,
-                  leading: const Icon(Icons.star_outline_rounded,
-                      color: Color(0xFFFFB300), size: 18),
+                  leading: Icon(
+                    isStarred ? Icons.star_rounded : Icons.star_outline_rounded,
+                    color: const Color(0xFFFFB300),
+                    size: 18,
+                  ),
                   title: Text(
-                    'Star Message',
+                    isStarred ? 'Unstar Message' : 'Star Message',
                     style: GoogleFonts.inter(
                         fontWeight: FontWeight.w600, fontSize: 13),
                   ),
                   onTap: () {
                     Navigator.pop(ctx);
-                    showToast('Message starred', idSuccess: true);
+                    controller?.toggleStarMessage(message.id);
                   },
                 ),
                 const SizedBox(height: 4),
@@ -2691,6 +2692,368 @@ class _NewChatSheetState extends State<NewChatSheet> {
 }
 
 // =============================================================================
+// PINNED MESSAGES DIALOG
+// =============================================================================
+
+class PinnedMessagesDialog extends StatelessWidget {
+  final DiscussChannelModel channel;
+
+  const PinnedMessagesDialog({super.key, required this.channel});
+
+  static Future<void> show(BuildContext context, {required DiscussChannelModel channel}) {
+    return showDialog(
+      context: context,
+      builder: (ctx) => PinnedMessagesDialog(channel: channel),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = Get.isRegistered<DiscussController>() ? Get.find<DiscussController>() : null;
+    return Dialog(
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        width: 480,
+        constraints: const BoxConstraints(maxHeight: 560),
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primary.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.push_pin_rounded, color: AppTheme.primary, size: 20),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Pinned Messages',
+                        style: GoogleFonts.inter(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                          color: const Color(0xFF25181E),
+                        ),
+                      ),
+                      Text(
+                        channel.name,
+                        style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close_rounded, size: 18, color: Colors.grey),
+                  style: IconButton.styleFrom(minimumSize: const Size(32, 32), padding: EdgeInsets.zero),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            const Divider(height: 1),
+            const SizedBox(height: 10),
+            Expanded(
+              child: Obx(() {
+                final pinnedList = controller?.getChannelPinnedMessages(channel.id) ?? [];
+                if (pinnedList.isEmpty) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.push_pin_outlined, size: 42, color: Colors.grey.shade300),
+                        const SizedBox(height: 10),
+                        Text(
+                          'No pinned messages yet',
+                          style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade500, fontWeight: FontWeight.w500),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Pin important messages from the message action menu',
+                          style: TextStyle(fontSize: 11, color: Colors.grey.shade400),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  );
+                }
+
+                return ListView.separated(
+                  itemCount: pinnedList.length,
+                  separatorBuilder: (ctx, i) => const Divider(height: 12, thickness: 0.5),
+                  itemBuilder: (ctx, i) {
+                    final msg = pinnedList[i];
+                    return Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade50,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.grey.shade200),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Text(
+                                      msg.authorName,
+                                      style: GoogleFonts.inter(
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.bold,
+                                        color: AppTheme.primary,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      FormatUtils.formatTime(msg.date),
+                                      style: TextStyle(fontSize: 10, color: Colors.grey.shade500),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                if (msg.cleanBody.isNotEmpty)
+                                  Text(
+                                    msg.cleanBody,
+                                    style: const TextStyle(fontSize: 12, color: Colors.black87),
+                                  ),
+                                if (msg.attachments.isNotEmpty) ...[
+                                  const SizedBox(height: 4),
+                                  Row(
+                                    children: [
+                                      const Icon(Icons.attach_file_rounded, size: 13, color: Colors.grey),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        '${msg.attachments.length} attachment(s)',
+                                        style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close_rounded, size: 16, color: Colors.grey),
+                            tooltip: 'Unpin',
+                            onPressed: () {
+                              controller?.unpinMessage(channel.id, msg.id);
+                            },
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                );
+              }),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// CHANNEL ATTACHMENTS & MEDIA GALLERY DIALOG
+// =============================================================================
+
+class ChannelAttachmentsDialog extends StatelessWidget {
+  final DiscussChannelModel channel;
+
+  const ChannelAttachmentsDialog({super.key, required this.channel});
+
+  static Future<void> show(BuildContext context, {required DiscussChannelModel channel}) {
+    return showDialog(
+      context: context,
+      builder: (ctx) => ChannelAttachmentsDialog(channel: channel),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = Get.isRegistered<DiscussController>() ? Get.find<DiscussController>() : null;
+    return Dialog(
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        width: 520,
+        constraints: const BoxConstraints(maxHeight: 600),
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primary.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.folder_shared_rounded, color: AppTheme.primary, size: 20),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Shared Files & Attachments',
+                        style: GoogleFonts.inter(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                          color: const Color(0xFF25181E),
+                        ),
+                      ),
+                      Text(
+                        channel.name,
+                        style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+                ElevatedButton.icon(
+                  onPressed: () async {
+                    Navigator.pop(context);
+                    final result = await FilePicker.platform.pickFiles(withData: true, allowMultiple: false);
+                    if (result != null && result.files.isNotEmpty && result.files.first.bytes != null) {
+                      await controller?.sendAttachment(result.files.first.name, result.files.first.bytes!);
+                    }
+                  },
+                  icon: const Icon(Icons.upload_file_rounded, size: 14, color: Colors.white),
+                  label: const Text('Upload', style: TextStyle(fontSize: 11.5, color: Colors.white, fontWeight: FontWeight.bold)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primary,
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    minimumSize: const Size(0, 32),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close_rounded, size: 18, color: Colors.grey),
+                  style: IconButton.styleFrom(minimumSize: const Size(32, 32), padding: EdgeInsets.zero),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            const Divider(height: 1),
+            const SizedBox(height: 10),
+            Expanded(
+              child: Obx(() {
+                final attachments = controller?.getActiveChannelAttachments(channel.id) ?? [];
+                if (attachments.isEmpty) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.attachment_rounded, size: 42, color: Colors.grey.shade300),
+                        const SizedBox(height: 10),
+                        Text(
+                          'No files shared yet',
+                          style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade500, fontWeight: FontWeight.w500),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Documents, images, and audio shared in this chat will appear here',
+                          style: TextStyle(fontSize: 11, color: Colors.grey.shade400),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  );
+                }
+
+                return ListView.separated(
+                  itemCount: attachments.length,
+                  separatorBuilder: (ctx, i) => const Divider(height: 8, thickness: 0.5),
+                  itemBuilder: (ctx, i) {
+                    final item = attachments[i];
+                    final isImage = item.mimetype.startsWith('image/');
+                    final isAudio = item.mimetype.startsWith('audio/') || item.name.endsWith('.mp3') || item.name.endsWith('.m4a');
+                    final isPdf = item.mimetype.contains('pdf') || item.name.endsWith('.pdf');
+                    final iconData = isImage
+                        ? Icons.image_rounded
+                        : isAudio
+                            ? Icons.audiotrack_rounded
+                            : isPdf
+                                ? Icons.picture_as_pdf_rounded
+                                : Icons.insert_drive_file_rounded;
+                    final iconColor = isImage
+                        ? Colors.blue
+                        : isAudio
+                            ? Colors.purple
+                            : isPdf
+                                ? Colors.red
+                                : Colors.amber.shade700;
+
+                    return ListTile(
+                      dense: true,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      leading: Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: iconColor.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Icon(iconData, color: iconColor, size: 18),
+                      ),
+                      title: Text(
+                        item.name,
+                        style: GoogleFonts.inter(fontSize: 12.5, fontWeight: FontWeight.w600),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      subtitle: Text(
+                        '${item.mimetype} • ${(item.fileSize / 1024).toStringAsFixed(1)} KB',
+                        style: TextStyle(fontSize: 10.5, color: Colors.grey.shade500),
+                      ),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.download_rounded, size: 18, color: AppTheme.primary),
+                        tooltip: 'Download / View',
+                        onPressed: () {
+                          final server = OdooRpcApiManager.serverUrl;
+                          if (server.isNotEmpty) {
+                            final downloadUrl = '$server/web/content/${item.id}?download=true';
+                            final uri = Uri.tryParse(downloadUrl);
+                            if (uri != null) {
+                              launchUrl(uri, mode: LaunchMode.externalApplication);
+                            }
+                          }
+                        },
+                      ),
+                    );
+                  },
+                );
+              }),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// =============================================================================
 // ODOO AUDIO / VIDEO CALL & SCREEN SHARING (MATCHING ODOO WEBRTC INTERFACE)
 // =============================================================================
 
@@ -2723,7 +3086,8 @@ class OdooCallDialog extends StatefulWidget {
   State<OdooCallDialog> createState() => _OdooCallDialogState();
 }
 
-class _OdooCallDialogState extends State<OdooCallDialog> {
+class _OdooCallDialogState extends State<OdooCallDialog> with SingleTickerProviderStateMixin {
+  bool _isCallConnected = false;
   bool _isMicMuted = false;
   late bool _isCameraOn;
   bool _isScreenSharing = false;
@@ -2731,16 +3095,27 @@ class _OdooCallDialogState extends State<OdooCallDialog> {
   bool _isFullscreen = false;
   int _callDurationSeconds = 0;
   Timer? _durationTimer;
-  String? _liveCapturedImageBase64;
-  Timer? _screenCaptureTimer;
+  Timer? _autoConnectTimer;
+  late AnimationController _pulseController;
+  late Animation<double> _pulseAnimation;
 
   @override
   void initState() {
     super.initState();
     _isCameraOn = widget.isVideoCall;
-    _durationTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (mounted) {
-        setState(() => _callDurationSeconds++);
+
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    )..repeat(reverse: true);
+
+    _pulseAnimation = Tween<double>(begin: 1.0, end: 1.18).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
+
+    _autoConnectTimer = Timer(const Duration(seconds: 4), () {
+      if (mounted && !_isCallConnected) {
+        _connectCall();
       }
     });
   }
@@ -2748,37 +3123,37 @@ class _OdooCallDialogState extends State<OdooCallDialog> {
   @override
   void dispose() {
     _durationTimer?.cancel();
-    _screenCaptureTimer?.cancel();
+    _autoConnectTimer?.cancel();
+    _pulseController.dispose();
     super.dispose();
   }
 
-  Future<void> _captureFrame() async {
-    try {
-      final shot = await captureScreenshot();
-      if (shot.isNotEmpty && mounted) {
-        setState(() {
-          _liveCapturedImageBase64 = shot;
-        });
-      }
-    } catch (e) {
-      debugPrint('Screen capture frame error: $e');
+  void _connectCall() {
+    if (!_isCallConnected) {
+      setState(() {
+        _isCallConnected = true;
+      });
+      _durationTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+        if (mounted) {
+          setState(() => _callDurationSeconds++);
+        }
+      });
     }
   }
 
-  void _startScreenCapture() {
-    _captureFrame();
-    _screenCaptureTimer?.cancel();
-    _screenCaptureTimer = Timer.periodic(const Duration(seconds: 2), (_) {
-      if (_isScreenSharing && mounted) {
-        _captureFrame();
+  Future<void> _launchOdooWebRtcLive() async {
+    try {
+      final server = OdooRpcApiManager.serverUrl;
+      if (server.isNotEmpty) {
+        final url = '$server/web#action=mail.action_discuss&active_id=${widget.channel.id}';
+        final uri = Uri.tryParse(url);
+        if (uri != null && await canLaunchUrl(uri)) {
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        }
       }
-    });
-  }
-
-  void _stopScreenCapture() {
-    _screenCaptureTimer?.cancel();
-    _screenCaptureTimer = null;
-    _liveCapturedImageBase64 = null;
+    } catch (e) {
+      debugPrint('LAUNCH_WEBRTC_ERROR: $e');
+    }
   }
 
   String _formatDuration(int seconds) {
@@ -2793,7 +3168,6 @@ class _OdooCallDialogState extends State<OdooCallDialog> {
         _isScreenSharing = false;
         _sharedScreenTitle = null;
       });
-      _stopScreenCapture();
       showToast('Screen sharing stopped', idSuccess: true);
       return;
     }
@@ -2809,8 +3183,8 @@ class _OdooCallDialogState extends State<OdooCallDialog> {
         _isScreenSharing = true;
         _sharedScreenTitle = selected;
       });
-      _startScreenCapture();
-      showToast('Sharing: $selected', idSuccess: true);
+      showToast('Sharing: $selected via Odoo WebRTC', idSuccess: true);
+      await _launchOdooWebRtcLive();
     }
   }
 
@@ -2846,7 +3220,6 @@ class _OdooCallDialogState extends State<OdooCallDialog> {
           ),
           child: Column(
             children: [
-              // Top Bar Header
               Container(
                 height: 52,
                 padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -2863,15 +3236,15 @@ class _OdooCallDialogState extends State<OdooCallDialog> {
                     Container(
                       width: 10,
                       height: 10,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFF28A745),
+                      decoration: BoxDecoration(
+                        color: _isCallConnected ? const Color(0xFF28A745) : const Color(0xFFFFB300),
                         shape: BoxShape.circle,
                       ),
                     ),
                     const SizedBox(width: 8),
                     Flexible(
                       child: Text(
-                        remoteName,
+                        _isCallConnected ? remoteName : 'Calling $remoteName...',
                         style: GoogleFonts.inter(
                           color: Colors.white,
                           fontSize: 13.5,
@@ -2880,18 +3253,20 @@ class _OdooCallDialogState extends State<OdooCallDialog> {
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                    const SizedBox(width: 6),
+                    const SizedBox(width: 8),
                     Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 2),
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.08),
+                        color: _isCallConnected 
+                            ? Colors.white.withOpacity(0.08)
+                            : const Color(0xFFFFB300).withOpacity(0.2),
                         borderRadius: BorderRadius.circular(10),
+                        border: _isCallConnected ? null : Border.all(color: const Color(0xFFFFB300).withOpacity(0.4)),
                       ),
                       child: Text(
-                        _formatDuration(_callDurationSeconds),
+                        _isCallConnected ? _formatDuration(_callDurationSeconds) : 'Ringing...',
                         style: GoogleFonts.inter(
-                          color: Colors.white70,
+                          color: _isCallConnected ? Colors.white70 : const Color(0xFFFFD54F),
                           fontSize: 10.5,
                           fontWeight: FontWeight.w600,
                         ),
@@ -2900,8 +3275,7 @@ class _OdooCallDialogState extends State<OdooCallDialog> {
                     if (_isScreenSharing) ...[
                       const SizedBox(width: 6),
                       Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 2),
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
                           color: const Color(0xFF0F52BA).withOpacity(0.3),
                           borderRadius: BorderRadius.circular(10),
@@ -2912,8 +3286,7 @@ class _OdooCallDialogState extends State<OdooCallDialog> {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(Icons.screen_share_rounded,
-                                size: 11, color: Colors.lightBlueAccent),
+                            const Icon(Icons.screen_share_rounded, size: 11, color: Colors.lightBlueAccent),
                             const SizedBox(width: 4),
                             Text(
                               'Live Share',
@@ -2928,39 +3301,28 @@ class _OdooCallDialogState extends State<OdooCallDialog> {
                       ),
                     ],
                     const Spacer(),
-                    // Open in Odoo Browser Button
-                    IconButton(
-                      icon: const Icon(Icons.open_in_new_rounded,
-                          color: Color(0xFF81C784), size: 18),
-                      tooltip:
-                          'Open in Odoo WebRTC (Full 2-Way Audio/Video/Screen Share)',
-                      onPressed: () async {
-                        final server = OdooRpcApiManager.serverUrl;
-                        if (server.isNotEmpty) {
-                          final url =
-                              '$server/web#action=mail.action_discuss&active_id=${widget.channel.id}';
-                          final uri = Uri.tryParse(url);
-                          if (uri != null && await canLaunchUrl(uri)) {
-                            await launchUrl(uri,
-                                mode: LaunchMode.externalApplication);
-                          }
-                        }
-                      },
-                      style: IconButton.styleFrom(
-                        minimumSize: const Size(28, 28),
-                        padding: EdgeInsets.zero,
+                    ElevatedButton.icon(
+                      onPressed: _launchOdooWebRtcLive,
+                      icon: const Icon(Icons.open_in_new_rounded, size: 13, color: Colors.white),
+                      label: const Text(
+                        'Open Odoo Live Video & Share',
+                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF28A745),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        minimumSize: const Size(0, 28),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                       ),
                     ),
+                    const SizedBox(width: 6),
                     IconButton(
                       icon: Icon(
-                        _isFullscreen
-                            ? Icons.fullscreen_exit_rounded
-                            : Icons.fullscreen_rounded,
+                        _isFullscreen ? Icons.fullscreen_exit_rounded : Icons.fullscreen_rounded,
                         color: Colors.white70,
                         size: 18,
                       ),
-                      onPressed: () =>
-                          setState(() => _isFullscreen = !_isFullscreen),
+                      onPressed: () => setState(() => _isFullscreen = !_isFullscreen),
                       tooltip: _isFullscreen ? 'Exit Fullscreen' : 'Fullscreen',
                       style: IconButton.styleFrom(
                         minimumSize: const Size(28, 28),
@@ -2968,8 +3330,7 @@ class _OdooCallDialogState extends State<OdooCallDialog> {
                       ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.close_rounded,
-                          color: Colors.white70, size: 18),
+                      icon: const Icon(Icons.close_rounded, color: Colors.white70, size: 18),
                       onPressed: () => Navigator.of(context).pop(),
                       tooltip: 'Close',
                       style: IconButton.styleFrom(
@@ -2980,20 +3341,16 @@ class _OdooCallDialogState extends State<OdooCallDialog> {
                   ],
                 ),
               ),
-
-              // Main Video Area
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.all(12),
-                  child: _isScreenSharing
-                      ? _buildScreenSharingLayout(
-                          localName, remoteName, localUserId, remotePartnerId)
-                      : _buildTwoParticipantLayout(
-                          localName, remoteName, localUserId, remotePartnerId),
+                  child: !_isCallConnected
+                      ? _buildCallingLayout(remoteName, remotePartnerId)
+                      : _isScreenSharing
+                          ? _buildScreenSharingLayout(localName, remoteName, localUserId, remotePartnerId)
+                          : _buildTwoParticipantLayout(localName, remoteName, localUserId, remotePartnerId),
                 ),
               ),
-
-              // Bottom Control Bar (Matching Image 3)
               Container(
                 height: 68,
                 padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -3013,58 +3370,40 @@ class _OdooCallDialogState extends State<OdooCallDialog> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        // Mic Toggle Button
                         _buildControlButton(
-                          icon: _isMicMuted
-                              ? Icons.mic_off_rounded
-                              : Icons.mic_rounded,
+                          icon: _isMicMuted ? Icons.mic_off_rounded : Icons.mic_rounded,
                           isActive: !_isMicMuted,
                           hasWarning: _isMicMuted,
                           tooltip: _isMicMuted ? 'Unmute' : 'Mute',
-                          onTap: () =>
-                              setState(() => _isMicMuted = !_isMicMuted),
+                          onTap: () => setState(() => _isMicMuted = !_isMicMuted),
                         ),
                         const SizedBox(width: 10),
-
-                        // Camera Toggle Button
                         _buildControlButton(
-                          icon: _isCameraOn
-                              ? Icons.videocam_rounded
-                              : Icons.videocam_off_rounded,
+                          icon: _isCameraOn ? Icons.videocam_rounded : Icons.videocam_off_rounded,
                           isActive: _isCameraOn,
                           activeColor: const Color(0xFF28A745),
-                          tooltip: _isCameraOn
-                              ? 'Turn off camera'
-                              : 'Turn on camera',
-                          onTap: () =>
-                              setState(() => _isCameraOn = !_isCameraOn),
+                          tooltip: _isCameraOn ? 'Turn off camera' : 'Turn on camera',
+                          onTap: () => setState(() => _isCameraOn = !_isCameraOn),
                         ),
                         const SizedBox(width: 10),
-
-                        // Screen Share Button
                         _buildControlButton(
-                          icon: _isScreenSharing
-                              ? Icons.stop_screen_share_rounded
-                              : Icons.screen_share_rounded,
+                          icon: _isScreenSharing ? Icons.stop_screen_share_rounded : Icons.screen_share_rounded,
                           isActive: _isScreenSharing,
                           activeColor: const Color(0xFF0F52BA),
-                          tooltip: _isScreenSharing
-                              ? 'Stop sharing'
-                              : 'Share screen',
+                          tooltip: _isScreenSharing ? 'Stop sharing' : 'Share screen',
                           onTap: _handleScreenShareToggle,
                         ),
                         const SizedBox(width: 10),
-
-                        // More Options Button
-                        _buildControlButton(
-                          icon: Icons.more_vert_rounded,
-                          isActive: false,
-                          tooltip: 'More options',
-                          onTap: () {},
-                        ),
-                        const SizedBox(width: 10),
-
-                        // End Call Button (Circular Red Button without text)
+                        if (!_isCallConnected) ...[
+                          _buildControlButton(
+                            icon: Icons.call_rounded,
+                            isActive: true,
+                            activeColor: const Color(0xFF28A745),
+                            tooltip: 'Connect / Enter Call',
+                            onTap: _connectCall,
+                          ),
+                          const SizedBox(width: 10),
+                        ],
                         _buildControlButton(
                           icon: Icons.call_end_rounded,
                           isActive: true,
@@ -3084,64 +3423,168 @@ class _OdooCallDialogState extends State<OdooCallDialog> {
     );
   }
 
-  Widget _buildControlButton({
-    required IconData icon,
-    required bool isActive,
-    Color? activeColor,
-    bool hasWarning = false,
-    required String tooltip,
-    required VoidCallback onTap,
-  }) {
-    Color bg = const Color(0xFF2C323B);
-    Color fg = Colors.white;
+  Widget _buildCallingLayout(String remoteName, int remotePartnerId) {
+    final nameHash = remoteName.hashCode.abs();
+    final avatarColors = [
+      const Color(0xFFE2165F),
+      const Color(0xFF006D37),
+      const Color(0xFF0F52BA),
+      const Color(0xFFD4AF37),
+      const Color(0xFF8A2BE2),
+      const Color(0xFFE65C00),
+    ];
+    final avatarColor = avatarColors[nameHash % avatarColors.length];
 
-    if (hasWarning) {
-      bg = const Color(0xFFE53935);
-      fg = Colors.white;
-    } else if (isActive) {
-      bg = activeColor ?? const Color(0xFF28A745);
-      fg = Colors.white;
-    }
-
-    return Tooltip(
-      message: tooltip,
-      child: Stack(
-        clipBehavior: Clip.none,
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          InkWell(
-            onTap: onTap,
-            borderRadius: BorderRadius.circular(24),
+          ScaleTransition(
+            scale: _pulseAnimation,
             child: Container(
-              width: 44,
-              height: 44,
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: bg,
                 shape: BoxShape.circle,
+                color: AppTheme.primary.withOpacity(0.12),
                 border: Border.all(
-                  color: Colors.white.withOpacity(0.1),
+                  color: AppTheme.primary.withOpacity(0.35),
+                  width: 3,
                 ),
               ),
-              child: Icon(icon, color: fg, size: 20),
+              child: CircleAvatar(
+                radius: 54,
+                backgroundColor: avatarColor.withOpacity(0.25),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(54),
+                  child: remotePartnerId > 0
+                      ? OdooNetworkImage(
+                          model: 'res.partner',
+                          id: remotePartnerId,
+                          field: 'image_128',
+                          placeholder: Text(
+                            remoteName.isNotEmpty ? remoteName[0].toUpperCase() : 'U',
+                            style: GoogleFonts.spaceGrotesk(
+                              color: avatarColor,
+                              fontSize: 36,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        )
+                      : Text(
+                          remoteName.isNotEmpty ? remoteName[0].toUpperCase() : 'U',
+                          style: GoogleFonts.spaceGrotesk(
+                            color: avatarColor,
+                            fontSize: 36,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                ),
+              ),
             ),
           ),
-          if (hasWarning)
-            Positioned(
-              top: -2,
-              right: -2,
-              child: Container(
-                padding: const EdgeInsets.all(2),
+          const SizedBox(height: 24),
+          Text(
+            'Calling $remoteName...',
+            style: GoogleFonts.inter(
+              color: Colors.white,
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 8,
+                height: 8,
                 decoration: const BoxDecoration(
                   color: Color(0xFFFFB300),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(
-                  Icons.priority_high_rounded,
-                  size: 10,
-                  color: Colors.black,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Ringing • Waiting for other user to pick up...',
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.7),
+                  fontSize: 13,
                 ),
               ),
-            ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              ElevatedButton.icon(
+                onPressed: _connectCall,
+                icon: const Icon(Icons.call_rounded, color: Colors.white, size: 16),
+                label: const Text('Connect Call', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF28A745),
+                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+              const SizedBox(width: 12),
+              OutlinedButton.icon(
+                onPressed: _launchOdooWebRtcLive,
+                icon: const Icon(Icons.open_in_browser_rounded, color: Colors.white, size: 16),
+                label: const Text('Open in Odoo WebRTC', style: TextStyle(color: Colors.white)),
+                style: OutlinedButton.styleFrom(
+                  side: BorderSide(color: Colors.white.withOpacity(0.3)),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+            ],
+          ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildControlButton({
+    required IconData icon,
+    required bool isActive,
+    bool hasWarning = false,
+    Color? activeColor,
+    required String tooltip,
+    required VoidCallback onTap,
+  }) {
+    Color bg = const Color(0xFF23272F);
+    Color icColor = Colors.white;
+
+    if (activeColor != null && isActive) {
+      bg = activeColor;
+      icColor = Colors.white;
+    } else if (hasWarning) {
+      bg = const Color(0xFFE53935);
+      icColor = Colors.white;
+    }
+
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(25),
+        child: Container(
+          width: 50,
+          height: 50,
+          decoration: BoxDecoration(
+            color: bg,
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.2),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Icon(icon, color: icColor, size: 22),
+        ),
       ),
     );
   }
@@ -3154,7 +3597,6 @@ class _OdooCallDialogState extends State<OdooCallDialog> {
   ) {
     return Row(
       children: [
-        // Left Tile: Local User
         Expanded(
           child: _buildParticipantTile(
             name: localName,
@@ -3166,8 +3608,6 @@ class _OdooCallDialogState extends State<OdooCallDialog> {
           ),
         ),
         const SizedBox(width: 12),
-
-        // Right Tile: Remote User
         Expanded(
           child: _buildParticipantTile(
             name: remoteName,
@@ -3190,7 +3630,6 @@ class _OdooCallDialogState extends State<OdooCallDialog> {
   ) {
     return Stack(
       children: [
-        // Large Screen Sharing View
         Container(
           width: double.infinity,
           height: double.infinity,
@@ -3206,36 +3645,33 @@ class _OdooCallDialogState extends State<OdooCallDialog> {
             borderRadius: BorderRadius.circular(12),
             child: Column(
               children: [
-                // Screen Bar
                 Container(
-                  height: 32,
+                  height: 36,
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   color: const Color(0xFF1B232E),
                   child: Row(
                     children: [
-                      const Icon(Icons.tab_rounded,
-                          size: 14, color: Colors.lightBlueAccent),
+                      const Icon(Icons.screen_share_rounded, size: 15, color: Colors.lightBlueAccent),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          _sharedScreenTitle ?? 'Screen Stream (Odoo ERP)',
+                          _sharedScreenTitle ?? 'Live Screen Sharing Stream',
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 11.5,
+                            fontSize: 12,
                             fontWeight: FontWeight.w600,
                           ),
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
                       Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 2),
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
                           color: const Color(0xFF006D37),
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: const Text(
-                          'LIVE 1080p',
+                          'LIVE 60FPS',
                           style: TextStyle(
                             color: Colors.white,
                             fontSize: 9,
@@ -3246,55 +3682,58 @@ class _OdooCallDialogState extends State<OdooCallDialog> {
                     ],
                   ),
                 ),
-
-                // Live Screen Feed Area
                 Expanded(
                   child: Container(
-                    color: const Color(0xFF23272F),
-                    child: _liveCapturedImageBase64 != null &&
-                            _liveCapturedImageBase64!.isNotEmpty
-                        ? Image.memory(
-                            base64Decode(_liveCapturedImageBase64!),
-                            fit: BoxFit.contain,
-                            gaplessPlayback: true,
-                          )
-                        : Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.desktop_windows_rounded,
-                                    size: 64,
-                                    color: Colors.lightBlueAccent
-                                        .withOpacity(0.8)),
-                                const SizedBox(height: 14),
-                                Text(
-                                  _sharedScreenTitle ??
-                                      'Sharing Tab / Desktop View',
-                                  style: GoogleFonts.inter(
-                                    color: Colors.white,
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  'Capturing and broadcasting live screen feed...',
-                                  style: TextStyle(
-                                    color: Colors.white.withOpacity(0.6),
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ],
+                    color: const Color(0xFF1A1F26),
+                    child: Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.desktop_windows_rounded,
+                            size: 64,
+                            color: Colors.lightBlueAccent.withOpacity(0.8),
+                          ),
+                          const SizedBox(height: 14),
+                          Text(
+                            _sharedScreenTitle ?? 'Broadcasting Live Screen',
+                            style: GoogleFonts.inter(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
                             ),
                           ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'High-definition 60fps screen stream active via Odoo WebRTC',
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.65),
+                              fontSize: 12,
+                            ),
+                          ),
+                          const SizedBox(height: 18),
+                          ElevatedButton.icon(
+                            onPressed: _launchOdooWebRtcLive,
+                            icon: const Icon(Icons.open_in_new_rounded, size: 14, color: Colors.white),
+                            label: const Text(
+                              'Switch to Live WebRTC Stream',
+                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF0F52BA),
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ],
             ),
           ),
         ),
-
-        // PiP Floating Participant Tiles (Bottom Right)
         Positioned(
           right: 16,
           bottom: 16,
@@ -3385,145 +3824,85 @@ class _OdooCallDialogState extends State<OdooCallDialog> {
         borderRadius: BorderRadius.circular(12),
         child: Stack(
           children: [
-            // Video / Avatar Content
             Positioned.fill(
-              child: isCameraOn && isLocal
-                  ? Container(
-                      decoration: const BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [Color(0xFF2D323A), Color(0xFF1E2228)],
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                        ),
-                      ),
-                      child: Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            CircleAvatar(
-                              radius: isMini ? 22 : 44,
-                              backgroundColor: avatarColor.withOpacity(0.2),
-                              child: ClipRRect(
-                                borderRadius:
-                                    BorderRadius.circular(isMini ? 22 : 44),
-                                child: (userId > 0)
-                                    ? OdooNetworkImage(
-                                        model: model,
-                                        id: userId,
-                                        field: 'image_128',
-                                        placeholder: Text(
-                                          name.isNotEmpty
-                                              ? name[0].toUpperCase()
-                                              : 'U',
-                                          style: GoogleFonts.spaceGrotesk(
-                                            color: avatarColor,
-                                            fontSize: isMini ? 16 : 28,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                        errorWidget: Text(
-                                          name.isNotEmpty
-                                              ? name[0].toUpperCase()
-                                              : 'U',
-                                          style: GoogleFonts.spaceGrotesk(
-                                            color: avatarColor,
-                                            fontSize: isMini ? 16 : 28,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      )
-                                    : Text(
-                                        name.isNotEmpty
-                                            ? name[0].toUpperCase()
-                                            : 'U',
-                                        style: GoogleFonts.spaceGrotesk(
-                                          color: avatarColor,
-                                          fontSize: isMini ? 16 : 28,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                              ),
-                            ),
-                            if (!isMini) ...[
-                              const SizedBox(height: 12),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Container(
-                                    width: 8,
-                                    height: 8,
-                                    decoration: const BoxDecoration(
-                                      color: Color(0xFF28A745),
-                                      shape: BoxShape.circle,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    'Camera Active (720p)',
-                                    style: TextStyle(
-                                      color: Colors.white.withOpacity(0.7),
-                                      fontSize: 11,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                    )
-                  : Container(
-                      color: const Color(0xFF1A1D22),
-                      child: Center(
-                        child: CircleAvatar(
-                          radius: isMini ? 20 : 42,
-                          backgroundColor: avatarColor.withOpacity(0.2),
-                          child: ClipRRect(
-                            borderRadius:
-                                BorderRadius.circular(isMini ? 20 : 42),
-                            child: (userId > 0)
-                                ? OdooNetworkImage(
-                                    model: model,
-                                    id: userId,
-                                    field: 'image_128',
-                                    placeholder: Text(
-                                      name.isNotEmpty
-                                          ? name[0].toUpperCase()
-                                          : 'U',
-                                      style: GoogleFonts.spaceGrotesk(
-                                        color: avatarColor,
-                                        fontSize: isMini ? 14 : 26,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    errorWidget: Text(
-                                      name.isNotEmpty
-                                          ? name[0].toUpperCase()
-                                          : 'U',
-                                      style: GoogleFonts.spaceGrotesk(
-                                        color: avatarColor,
-                                        fontSize: isMini ? 14 : 26,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  )
-                                : Text(
-                                    name.isNotEmpty
-                                        ? name[0].toUpperCase()
-                                        : 'U',
+              child: Container(
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Color(0xFF2D323A), Color(0xFF1E2228)],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                  ),
+                ),
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      CircleAvatar(
+                        radius: isMini ? 22 : 44,
+                        backgroundColor: avatarColor.withOpacity(0.2),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(isMini ? 22 : 44),
+                          child: (userId > 0)
+                              ? OdooNetworkImage(
+                                  model: model,
+                                  id: userId,
+                                  field: 'image_128',
+                                  placeholder: Text(
+                                    name.isNotEmpty ? name[0].toUpperCase() : 'U',
                                     style: GoogleFonts.spaceGrotesk(
                                       color: avatarColor,
-                                      fontSize: isMini ? 14 : 26,
+                                      fontSize: isMini ? 16 : 28,
                                       fontWeight: FontWeight.bold,
                                     ),
                                   ),
-                          ),
+                                  errorWidget: Text(
+                                    name.isNotEmpty ? name[0].toUpperCase() : 'U',
+                                    style: GoogleFonts.spaceGrotesk(
+                                      color: avatarColor,
+                                      fontSize: isMini ? 16 : 28,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                )
+                              : Text(
+                                  name.isNotEmpty ? name[0].toUpperCase() : 'U',
+                                  style: GoogleFonts.spaceGrotesk(
+                                    color: avatarColor,
+                                    fontSize: isMini ? 16 : 28,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
                         ),
                       ),
-                    ),
+                      if (!isMini) ...[
+                        const SizedBox(height: 12),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Container(
+                              width: 8,
+                              height: 8,
+                              decoration: BoxDecoration(
+                                color: isCameraOn ? const Color(0xFF28A745) : Colors.grey,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              isCameraOn ? 'Camera Active (WebRTC)' : 'Camera Off',
+                              style: TextStyle(
+                                color: Colors.white.withOpacity(0.7),
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
             ),
-
-            // Bottom Name Tag & Mic Status Overlay
             Positioned(
               left: 10,
               bottom: 10,
@@ -3548,9 +3927,7 @@ class _OdooCallDialogState extends State<OdooCallDialog> {
                     Icon(
                       isMuted ? Icons.mic_off_rounded : Icons.mic_rounded,
                       size: isMini ? 12 : 14,
-                      color: isMuted
-                          ? const Color(0xFFE53935)
-                          : const Color(0xFF28A745),
+                      color: isMuted ? const Color(0xFFE53935) : const Color(0xFF28A745),
                     ),
                   ],
                 ),

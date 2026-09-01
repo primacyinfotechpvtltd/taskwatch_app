@@ -287,25 +287,45 @@ class _DiscussScreenState extends State<DiscussScreen> {
                 );
               },
               borderRadius: BorderRadius.circular(18),
-              child: CircleAvatar(
-                radius: 18,
-                backgroundColor: avatarColor.withOpacity(0.15),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(18),
-                  child: OdooNetworkImage(
-                    model: 'res.partner',
-                    id: uId,
-                    field: 'image_128',
-                    placeholder: Text(
-                      name.isNotEmpty ? name[0].toUpperCase() : 'U',
-                      style: GoogleFonts.spaceGrotesk(
-                        fontWeight: FontWeight.bold,
-                        color: avatarColor,
-                        fontSize: 13,
+              child: Stack(
+                children: [
+                  CircleAvatar(
+                    radius: 18,
+                    backgroundColor: avatarColor.withOpacity(0.15),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(18),
+                      child: OdooNetworkImage(
+                        model: 'res.partner',
+                        id: uId,
+                        field: 'image_128',
+                        placeholder: Text(
+                          name.isNotEmpty ? name[0].toUpperCase() : 'U',
+                          style: GoogleFonts.spaceGrotesk(
+                            fontWeight: FontWeight.bold,
+                            color: avatarColor,
+                            fontSize: 13,
+                          ),
+                        ),
                       ),
                     ),
                   ),
-                ),
+                  if (u['im_status'] == 'online' || u['im_status'] == 'away')
+                    Positioned(
+                      bottom: 0,
+                      right: 0,
+                      child: Container(
+                        width: 10,
+                        height: 10,
+                        decoration: BoxDecoration(
+                          color: u['im_status'] == 'online'
+                              ? const Color(0xFF00FF66)
+                              : const Color(0xFFFFB300),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 2),
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
             title: Text(
@@ -623,20 +643,9 @@ class _DiscussScreenState extends State<DiscussScreen> {
                   } else if (value == 'search') {
                     showToast('Search mode active', idSuccess: true);
                   } else if (value == 'attach') {
-                    final result = await FilePicker.platform.pickFiles(
-                      withData: true,
-                      allowMultiple: false,
-                    );
-                    if (result != null &&
-                        result.files.isNotEmpty &&
-                        result.files.first.bytes != null) {
-                      await controller.sendAttachment(
-                          result.files.first.name,
-                          result.files.first.bytes!);
-                    }
+                    ChannelAttachmentsDialog.show(context, channel: activeChannel);
                   } else if (value == 'pinned') {
-                    showToast('No pinned messages in this channel',
-                        idSuccess: true);
+                    PinnedMessagesDialog.show(context, channel: activeChannel);
                   } else if (value == 'info') {
                     _showChannelInfo(activeChannel);
                   }
@@ -680,10 +689,10 @@ class _DiscussScreenState extends State<DiscussScreen> {
                     value: 'attach',
                     child: Row(
                       children: [
-                        Icon(Icons.attach_file_rounded,
+                        Icon(Icons.folder_shared_rounded,
                             size: 17, color: Colors.grey),
                         SizedBox(width: 10),
-                        Text('Attach File', style: TextStyle(fontSize: 12.5)),
+                        Text('Files & Attachments', style: TextStyle(fontSize: 12.5)),
                       ],
                     ),
                   ),

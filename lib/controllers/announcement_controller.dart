@@ -9,25 +9,62 @@ class AnnouncementController extends GetxController {
   final RxList<AnnouncementModel> announcements = <AnnouncementModel>[].obs;
   final RxBool isLoading = false.obs;
   final RxBool isCreating = false.obs;
-  Timer? _refreshTimer;
+  final RxBool isModuleAvailable = false.obs;
+  Timer? _scheduledTimer;
+  String _lastHitKey = '';
   final RxSet<int> _shownBirthdayPopupIds = <int>{}.obs;
 
   @override
   void onInit() {
     super.onInit();
     fetchAnnouncements();
-    // Auto-refresh announcements every 3 hours (3 times in a 9-hour workday)
-    _refreshTimer = Timer.periodic(const Duration(hours: 3), (_) {
-      if (!isLoading.value && !isCreating.value) {
-        fetchAnnouncements();
-      }
-    });
+    _startThreeTimesDailyScheduler();
   }
 
   @override
   void onClose() {
-    _refreshTimer?.cancel();
+    _scheduledTimer?.cancel();
     super.onClose();
+  }
+
+  void _startThreeTimesDailyScheduler() {
+    _scheduledTimer?.cancel();
+    // Check every 30 seconds if current local time matches 10:00 AM, 2:30 PM (14:30), or 7:30 PM (19:30)
+    _scheduledTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      final now = DateTime.now();
+      final currentHour = now.hour;
+      final currentMinute = now.minute;
+      final todayStr = DateFormat('yyyy-MM-dd').format(now);
+
+      // 3 Scheduled hits per day:
+      // 1) 10:00 AM
+      // 2) 2:30 PM (14:30)
+      // 3) 7:30 PM (19:30)
+      bool isHitTime = false;
+      String slot = '';
+
+      if (currentHour == 10 && currentMinute == 0) {
+        isHitTime = true;
+        slot = '10:00';
+      } else if (currentHour == 14 && currentMinute == 30) {
+        isHitTime = true;
+        slot = '14:30';
+      } else if (currentHour == 19 && currentMinute == 30) {
+        isHitTime = true;
+        slot = '19:30';
+      }
+
+      if (isHitTime) {
+        final hitKey = '${todayStr}_$slot';
+        if (_lastHitKey != hitKey) {
+          _lastHitKey = hitKey;
+          debugPrint('ANNOUNCEMENT_SCHEDULED_HIT: Triggered daily hit at $slot on $todayStr');
+          if (!isLoading.value && !isCreating.value) {
+            fetchAnnouncements();
+          }
+        }
+      }
+    });
   }
 
   Future<void> fetchAnnouncements() async {
@@ -40,6 +77,7 @@ class AnnouncementController extends GetxController {
       );
 
       if (response.isSuccess && response.data != null) {
+        isModuleAvailable.value = true;
         final records = response.data!;
         announcements.value = records
             .map((json) => AnnouncementModel.fromJson(Map<String, dynamic>.from(json)))
@@ -48,19 +86,26 @@ class AnnouncementController extends GetxController {
         // Check for active approved birthday announcement to auto-popup instantly
         _checkAndShowBirthdayPopup();
       } else {
-        debugPrint('==================================================');
-        debugPrint('⚠️ ODOO API WARNING: FAILED TO FETCH ANNOUNCEMENTS');
-        debugPrint('Response Message: ${response.message}');
-        if (response.message.toLowerCase().contains('session expired') ||
-            response.message.toLowerCase().contains('not authenticated')) {
-          debugPrint('👉 REASON: Odoo session has expired or is invalid!');
-          debugPrint('👉 ACTION: Please log out of the Taskwatch app and log back in to renew your session.');
+        final err = response.message.toLowerCase();
+        if (err.contains("doesn't exist") ||
+            err.contains("not found") ||
+            err.contains("access denied") ||
+            err.contains("hr.announcement")) {
+          isModuleAvailable.value = false;
+          announcements.clear();
+        } else {
+          if (announcements.isEmpty) {
+            isModuleAvailable.value = false;
+          }
         }
+        debugPrint('==================================================');
+        debugPrint('⚠️ ODOO API WARNING: FAILED TO FETCH ANNOUNCEMENTS: ${response.message}');
         debugPrint('==================================================');
       }
     } catch (e, stack) {
       debugPrint('ANNOUNCEMENT_ERROR: $e');
       debugPrint('ANNOUNCEMENT_STACKTRACE: $stack');
+      isModuleAvailable.value = false;
     } finally {
       isLoading.value = false;
     }
