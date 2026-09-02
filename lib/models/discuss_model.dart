@@ -166,6 +166,7 @@ class DiscussMessageModel {
   final DateTime date;
   final bool isOutgoing;
   final bool isStarred;
+  final bool isDeleted;
   final List<int> attachmentIds;
   final List<DiscussAttachmentModel> attachments;
 
@@ -182,6 +183,7 @@ class DiscussMessageModel {
     required this.date,
     required this.isOutgoing,
     this.isStarred = false,
+    this.isDeleted = false,
     this.attachmentIds = const [],
     this.attachments = const [],
   }) : contentBody = contentBody ?? cleanBody;
@@ -189,6 +191,7 @@ class DiscussMessageModel {
   bool get isReply => (replyText != null && replyText!.isNotEmpty);
 
   String get displayBody {
+    if (isDeleted) return 'This message is deleted';
     final text = contentBody.isNotEmpty ? contentBody : cleanBody;
     if (text.trim().isEmpty && (attachments.isNotEmpty || attachmentIds.isNotEmpty)) {
       final isImage = attachments.any((a) => a.mimetype.startsWith('image/'));
@@ -247,6 +250,10 @@ class DiscussMessageModel {
     String cleanBody = FormatUtils.cleanHtml(unescaped);
     String contentBody = cleanBody;
 
+    final bool isMsgDeleted = bodyStr.contains('This message is deleted') ||
+        cleanBody.toLowerCase() == 'this message is deleted' ||
+        bodyStr.toLowerCase().contains('this message was deleted');
+
     // Parse blockquote if present: e.g. <blockquote><b>Aniket Rai:</b> hi</blockquote> or &lt;blockquote&gt;
     final quoteMatch = RegExp(
       r'<blockquote[^>]*>(?:<p[^>]*>)?(?:<b[^>]*>)?([^:<]+)?(?::\s*</b>|:\s*</b\s*>|:)?\s*([\s\S]*?)(?:</p>)?</blockquote>',
@@ -284,6 +291,7 @@ class DiscussMessageModel {
       date: msgDate,
       isOutgoing: authId == currentPartnerId,
       isStarred: starred,
+      isDeleted: isMsgDeleted,
       attachmentIds: attachmentsList,
     );
   }
@@ -301,6 +309,7 @@ class DiscussMessageModel {
     DateTime? date,
     bool? isOutgoing,
     bool? isStarred,
+    bool? isDeleted,
     List<int>? attachmentIds,
     List<DiscussAttachmentModel>? attachments,
   }) {
@@ -317,6 +326,7 @@ class DiscussMessageModel {
       date: date ?? this.date,
       isOutgoing: isOutgoing ?? this.isOutgoing,
       isStarred: isStarred ?? this.isStarred,
+      isDeleted: isDeleted ?? this.isDeleted,
       attachmentIds: attachmentIds ?? this.attachmentIds,
       attachments: attachments ?? this.attachments,
     );

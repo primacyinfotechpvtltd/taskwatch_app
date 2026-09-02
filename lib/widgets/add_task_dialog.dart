@@ -933,7 +933,40 @@ class _AddTaskDialogState extends State<AddTaskDialog> {
                       // Project Selector
                       _buildFieldLabel('Project *'),
                       const SizedBox(height: 6),
-                      if (_isLoadingProjects)
+                      if (isEditing)
+                        Container(
+                          height: 42,
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade100,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: Colors.grey.shade300),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.lock_outline_rounded,
+                                size: 16,
+                                color: Colors.grey.shade600,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  _selectedProject?.name ??
+                                      widget.initialTask?.projectName ??
+                                      'Current Project',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.grey.shade800,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      else if (_isLoadingProjects)
                         Container(
                           height: 42,
                           padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -964,42 +997,6 @@ class _AddTaskDialogState extends State<AddTaskDialog> {
                           },
                         ),
                       const SizedBox(height: 16),
-
-                      // If in Edit mode, show task selector dropdown so user can switch tasks
-                      if (isEditing && _selectedProject != null) ...[
-                        if (_isLoadingTasks)
-                          const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 8),
-                            child: Center(
-                              child: SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              ),
-                            ),
-                          )
-                        else if (_projectTasks.isNotEmpty) ...[
-                          _buildFieldLabel('Select Existing Task in Project *'),
-                          const SizedBox(height: 6),
-                          SearchableDropdown<TaskModel>(
-                            value: _selectedTask,
-                            items: _projectTasks,
-                            hint: 'Select Task to View/Edit',
-                            height: 42,
-                            searchController: _taskSearchController,
-                            itemToString: (task) => task.name,
-                            onChanged: (task) {
-                              if (task != null) {
-                                setState(() {
-                                  _selectedTask = task;
-                                  _populateFieldsFromTask(task);
-                                });
-                              }
-                            },
-                          ),
-                          const SizedBox(height: 16),
-                        ],
-                      ],
 
                       // Task Title
                       _buildFieldLabel(

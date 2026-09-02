@@ -117,9 +117,13 @@ class _StartTrackerFormState extends State<StartTrackerForm> {
         if (!taskExists) {
           selectedTaskId = null;
           selectedTaskName = null;
-        } else if (selectedTaskName == null) {
-          final task = tasks.firstWhere((t) => t.id == selectedTaskId);
-          selectedTaskName = task.name;
+          exitingTimesheet = null;
+        } else {
+          if (selectedTaskName == null) {
+            final task = tasks.firstWhere((t) => t.id == selectedTaskId);
+            selectedTaskName = task.name;
+          }
+          _checkAndSetExistingTimesheet(selectedTaskId!);
         }
       }
 
@@ -139,6 +143,21 @@ class _StartTrackerFormState extends State<StartTrackerForm> {
         setState(() => _isLoadingTasks = false);
       }
     }
+  }
+
+  void _checkAndSetExistingTimesheet(int taskId) {
+    try {
+      final tList = Get.find<TimesheetController>().timesheetList;
+      for (final t in tList) {
+        if (t.taskId != null && t.taskId == taskId) {
+          exitingTimesheet = t;
+          if (_noteController.text.trim().isEmpty && t.description.isNotEmpty) {
+            _noteController.text = t.description;
+          }
+          break;
+        }
+      }
+    } catch (_) {}
   }
 
   void _startTracking() async {
@@ -214,23 +233,24 @@ class _StartTrackerFormState extends State<StartTrackerForm> {
   TimesheetModel? exitingTimesheet;
 
   Future<void> fetch() async {
-    if (widget.task == null) return;
+    final taskId = widget.task?.id ?? selectedTaskId;
+    if (taskId == null) return;
 
     try {
       final now = DateTime.now();
-      final task = widget.task!;
       final tList = await Get.find<TimesheetController>().getAllTimesheet(
         date: now,
       );
 
       for (final t in tList) {
-        if (t.taskId != null && t.taskId == task.id) {
+        if (t.taskId != null && t.taskId == taskId) {
           exitingTimesheet = t;
+          if (_noteController.text.trim().isEmpty && t.description.isNotEmpty) {
+            _noteController.text = t.description;
+          }
           break;
         }
       }
-
-      _noteController.text = exitingTimesheet?.description ?? '';
       if (mounted) setState(() {});
     } catch (e) {}
   }
@@ -307,6 +327,11 @@ class _StartTrackerFormState extends State<StartTrackerForm> {
                           dateDeadline: selectedTaskModel.getEndDateTime(),
                           dateStart: selectedTaskModel.getStartDateTime(),
                           allocatedHours: selectedTaskModel.allocatedHours ?? 0.0,
+                          tags: selectedTaskModel.tags,
+                          tagIds: selectedTaskModel.tagIds,
+                          milestoneId: selectedTaskModel.milestoneId,
+                          milestoneName: selectedTaskModel.milestoneName,
+                          description: selectedTaskModel.description,
                         ),
                       );
                     }

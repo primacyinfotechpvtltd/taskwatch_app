@@ -36,12 +36,67 @@ class RecentActivityWidget extends StatelessWidget {
           const SizedBox(height: 8),
           Obx(() {
             final timesheetList = Get.find<TimesheetController>().timesheetList;
+            final workingData =
+                Get.find<TrackerController>().startWorkData.value;
+            final workingTimesheetId = workingData?.timesheetId;
+            final workingTaskId = workingData?.task.id;
+
+            // Group/consolidate timesheets by task to avoid duplicate rows
+            final consolidated = <TimesheetModel>[];
+            final groupedByTask = <String, List<TimesheetModel>>{};
+
+            for (final ts in timesheetList) {
+              final key = (ts.taskId != null && ts.taskId! > 0)
+                  ? 'task_${ts.taskId}'
+                  : 'ts_${ts.timesheetId}_${ts.taskName}';
+              groupedByTask.putIfAbsent(key, () => []).add(ts);
+            }
+
+            for (final entries in groupedByTask.values) {
+              if (entries.length == 1) {
+                consolidated.add(entries.first);
+              } else {
+                // Combine timeSpent from multiple sessions of the same task
+                double totalTime = 0;
+                String latestDesc = '';
+                TimesheetModel primary = entries.first;
+
+                for (final e in entries) {
+                  totalTime += e.timeSpent;
+                  if (e.description.trim().isNotEmpty) {
+                    latestDesc = e.description.trim();
+                  }
+                  if (workingTimesheetId != null &&
+                      e.timesheetId == workingTimesheetId) {
+                    primary = e;
+                  }
+                }
+
+                consolidated.add(TimesheetModel(
+                  timesheetId: primary.timesheetId,
+                  date: primary.date,
+                  description:
+                      latestDesc.isNotEmpty ? latestDesc : primary.description,
+                  taskId: primary.taskId,
+                  taskName: primary.taskName,
+                  projectId: primary.projectId,
+                  projectName: primary.projectName,
+                  timeSpent: totalTime,
+                  userId: primary.userId,
+                  employeeId: primary.employeeId,
+                ));
+              }
+            }
+
             return Column(
-              children: timesheetList.map((activity) {
+              children: consolidated.map((activity) {
                 bool isWorking = false;
-                final workingData =
-                    Get.find<TrackerController>().startWorkData.value;
-                if (activity.timesheetId == workingData?.timesheetId) {
+                if (workingTimesheetId != null && workingTimesheetId > 0) {
+                  isWorking = activity.timesheetId == workingTimesheetId;
+                }
+                if (!isWorking &&
+                    workingTaskId != null &&
+                    activity.taskId == workingTaskId) {
                   isWorking = true;
                 }
 

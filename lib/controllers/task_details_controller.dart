@@ -51,18 +51,24 @@ class TaskDetailsController extends GetxController {
       isLoading.value = true;
       errorMessage.value = '';
 
-      final response = await ApiManager.getRequest(
-        endPoint: 'tasks/$taskId',
-      );
-
       TaskDetailsModel? loaded;
-      if (response.isSuccess && response.data != null) {
-        loaded = TaskDetailsModel.fromJson(response.data);
+
+      // 1. Try REST API
+      try {
+        final response = await ApiManager.getRequest(
+          endPoint: 'tasks/$taskId',
+        );
+        if (response.isSuccess && response.data != null) {
+          loaded = TaskDetailsModel.fromJson(response.data);
+        }
+      } catch (e) {
+        debugPrint('REST tasks/$taskId fetch note: $e');
       }
 
-      // Enrich with live Odoo data for user_ids, tag_ids, milestone_id
+      // 2. Fetch live data from Odoo project.task
       try {
-        final odooTaskRes = await OdooRpcApiManager.searchRead(
+        // Try rich fields first
+        var odooTaskRes = await OdooRpcApiManager.searchRead(
           model: 'project.task',
           domain: [
             ['id', '=', taskId],
@@ -80,21 +86,70 @@ class TaskDetailsController extends GetxController {
             'planned_date_begin',
             'date_start',
             'allocated_hours',
+            'planned_hours',
             'priority',
           ],
           limit: 1,
         );
 
+        // Fallback 1: Safe standard fields
+        if (!odooTaskRes.isSuccess || odooTaskRes.data == null || (odooTaskRes.data as List).isEmpty) {
+          odooTaskRes = await OdooRpcApiManager.searchRead(
+            model: 'project.task',
+            domain: [
+              ['id', '=', taskId],
+            ],
+            fields: [
+              'id',
+              'name',
+              'description',
+              'project_id',
+              'stage_id',
+              'user_ids',
+              'tag_ids',
+              'milestone_id',
+              'date_deadline',
+              'priority',
+            ],
+            limit: 1,
+          );
+        }
+
+        // Fallback 2: Minimal essential fields
+        if (!odooTaskRes.isSuccess || odooTaskRes.data == null || (odooTaskRes.data as List).isEmpty) {
+          odooTaskRes = await OdooRpcApiManager.searchRead(
+            model: 'project.task',
+            domain: [
+              ['id', '=', taskId],
+            ],
+            fields: [
+              'id',
+              'name',
+              'description',
+              'project_id',
+              'stage_id',
+              'user_ids',
+              'tag_ids',
+              'date_deadline',
+            ],
+            limit: 1,
+          );
+        }
+
         if (odooTaskRes.isSuccess &&
             odooTaskRes.data != null &&
             (odooTaskRes.data as List).isNotEmpty) {
           final m = (odooTaskRes.data as List).first as Map<String, dynamic>;
-          
+
           // 1. Resolve Assignee Names from res.users
           List<TaskAssignee> resolvedAssignees = [];
           if (m['user_ids'] is List) {
             final uIds = (m['user_ids'] as List)
-                .map((x) => x is int ? x : (x is List && x.isNotEmpty ? x[0] as int : 0))
+                .map((x) => x is int
+                    ? x
+                    : (x is List && x.isNotEmpty
+                        ? (x[0] is int ? x[0] as int : int.tryParse(x[0].toString()) ?? 0)
+                        : 0))
                 .where((id) => id > 0)
                 .toList();
             if (uIds.isNotEmpty) {
@@ -122,38 +177,79 @@ class TaskDetailsController extends GetxController {
           List<String> resolvedTagNames = [];
           List<int> resolvedTagIds = [];
           if (m['tag_ids'] is List) {
-            final tIds = (m['tag_ids'] as List)
-                .map((x) => x is int ? x : (x is List && x.isNotEmpty ? x[0] as int : 0))
-                .where((id) => id > 0)
-                .toList();
-            if (tIds.isNotEmpty) {
-              resolvedTagIds = tIds;
+            final rawTags = m['tag_ids'] as List;
+            for (var item in rawTags) {
+              if (item is int) {
+                if (!resolvedTagIds.contains(item)) resolvedTagIds.add(item);
+              } else if (item is List && item.isNotEmpty) {
+                final id = item[0] is int ? item[0] as int : int.tryParse(item[0].toString()) ?? 0;
+                if (id > 0 && !resolvedTagIds.contains(id)) resolvedTagIds.add(id);
+                if (item.length > 1 && item[1] != null && item[1] != false) {
+                  final name = item[1].toString().trim();
+                  if (name.isNotEmpty && name != 'false' && !resolvedTagNames.contains(name)) {
+                    resolvedTagNames.add(name);
+                  }
+                }
+              } else if (item is Map) {
+                final id = item['id'] is int ? item['id'] as int : int.tryParse(item['id']?.toString() ?? '') ?? 0;
+                if (id > 0 && !resolvedTagIds.contains(id)) resolvedTagIds.add(id);
+                final name = (item['name'] ?? item['display_name'])?.toString().trim() ?? '';
+                if (name.isNotEmpty && name != 'false' && !resolvedTagNames.contains(name)) {
+                  resolvedTagNames.add(name);
+                }
+              } else if (item is String && item.trim().isNotEmpty && item != 'false') {
+                if (!resolvedTagNames.contains(item.trim())) resolvedTagNames.add(item.trim());
+              }
+            }
+
+            // If we have tag IDs but missing names, query project.tags
+            if (resolvedTagIds.isNotEmpty && resolvedTagNames.length < resolvedTagIds.length) {
               try {
                 final tagsRes = await OdooRpcApiManager.searchRead(
                   model: 'project.tags',
                   domain: [
-                    ['id', 'in', tIds]
+                    ['id', 'in', resolvedTagIds]
                   ],
                   fields: ['id', 'name'],
                 );
                 if (tagsRes.isSuccess && tagsRes.data is List) {
-                  resolvedTagNames = (tagsRes.data as List)
-                      .map<String>((t) => t['name']?.toString() ?? '')
-                      .where((s) => s.isNotEmpty)
-                      .toList();
+                  for (var t in tagsRes.data as List) {
+                    final name = t['name']?.toString().trim() ?? '';
+                    if (name.isNotEmpty && !resolvedTagNames.contains(name)) {
+                      resolvedTagNames.add(name);
+                    }
+                  }
                 }
               } catch (_) {}
             }
           }
 
-          // 3. Resolve Milestone Name from project.milestone
+          // 3. Resolve Milestone from project.milestone
           int? resolvedMilestoneId;
           String? resolvedMilestoneName;
-          if (m['milestone_id'] is List && (m['milestone_id'] as List).length > 1) {
-            resolvedMilestoneId = m['milestone_id'][0] as int;
-            resolvedMilestoneName = m['milestone_id'][1]?.toString();
-          } else if (m['milestone_id'] is int) {
+          if (m['milestone_id'] is List && (m['milestone_id'] as List).isNotEmpty) {
+            final rawList = m['milestone_id'] as List;
+            resolvedMilestoneId = rawList[0] is int
+                ? rawList[0] as int
+                : int.tryParse(rawList[0].toString());
+            if (rawList.length > 1 && rawList[1] != null && rawList[1] != false) {
+              final msName = rawList[1].toString().trim();
+              if (msName.isNotEmpty && msName != 'false') {
+                resolvedMilestoneName = msName;
+              }
+            }
+          } else if (m['milestone_id'] is Map) {
+            resolvedMilestoneId = m['milestone_id']['id'] is int
+                ? m['milestone_id']['id'] as int
+                : int.tryParse(m['milestone_id']['id']?.toString() ?? '');
+            resolvedMilestoneName = (m['milestone_id']['name'] ?? m['milestone_id']['display_name'])?.toString();
+          } else if (m['milestone_id'] is int && (m['milestone_id'] as int) > 0) {
             resolvedMilestoneId = m['milestone_id'] as int;
+          }
+
+          if (resolvedMilestoneId != null &&
+              resolvedMilestoneId > 0 &&
+              (resolvedMilestoneName == null || resolvedMilestoneName.isEmpty)) {
             try {
               final msRes = await OdooRpcApiManager.searchRead(
                 model: 'project.milestone',
@@ -177,10 +273,10 @@ class TaskDetailsController extends GetxController {
           final finalUserNames = finalAssignees.map((a) => a.name).toList();
           final finalTags = resolvedTagNames.isNotEmpty
               ? resolvedTagNames
-              : (odooModel.tags ?? loaded?.tags);
+              : (odooModel.tags != null && odooModel.tags!.isNotEmpty ? odooModel.tags : loaded?.tags);
           final finalTagIds = resolvedTagIds.isNotEmpty
               ? resolvedTagIds
-              : (odooModel.tagIds ?? loaded?.tagIds);
+              : (odooModel.tagIds != null && odooModel.tagIds!.isNotEmpty ? odooModel.tagIds : loaded?.tagIds);
 
           if (loaded != null) {
             loaded = loaded.copyWith(
@@ -189,7 +285,9 @@ class TaskDetailsController extends GetxController {
               tags: finalTags,
               tagIds: finalTagIds,
               milestoneId: resolvedMilestoneId ?? odooModel.milestoneId ?? loaded.milestoneId,
-              milestoneName: resolvedMilestoneName ?? odooModel.milestoneName ?? loaded.milestoneName,
+              milestoneName: (resolvedMilestoneName != null && resolvedMilestoneName.isNotEmpty)
+                  ? resolvedMilestoneName
+                  : (odooModel.milestoneName ?? loaded.milestoneName),
             );
           } else {
             loaded = odooModel.copyWith(
@@ -198,7 +296,9 @@ class TaskDetailsController extends GetxController {
               tags: finalTags,
               tagIds: finalTagIds,
               milestoneId: resolvedMilestoneId ?? odooModel.milestoneId,
-              milestoneName: resolvedMilestoneName ?? odooModel.milestoneName,
+              milestoneName: (resolvedMilestoneName != null && resolvedMilestoneName.isNotEmpty)
+                  ? resolvedMilestoneName
+                  : odooModel.milestoneName,
             );
           }
         }
@@ -208,13 +308,15 @@ class TaskDetailsController extends GetxController {
 
       if (loaded != null) {
         currentTask.value = loaded;
+        currentTask.refresh();
         return currentTask.value;
-      } else {
-        throw Exception(response.message);
+      } else if (currentTask.value != null) {
+        return currentTask.value;
       }
+      return null;
     } catch (e) {
       _handleError(e, 'load task details');
-      return null;
+      return currentTask.value;
     } finally {
       isLoading.value = false;
     }
@@ -907,12 +1009,41 @@ Future<bool> updateTaskAssignees(int taskId, List<int> userIds) async {
       if (projectId != null && projectId > 0) {
         domain.add(['project_id', '=', projectId]);
       }
-      final res = await OdooRpcApiManager.searchRead(
+      var res = await OdooRpcApiManager.searchRead(
         model: 'project.milestone',
         domain: domain,
         fields: ['id', 'name', 'project_id', 'deadline', 'is_reached'],
         limit: 80,
       );
+
+      // Fallback 1: minimal fields
+      if (!res.isSuccess || res.data == null || (res.data as List).isEmpty) {
+        res = await OdooRpcApiManager.searchRead(
+          model: 'project.milestone',
+          domain: domain,
+          fields: ['id', 'name', 'project_id'],
+          limit: 80,
+        );
+      }
+
+      // Fallback 2: search all milestones without project filter
+      if ((!res.isSuccess || res.data == null || (res.data as List).isEmpty) && domain.isNotEmpty) {
+        res = await OdooRpcApiManager.searchRead(
+          model: 'project.milestone',
+          domain: [],
+          fields: ['id', 'name', 'project_id', 'deadline', 'is_reached'],
+          limit: 100,
+        );
+        if (!res.isSuccess || res.data == null || (res.data as List).isEmpty) {
+          res = await OdooRpcApiManager.searchRead(
+            model: 'project.milestone',
+            domain: [],
+            fields: ['id', 'name'],
+            limit: 100,
+          );
+        }
+      }
+
       if (res.isSuccess && res.data is List) {
         return (res.data as List)
             .map<ProjectMilestone>((m) => ProjectMilestone.fromJson(m))
@@ -992,7 +1123,15 @@ Future<bool> updateTaskAssignees(int taskId, List<int> userIds) async {
         },
       );
 
-      if (res.isSuccess) {
+      final restRes = await ApiManager.postRequest(
+        endPoint: 'tasks/$validTaskId',
+        data: {
+          'milestone_id': (milestoneId != null && milestoneId > 0) ? milestoneId : null,
+          'milestone': milestoneName,
+        },
+      );
+
+      if (res.isSuccess || restRes.isSuccess) {
         showToast('Milestone updated', idSuccess: true);
         return true;
       } else {
@@ -1008,12 +1147,20 @@ Future<bool> updateTaskAssignees(int taskId, List<int> userIds) async {
   /// Get Project Tags from Odoo project.tags
   Future<List<ProjectTag>> getProjectTags() async {
     try {
-      final res = await OdooRpcApiManager.searchRead(
+      var res = await OdooRpcApiManager.searchRead(
         model: 'project.tags',
         domain: [],
         fields: ['id', 'name', 'color'],
         limit: 100,
       );
+      if (!res.isSuccess || res.data == null || (res.data as List).isEmpty) {
+        res = await OdooRpcApiManager.searchRead(
+          model: 'project.tags',
+          domain: [],
+          fields: ['id', 'name'],
+          limit: 100,
+        );
+      }
       if (res.isSuccess && res.data is List) {
         return (res.data as List)
             .map<ProjectTag>((t) => ProjectTag.fromJson(t))
@@ -1072,7 +1219,15 @@ Future<bool> updateTaskAssignees(int taskId, List<int> userIds) async {
         },
       );
 
-      if (res.isSuccess) {
+      final restRes = await ApiManager.postRequest(
+        endPoint: 'tasks/$validTaskId',
+        data: {
+          'tag_ids': tagIds,
+          'tags': tagNames,
+        },
+      );
+
+      if (res.isSuccess || restRes.isSuccess) {
         showToast('Tags updated', idSuccess: true);
         return true;
       } else {
@@ -1207,10 +1362,61 @@ Future<bool> updateTaskAssignees(int taskId, List<int> userIds) async {
         endPoint: 'tasks/$taskId/timesheets',
       );
 
-      if (response.isSuccess) {
-        timesheets.value = (response.data as List)
+      if (response.isSuccess && response.data is List) {
+        final rawList = (response.data as List)
             .map((x) => TaskTimesheet.fromJson(x))
             .toList();
+
+        // 1. Deduplicate by unique id
+        final uniqueById = <int, TaskTimesheet>{};
+        final noIdList = <TaskTimesheet>[];
+        for (final item in rawList) {
+          if (item.id > 0) {
+            if (!uniqueById.containsKey(item.id)) {
+              uniqueById[item.id] = item;
+            }
+          } else {
+            noIdList.add(item);
+          }
+        }
+        final deduped = [...uniqueById.values, ...noIdList];
+
+        // 2. Consolidate duplicate rows with same date, employee, and description
+        final grouped = <String, List<TaskTimesheet>>{};
+        for (final item in deduped) {
+          final key =
+              '${item.date}_${item.employeeId}_${item.employeeName}_${item.description.trim()}';
+          grouped.putIfAbsent(key, () => []).add(item);
+        }
+
+        final consolidated = <TaskTimesheet>[];
+        for (final group in grouped.values) {
+          if (group.length == 1) {
+            consolidated.add(group.first);
+          } else {
+            double totalUnits = 0.0;
+            for (final g in group) {
+              totalUnits += g.unitAmount;
+            }
+            final first = group.first;
+            final hours = totalUnits.floor();
+            final minutes = ((totalUnits - hours) * 60).round();
+            final durationStr =
+                '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}';
+
+            consolidated.add(TaskTimesheet(
+              id: first.id,
+              date: first.date,
+              employeeId: first.employeeId,
+              employeeName: first.employeeName,
+              description: first.description,
+              unitAmount: totalUnits,
+              duration: durationStr,
+            ));
+          }
+        }
+
+        timesheets.value = consolidated;
         return timesheets;
       } else {
         throw Exception(response.message);

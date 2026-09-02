@@ -102,32 +102,79 @@ class TaskDetailsModel {
                   .where((s) => s.isNotEmpty)
                   .toList()
               : []),
-      tags: json['tag_ids'] is List
-          ? (json['tag_ids'] as List).map((x) {
-              if (x is List && x.length > 1) return x[1].toString();
-              if (x is Map) return (x['name'] ?? '').toString();
-              return x.toString();
-            }).toList()
-          : (json['tags'] is List
-              ? List<String>.from(json['tags'].map((x) => x.toString()))
-              : null),
-      tagIds: json['tag_ids'] is List
-          ? (json['tag_ids'] as List).map((x) {
-              if (x is int) return x;
-              if (x is List && x.isNotEmpty && x[0] is int) return x[0] as int;
-              if (x is Map && x['id'] is int) return x['id'] as int;
-              return int.tryParse(x.toString()) ?? 0;
-            }).where((id) => id > 0).toList()
-          : null,
-      milestoneId: json['milestone_id'] is List
-          ? (json['milestone_id'] as List).first
-          : (json['milestone_id'] is int ? json['milestone_id'] : null),
-      milestoneName: json['milestone_name'] is String
-          ? json['milestone_name']
-          : (json['milestone_id'] is List &&
-                  (json['milestone_id'] as List).length > 1
-              ? json['milestone_id'][1]?.toString()
-              : null),
+      tags: () {
+        if (json['tags'] is List) {
+          final list = (json['tags'] as List).map<String>((x) {
+            if (x is String) return x.trim();
+            if (x is Map && (x['name'] != null || x['display_name'] != null)) {
+              return (x['name'] ?? x['display_name']).toString().trim();
+            }
+            if (x is List && x.length > 1 && x[1] != null && x[1] != false) {
+              return x[1].toString().trim();
+            }
+            return '';
+          }).where((s) => s.isNotEmpty && s != 'false').toList();
+          if (list.isNotEmpty) return list;
+        }
+        if (json['tag_ids'] is List) {
+          final list = (json['tag_ids'] as List).map<String>((x) {
+            if (x is String) return x.trim();
+            if (x is Map && (x['name'] != null || x['display_name'] != null)) {
+              return (x['name'] ?? x['display_name']).toString().trim();
+            }
+            if (x is List && x.length > 1 && x[1] != null && x[1] != false) {
+              return x[1].toString().trim();
+            }
+            return '';
+          }).where((s) => s.isNotEmpty && s != 'false').toList();
+          if (list.isNotEmpty) return list;
+        }
+        return <String>[];
+      }(),
+      tagIds: () {
+        if (json['tag_ids'] is List) {
+          final list = (json['tag_ids'] as List).map<int>((x) {
+            if (x is int) return x;
+            if (x is Map && x['id'] is int) return x['id'] as int;
+            if (x is List && x.isNotEmpty && x[0] is int) return x[0] as int;
+            return int.tryParse(x.toString()) ?? 0;
+          }).where((id) => id > 0).toList();
+          if (list.isNotEmpty) return list;
+        }
+        if (json['tags'] is List) {
+          final list = (json['tags'] as List).map<int>((x) {
+            if (x is int) return x;
+            if (x is Map && x['id'] is int) return x['id'] as int;
+            if (x is List && x.isNotEmpty && x[0] is int) return x[0] as int;
+            return 0;
+          }).where((id) => id > 0).toList();
+          if (list.isNotEmpty) return list;
+        }
+        return <int>[];
+      }(),
+      milestoneId: () {
+        final m = json['milestone_id'] ?? json['milestone'];
+        if (m is int && m > 0) return m;
+        if (m is List && m.isNotEmpty && m[0] is int && (m[0] as int) > 0) return m[0] as int;
+        if (m is Map && m['id'] is int && (m['id'] as int) > 0) return m['id'] as int;
+        return null;
+      }(),
+      milestoneName: () {
+        if (json['milestone_name'] is String && (json['milestone_name'] as String).trim().isNotEmpty && json['milestone_name'] != 'false') {
+          return json['milestone_name'].toString().trim();
+        }
+        final m = json['milestone_id'] ?? json['milestone'];
+        if (m is String && m != 'false' && m.trim().isNotEmpty) return m.trim();
+        if (m is List && m.length > 1 && m[1] != null && m[1] != false) {
+          final str = m[1].toString().trim();
+          if (str.isNotEmpty && str != 'false') return str;
+        }
+        if (m is Map && (m['name'] != null || m['display_name'] != null)) {
+          final str = (m['name'] ?? m['display_name'])?.toString().trim();
+          if (str != null && str.isNotEmpty && str != 'false') return str;
+        }
+        return null;
+      }(),
       dateDeadline: (json['date_deadline'] ?? json['end_date']) is String
           ? FormatUtils.parseOdooDateTime(json['date_deadline'] ?? json['end_date'])
           : null,

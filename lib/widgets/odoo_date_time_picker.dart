@@ -1,12 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
-import 'package:pi_task_watch/theme/app_theme.dart';
 
 /// ISO 8601 Week Number calculation
 int getIsoWeekNumber(DateTime date) {
-  // ISO week date weeks start on Monday (weekday = 1).
-  // The first week of an ISO year is the one with the first Thursday in it.
   final thursday = date.add(Duration(days: 4 - date.weekday));
   final firstThursdayOfYear = DateTime(thursday.year, 1, 4);
   final firstThursday = firstThursdayOfYear.add(
@@ -80,7 +77,7 @@ Future<OdooDateRangeResult?> showOdooDateRangePicker({
   );
 }
 
-/// The Odoo 16/17/18-style Date & Time Range Picker Widget
+/// The exact Odoo 16/17/18-style Date & Time Range Picker Widget matching web Odoo
 class OdooDateRangePicker extends StatefulWidget {
   final DateTime? initialStartDate;
   final DateTime? initialEndDate;
@@ -116,6 +113,8 @@ class _OdooDateRangePickerState extends State<OdooDateRangePicker> {
   // Time components
   late TimeOfDay _startTime;
   late TimeOfDay _endTime;
+  bool _activeTimeSlotIsStart = true;
+  final ScrollController _timeScrollController = ScrollController();
 
   DateTime? _hoveredDate;
 
@@ -123,6 +122,7 @@ class _OdooDateRangePickerState extends State<OdooDateRangePicker> {
   static const Color odooPurple = Color(0xFF714B67);
   static const Color odooCoralRed = Color(0xFFDE4B4B);
   static const Color odooLightTeal = Color(0xFFC3E7EB);
+  static const Color odooActiveTimeBlue = Color(0xFFD6E4F0);
 
   @override
   void initState() {
@@ -142,11 +142,34 @@ class _OdooDateRangePickerState extends State<OdooDateRangePicker> {
 
     _startTime = _selectedStartDate != null
         ? TimeOfDay.fromDateTime(_selectedStartDate!)
-        : const TimeOfDay(hour: 18, minute: 0);
+        : const TimeOfDay(hour: 12, minute: 0);
 
     _endTime = _selectedEndDate != null
         ? TimeOfDay.fromDateTime(_selectedEndDate!)
-        : const TimeOfDay(hour: 18, minute: 0);
+        : const TimeOfDay(hour: 14, minute: 0);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scrollToActiveTime();
+    });
+  }
+
+  @override
+  void dispose() {
+    _timeScrollController.dispose();
+    super.dispose();
+  }
+
+  void _scrollToActiveTime() {
+    if (!_timeScrollController.hasClients || !widget.includeTime) return;
+    final active = _activeTimeSlotIsStart ? _startTime : _endTime;
+    final totalMinutes = active.hour * 60 + active.minute;
+    final index = (totalMinutes / 15).floor();
+    final offset = (index * 28.0).clamp(0.0, _timeScrollController.position.maxScrollExtent);
+    _timeScrollController.animateTo(
+      offset,
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOut,
+    );
   }
 
   void _toggleRangeMode() {
@@ -176,7 +199,6 @@ class _OdooDateRangePickerState extends State<OdooDateRangePicker> {
     });
   }
 
-
   void _onDayTapped(DateTime day) {
     setState(() {
       final cleanDay = DateTime(day.year, day.month, day.day);
@@ -187,12 +209,11 @@ class _OdooDateRangePickerState extends State<OdooDateRangePicker> {
         return;
       }
 
-      // If no start date or both start and end dates are already set -> start a new selection
+      // Range Mode Logic
       if (_selectedStartDate == null || (_selectedStartDate != null && _selectedEndDate != null)) {
         _selectedStartDate = cleanDay;
         _selectedEndDate = null;
       } else {
-        // Start date is set, end date is null
         final startDayOnly = DateTime(
           _selectedStartDate!.year,
           _selectedStartDate!.month,
@@ -238,7 +259,7 @@ class _OdooDateRangePickerState extends State<OdooDateRangePicker> {
       }
     }
 
-    if (_selectedEndDate != null) {
+    if (_selectedEndDate != null && _isRangeMode) {
       if (widget.includeTime) {
         finalEnd = DateTime(
           _selectedEndDate!.year,
@@ -260,12 +281,10 @@ class _OdooDateRangePickerState extends State<OdooDateRangePicker> {
     }
 
     if (!_isRangeMode) {
-      // In Single Date mode: finalStart is the single deadline date
       widget.onApply(null, finalStart);
       return;
     }
 
-    // If start is after end, adjust end to match start or swap
     if (finalStart != null && finalEnd != null && finalStart.isAfter(finalEnd)) {
       final temp = finalStart;
       finalStart = finalEnd;
@@ -281,239 +300,10 @@ class _OdooDateRangePickerState extends State<OdooDateRangePicker> {
     return DateFormat('hh:mma').format(dt).toLowerCase();
   }
 
-  Future<void> _openQuickTimeEditor({required bool isStart}) async {
-    final initial = isStart ? _startTime : _endTime;
-    int hour12 = initial.hourOfPeriod == 0 ? 12 : initial.hourOfPeriod;
-    int minute = initial.minute;
-    bool isAm = initial.period == DayPeriod.am;
-
-    final picked = await showDialog<TimeOfDay>(
-      context: context,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (dialogCtx, setDialogState) {
-            return Dialog(
-              backgroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              child: Container(
-                width: 280,
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.access_time_rounded,
-                          size: 18,
-                          color: odooPurple,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          isStart ? 'Set Start Time' : 'Set End Time',
-                          style: GoogleFonts.inter(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.black87,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        // Hours Dropdown / Spinner
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade100,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.grey.shade300),
-                          ),
-                          child: DropdownButtonHideUnderline(
-                            child: DropdownButton<int>(
-                              value: hour12,
-                              isDense: true,
-                              items: List.generate(12, (i) => i + 1).map((h) {
-                                return DropdownMenuItem(
-                                  value: h,
-                                  child: Text(
-                                    h.toString().padLeft(2, '0'),
-                                    style: GoogleFonts.spaceGrotesk(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                );
-                              }).toList(),
-                              onChanged: (val) {
-                                if (val != null) {
-                                  setDialogState(() => hour12 = val);
-                                }
-                              },
-                            ),
-                          ),
-                        ),
-                        const Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 6),
-                          child: Text(
-                            ':',
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.black54,
-                            ),
-                          ),
-                        ),
-                        // Minutes Dropdown
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade100,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.grey.shade300),
-                          ),
-                          child: DropdownButtonHideUnderline(
-                            child: DropdownButton<int>(
-                              value: (minute ~/ 5) * 5,
-                              isDense: true,
-                              items: List.generate(12, (i) => i * 5).map((m) {
-                                return DropdownMenuItem(
-                                  value: m,
-                                  child: Text(
-                                    m.toString().padLeft(2, '0'),
-                                    style: GoogleFonts.spaceGrotesk(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                );
-                              }).toList(),
-                              onChanged: (val) {
-                                if (val != null) {
-                                  setDialogState(() => minute = val);
-                                }
-                              },
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        // AM / PM Toggle
-                        Container(
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade100,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.grey.shade300),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              InkWell(
-                                onTap: () => setDialogState(() => isAm = true),
-                                borderRadius: const BorderRadius.only(
-                                  topLeft: Radius.circular(8),
-                                  bottomLeft: Radius.circular(8),
-                                ),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-                                  decoration: BoxDecoration(
-                                    color: isAm ? odooPurple : Colors.transparent,
-                                    borderRadius: const BorderRadius.only(
-                                      topLeft: Radius.circular(7),
-                                      bottomLeft: Radius.circular(7),
-                                    ),
-                                  ),
-                                  child: Text(
-                                    'AM',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.bold,
-                                      color: isAm ? Colors.white : Colors.black87,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              InkWell(
-                                onTap: () => setDialogState(() => isAm = false),
-                                borderRadius: const BorderRadius.only(
-                                  topRight: Radius.circular(8),
-                                  bottomRight: Radius.circular(8),
-                                ),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-                                  decoration: BoxDecoration(
-                                    color: !isAm ? odooPurple : Colors.transparent,
-                                    borderRadius: const BorderRadius.only(
-                                      topRight: Radius.circular(7),
-                                      bottomRight: Radius.circular(7),
-                                    ),
-                                  ),
-                                  child: Text(
-                                    'PM',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.bold,
-                                      color: !isAm ? Colors.white : Colors.black87,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        TextButton(
-                          onPressed: () => Navigator.of(dialogCtx).pop(null),
-                          child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
-                        ),
-                        const SizedBox(width: 8),
-                        ElevatedButton(
-                          onPressed: () {
-                            int finalHour = hour12 % 12;
-                            if (!isAm) finalHour += 12;
-                            Navigator.of(dialogCtx).pop(TimeOfDay(hour: finalHour, minute: minute));
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: odooPurple,
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                          ),
-                          child: const Text('Set Time', style: TextStyle(fontWeight: FontWeight.bold)),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-
-    if (picked != null) {
-      setState(() {
-        if (isStart) {
-          _startTime = picked;
-        } else {
-          _endTime = picked;
-        }
-      });
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 360,
+      width: widget.includeTime ? 365 : 275,
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(10),
@@ -530,22 +320,95 @@ class _OdooDateRangePickerState extends State<OdooDateRangePicker> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // 1. Header: < > Month Year  [ 📅 ]
-          _buildHeader(),
+          // 1. Two-Column Layout: Left Time Slot List + Right Calendar Grid
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Left Column: Scrollable 15-min Time Slot List (matches Image 2)
+                if (widget.includeTime) ...[
+                  _buildTimeSlotColumn(),
+                  const VerticalDivider(width: 1, thickness: 1, color: Color(0xFFEEEEEE)),
+                ],
 
-          const Divider(height: 1, color: Color(0xFFEEEEEE)),
-
-          // 2. Calendar Grid (Week numbers + Mon to Sun days)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            child: _buildCalendarGrid(),
+                // Right Column: Header + Calendar Grid
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildHeader(),
+                      const Divider(height: 1, color: Color(0xFFEEEEEE)),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                        child: _buildCalendarGrid(),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
 
           const Divider(height: 1, color: Color(0xFFEEEEEE)),
 
-          // 3. Bottom Toolbar: [ 12:00am ] ➔ [ 9:45am ]  [ 🧹 ]  [ Apply ]
+          // 2. Bottom Toolbar: [ 12:00pm ] ➔ [ 2:00pm ]   [ 🧹 ]  [ Apply ]
           _buildBottomToolbar(),
         ],
+      ),
+    );
+  }
+
+  Widget _buildTimeSlotColumn() {
+    final activeTime = _activeTimeSlotIsStart ? _startTime : _endTime;
+    final slots = List.generate(96, (i) {
+      final hour = i ~/ 4;
+      final minute = (i % 4) * 15;
+      return TimeOfDay(hour: hour, minute: minute);
+    });
+
+    return SizedBox(
+      width: 100,
+      height: 270,
+      child: ListView.builder(
+        controller: _timeScrollController,
+        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+        itemCount: slots.length,
+        itemExtent: 28,
+        itemBuilder: (context, index) {
+          final slot = slots[index];
+          final isSelected = slot.hour == activeTime.hour &&
+              ((slot.minute - activeTime.minute).abs() < 15);
+          final label = _formatTime(slot);
+
+          return InkWell(
+            onTap: () {
+              setState(() {
+                if (_activeTimeSlotIsStart) {
+                  _startTime = slot;
+                } else {
+                  _endTime = slot;
+                }
+              });
+            },
+            borderRadius: BorderRadius.circular(4),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: isSelected ? odooActiveTimeBlue : Colors.transparent,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              alignment: Alignment.centerLeft,
+              child: Text(
+                label,
+                style: GoogleFonts.inter(
+                  fontSize: 12,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                  color: isSelected ? const Color(0xFF1E3A8A) : const Color(0xFF222222),
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -554,70 +417,70 @@ class _OdooDateRangePickerState extends State<OdooDateRangePicker> {
     final monthName = DateFormat('MMMM yyyy').format(_currentMonth);
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       child: Row(
         children: [
           // Previous Month Button
           InkWell(
             onTap: _previousMonth,
-            borderRadius: BorderRadius.circular(6),
+            borderRadius: BorderRadius.circular(4),
             child: Padding(
-              padding: const EdgeInsets.all(4),
+              padding: const EdgeInsets.all(2),
               child: Icon(
                 Icons.chevron_left_rounded,
-                size: 20,
+                size: 18,
                 color: Colors.grey.shade700,
               ),
             ),
           ),
-          const SizedBox(width: 4),
+          const SizedBox(width: 2),
 
           // Next Month Button
           InkWell(
             onTap: _nextMonth,
-            borderRadius: BorderRadius.circular(6),
+            borderRadius: BorderRadius.circular(4),
             child: Padding(
-              padding: const EdgeInsets.all(4),
+              padding: const EdgeInsets.all(2),
               child: Icon(
                 Icons.chevron_right_rounded,
-                size: 20,
+                size: 18,
                 color: Colors.grey.shade700,
               ),
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 6),
 
           // Month & Year Text
           Expanded(
             child: Text(
               monthName,
               style: GoogleFonts.inter(
-                fontSize: 14,
+                fontSize: 13,
                 fontWeight: FontWeight.w700,
                 color: const Color(0xFF2E2E2E),
               ),
             ),
           ),
 
-          // Odoo-style Range Toggle Button [ 📅+ ]
+          // Odoo-style Range Toggle Button [ 📅- / 📅+ ]
           if (widget.allowRange)
             Tooltip(
               message: _isRangeMode
                   ? 'Switch to Single Date mode'
-                  : 'Switch to Date Range mode (Double date)',
+                  : 'Switch to Date Range mode',
               child: InkWell(
                 onTap: _toggleRangeMode,
-                borderRadius: BorderRadius.circular(6),
+                borderRadius: BorderRadius.circular(4),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
                   decoration: BoxDecoration(
                     color: _isRangeMode
                         ? const Color(0xFF714B67).withValues(alpha: 0.12)
                         : const Color(0xFFF3F4F6),
-                    borderRadius: BorderRadius.circular(6),
+                    borderRadius: BorderRadius.circular(4),
                     border: Border.all(
                       color: _isRangeMode ? odooPurple : Colors.grey.shade300,
-                      width: 1.2,
+                      width: 1.1,
                     ),
                   ),
                   child: Row(
@@ -625,13 +488,13 @@ class _OdooDateRangePickerState extends State<OdooDateRangePicker> {
                     children: [
                       Icon(
                         Icons.calendar_month_outlined,
-                        size: 15,
+                        size: 13,
                         color: _isRangeMode ? odooPurple : Colors.grey.shade700,
                       ),
                       const SizedBox(width: 2),
                       Icon(
                         _isRangeMode ? Icons.remove : Icons.add,
-                        size: 11,
+                        size: 10,
                         color: _isRangeMode ? odooPurple : Colors.grey.shade700,
                       ),
                     ],
@@ -645,45 +508,30 @@ class _OdooDateRangePickerState extends State<OdooDateRangePicker> {
   }
 
   Widget _buildCalendarGrid() {
-    // Generate 6 rows of 7 days (Monday through Sunday)
-    // 1. First day of the month
     final firstDayOfMonth = DateTime(_currentMonth.year, _currentMonth.month, 1);
-    // Monday = 1, Sunday = 7
-    final firstWeekday = firstDayOfMonth.weekday; // 1 to 7
-
-    // Start date for the first row (Monday of the starting week)
+    final firstWeekday = firstDayOfMonth.weekday; // 1 to 7 (Mon = 1)
     final gridStartDate = firstDayOfMonth.subtract(Duration(days: firstWeekday - 1));
 
     final rows = <Widget>[];
 
-    // Weekday Headers: ISO Week, M, T, W, T, F, S, S
+    // Weekday Headers: W, T, F, S, S (matching Image 2)
     rows.add(
       Padding(
-        padding: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.only(bottom: 4),
         child: Row(
-          children: [
-            // ISO week column header (empty / spacer)
-            const SizedBox(
-              width: 28,
+          children: ['M', 'T', 'W', 'T', 'F', 'S', 'S'].map(
+            (dayLetter) => Expanded(
               child: Text(
-                '',
+                dayLetter,
                 textAlign: TextAlign.center,
-              ),
-            ),
-            ...['M', 'T', 'W', 'T', 'F', 'S', 'S'].map(
-              (dayLetter) => Expanded(
-                child: Text(
-                  dayLetter,
-                  textAlign: TextAlign.center,
-                  style: GoogleFonts.inter(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: const Color(0xFF222222),
-                  ),
+                style: GoogleFonts.inter(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: const Color(0xFF222222),
                 ),
               ),
             ),
-          ],
+          ).toList(),
         ),
       ),
     );
@@ -691,46 +539,19 @@ class _OdooDateRangePickerState extends State<OdooDateRangePicker> {
     DateTime currentDay = gridStartDate;
 
     for (int rowIdx = 0; rowIdx < 6; rowIdx++) {
-      // Calculate ISO week number for this week row
-      final weekNum = getIsoWeekNumber(currentDay);
-
       final dayCells = <Widget>[];
 
-      // Week number cell
-      dayCells.add(
-        SizedBox(
-          width: 28,
-          child: Text(
-            '$weekNum',
-            textAlign: TextAlign.center,
-            style: GoogleFonts.inter(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: const Color(0xFF222222),
-            ),
-          ),
-        ),
-      );
-
       for (int colIdx = 0; colIdx < 7; colIdx++) {
-        final cellDate = currentDay;
-        final isCurrentMonth = cellDate.month == _currentMonth.month;
-
-        dayCells.add(
-          Expanded(
-            child: _buildDayCell(cellDate, isCurrentMonth),
-          ),
-        );
-
+        final day = currentDay;
+        final cell = _buildDayCell(day);
+        dayCells.add(Expanded(child: cell));
         currentDay = currentDay.add(const Duration(days: 1));
       }
 
       rows.add(
         Padding(
-          padding: const EdgeInsets.symmetric(vertical: 2.5),
-          child: Row(
-            children: dayCells,
-          ),
+          padding: const EdgeInsets.symmetric(vertical: 1),
+          child: Row(children: dayCells),
         ),
       );
     }
@@ -741,85 +562,79 @@ class _OdooDateRangePickerState extends State<OdooDateRangePicker> {
     );
   }
 
-  Widget _buildDayCell(DateTime date, bool isCurrentMonth) {
-    final cleanDate = DateTime(date.year, date.month, date.day);
+  Widget _buildDayCell(DateTime date) {
+    final isCurrentMonth = date.month == _currentMonth.month;
 
-    final startDay = _selectedStartDate != null
-        ? DateTime(
-            _selectedStartDate!.year,
-            _selectedStartDate!.month,
-            _selectedStartDate!.day,
-          )
+    final dateOnly = DateTime(date.year, date.month, date.day);
+    final startDateOnly = _selectedStartDate != null
+        ? DateTime(_selectedStartDate!.year, _selectedStartDate!.month, _selectedStartDate!.day)
+        : null;
+    final endDateOnly = _selectedEndDate != null
+        ? DateTime(_selectedEndDate!.year, _selectedEndDate!.month, _selectedEndDate!.day)
         : null;
 
-    final endDay = _selectedEndDate != null
-        ? DateTime(
-            _selectedEndDate!.year,
-            _selectedEndDate!.month,
-            _selectedEndDate!.day,
-          )
-        : null;
+    final bool isStart = startDateOnly != null && dateOnly.isAtSameMomentAs(startDateOnly);
+    final bool isEnd = endDateOnly != null && dateOnly.isAtSameMomentAs(endDateOnly);
+    final bool isSingleSelected = !_isRangeMode && isStart;
 
-    final isStart = startDay != null && cleanDate.isAtSameMomentAs(startDay);
-    final isEnd = endDay != null && cleanDate.isAtSameMomentAs(endDay);
-    final isInRange = startDay != null &&
-        endDay != null &&
-        cleanDate.isAfter(startDay) &&
-        cleanDate.isBefore(endDay);
+    final bool isInRange = _isRangeMode &&
+        startDateOnly != null &&
+        endDateOnly != null &&
+        dateOnly.isAfter(startDateOnly) &&
+        dateOnly.isBefore(endDateOnly);
 
-    final isSingleSelected = isStart && (endDay == null || startDay.isAtSameMomentAs(endDay));
-
-    final isHoverPreview = startDay != null &&
-        endDay == null &&
+    final bool isHoverPreview = _isRangeMode &&
+        startDateOnly != null &&
+        endDateOnly == null &&
         _hoveredDate != null &&
-        _hoveredDate!.isAfter(startDay) &&
-        cleanDate.isAfter(startDay) &&
-        (cleanDate.isBefore(_hoveredDate!) || cleanDate.isAtSameMomentAs(_hoveredDate!));
+        dateOnly.isAfter(startDateOnly) &&
+        (dateOnly.isBefore(_hoveredDate!) || dateOnly.isAtSameMomentAs(_hoveredDate!));
 
     return MouseRegion(
-      onEnter: (_) => setState(() => _hoveredDate = cleanDate),
-      onExit: (_) => setState(() => _hoveredDate = null),
+      onEnter: (_) {
+        if (_isRangeMode && _selectedStartDate != null && _selectedEndDate == null) {
+          setState(() => _hoveredDate = dateOnly);
+        }
+      },
+      onExit: (_) {
+        if (_hoveredDate != null) {
+          setState(() => _hoveredDate = null);
+        }
+      },
       child: GestureDetector(
-        onTap: () => _onDayTapped(cleanDate),
-        child: SizedBox(
-          height: 32,
+        onTap: () => _onDayTapped(date),
+        child: Container(
+          height: 26,
+          alignment: Alignment.center,
           child: Stack(
             alignment: Alignment.center,
             children: [
-              // 1. Background Range connector (Soft Light Teal)
-              if (startDay != null && endDay != null && startDay.isBefore(endDay)) ...[
-                if (isStart)
-                  Positioned.fill(
-                    left: 16,
-                    child: Container(
-                      color: odooLightTeal,
-                    ),
-                  ),
+              // Range Background Ribbon
+              if (_isRangeMode && (isInRange || (isStart && endDateOnly != null) || isEnd)) ...[
                 if (isInRange)
                   Positioned.fill(
-                    child: Container(
-                      color: odooLightTeal,
-                    ),
+                    child: Container(color: odooLightTeal),
+                  ),
+                if (isStart && endDateOnly != null)
+                  Positioned.fill(
+                    left: 12,
+                    child: Container(color: odooLightTeal),
                   ),
                 if (isEnd)
                   Positioned.fill(
-                    right: 16,
-                    child: Container(
-                      color: odooLightTeal,
-                    ),
+                    right: 12,
+                    child: Container(color: odooLightTeal),
                   ),
               ] else if (isHoverPreview) ...[
                 Positioned.fill(
-                  child: Container(
-                    color: odooLightTeal.withValues(alpha: 0.5),
-                  ),
+                  child: Container(color: odooLightTeal.withValues(alpha: 0.5)),
                 ),
               ],
 
-              // 2. Day Circle / Highlight
+              // Day Number Circle
               Container(
-                width: 30,
-                height: 30,
+                width: 24,
+                height: 24,
                 decoration: BoxDecoration(
                   color: isStart
                       ? odooCoralRed
@@ -838,7 +653,7 @@ class _OdooDateRangePickerState extends State<OdooDateRangePicker> {
                 child: Text(
                   '${date.day}',
                   style: GoogleFonts.inter(
-                    fontSize: 12,
+                    fontSize: 11,
                     fontWeight: isStart || isEnd ? FontWeight.bold : FontWeight.w500,
                     color: isStart
                         ? Colors.white
@@ -861,104 +676,113 @@ class _OdooDateRangePickerState extends State<OdooDateRangePicker> {
 
   Widget _buildBottomToolbar() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       child: Row(
         children: [
           if (widget.includeTime) ...[
             if (!_isRangeMode) ...[
-              // Single Date Mode: Single Time Box (e.g. 6:00pm)
+              // Single Date Mode: Time Box (e.g. 12:00pm)
               InkWell(
-                onTap: () => _openQuickTimeEditor(isStart: true),
+                onTap: () {
+                  setState(() => _activeTimeSlotIsStart = true);
+                  _scrollToActiveTime();
+                },
                 borderRadius: BorderRadius.circular(4),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade100,
+                    color: _activeTimeSlotIsStart ? odooActiveTimeBlue : Colors.grey.shade100,
                     borderRadius: BorderRadius.circular(4),
-                    border: Border.all(color: Colors.grey.shade300),
+                    border: Border.all(
+                      color: _activeTimeSlotIsStart ? const Color(0xFF93C5FD) : Colors.grey.shade300,
+                    ),
                   ),
                   child: Text(
                     _formatTime(_startTime),
                     style: GoogleFonts.inter(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
-                      color: Colors.black87,
+                      color: _activeTimeSlotIsStart ? const Color(0xFF1E3A8A) : Colors.black87,
                     ),
                   ),
                 ),
               ),
-              const Spacer(),
             ] else ...[
-              // Range Mode: Start Time Box (e.g. 12:00am)
+              // Range Mode: Start Time Box ➔ End Time Box (matching Image 2)
               InkWell(
-                onTap: () => _openQuickTimeEditor(isStart: true),
+                onTap: () {
+                  setState(() => _activeTimeSlotIsStart = true);
+                  _scrollToActiveTime();
+                },
                 borderRadius: BorderRadius.circular(4),
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade100,
+                    color: _activeTimeSlotIsStart ? odooActiveTimeBlue : Colors.grey.shade100,
                     borderRadius: BorderRadius.circular(4),
-                    border: Border.all(color: Colors.grey.shade300),
+                    border: Border.all(
+                      color: _activeTimeSlotIsStart ? const Color(0xFF93C5FD) : Colors.grey.shade300,
+                    ),
                   ),
                   child: Text(
                     _formatTime(_startTime),
                     style: GoogleFonts.inter(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
-                      color: Colors.black87,
+                      color: _activeTimeSlotIsStart ? const Color(0xFF1E3A8A) : Colors.black87,
                     ),
                   ),
                 ),
               ),
-              const SizedBox(width: 6),
-              const Icon(
-                Icons.arrow_forward_rounded,
-                size: 13,
-                color: Colors.black87,
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 4),
+                child: Icon(Icons.arrow_forward_rounded, size: 14, color: Colors.grey),
               ),
-              const SizedBox(width: 6),
-              // End Time Box (e.g. 9:45am)
               InkWell(
-                onTap: () => _openQuickTimeEditor(isStart: false),
+                onTap: () {
+                  setState(() => _activeTimeSlotIsStart = false);
+                  _scrollToActiveTime();
+                },
                 borderRadius: BorderRadius.circular(4),
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade100,
+                    color: !_activeTimeSlotIsStart ? odooActiveTimeBlue : Colors.grey.shade100,
                     borderRadius: BorderRadius.circular(4),
-                    border: Border.all(color: Colors.grey.shade300),
+                    border: Border.all(
+                      color: !_activeTimeSlotIsStart ? const Color(0xFF93C5FD) : Colors.grey.shade300,
+                    ),
                   ),
                   child: Text(
                     _formatTime(_endTime),
                     style: GoogleFonts.inter(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
-                      color: Colors.black87,
+                      color: !_activeTimeSlotIsStart ? const Color(0xFF1E3A8A) : Colors.black87,
                     ),
                   ),
                 ),
               ),
-              const Spacer(),
             ],
-          ] else ...[
-            const Spacer(),
           ],
+
+          const Spacer(),
 
           // Eraser / Clear Button [ 🧹 ]
           Tooltip(
-            message: 'Clear date selection',
+            message: 'Clear selection',
             child: InkWell(
               onTap: _clearSelection,
-              borderRadius: BorderRadius.circular(6),
+              borderRadius: BorderRadius.circular(4),
               child: Container(
                 padding: const EdgeInsets.all(6),
                 decoration: BoxDecoration(
                   color: Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(6),
+                  borderRadius: BorderRadius.circular(4),
                   border: Border.all(color: Colors.grey.shade300),
                 ),
                 child: Icon(
-                  Icons.backspace_outlined,
+                  Icons.cleaning_services_rounded,
                   size: 15,
                   color: Colors.grey.shade700,
                 ),
@@ -967,7 +791,7 @@ class _OdooDateRangePickerState extends State<OdooDateRangePicker> {
           ),
           const SizedBox(width: 8),
 
-          // Primary "Apply" Button (Odoo purple #714B67)
+          // Purple Apply Button [ Apply ] (matches Image 2)
           ElevatedButton(
             onPressed: _apply,
             style: ElevatedButton.styleFrom(
@@ -975,18 +799,16 @@ class _OdooDateRangePickerState extends State<OdooDateRangePicker> {
               foregroundColor: Colors.white,
               elevation: 0,
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(6),
+                borderRadius: BorderRadius.circular(4),
               ),
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              minimumSize: const Size(60, 32),
             ),
             child: Text(
               'Apply',
               style: GoogleFonts.inter(
                 fontSize: 12,
                 fontWeight: FontWeight.bold,
-                color: Colors.white,
               ),
             ),
           ),
@@ -996,47 +818,50 @@ class _OdooDateRangePickerState extends State<OdooDateRangePicker> {
   }
 }
 
-/// A dedicated form field widget that displays the Odoo-styled Planned Date range
-/// and opens the Odoo Date Range Picker popover on click.
+/// A clean form field that displays the planned date range and opens the Odoo Date Range Picker when tapped
 class OdooPlannedDateField extends StatelessWidget {
   final DateTime? startDate;
   final DateTime? endDate;
-  final String label;
   final bool isReadOnly;
   final bool includeTime;
-  final ValueChanged<OdooDateRangeResult>? onChanged;
+  final String label;
+  final void Function(OdooDateRangeResult result) onChanged;
   final VoidCallback? onClear;
 
   const OdooPlannedDateField({
     super.key,
     this.startDate,
     this.endDate,
-    this.label = 'Planned Date',
     this.isReadOnly = false,
     this.includeTime = true,
-    this.onChanged,
+    this.label = 'Planned Date',
+    required this.onChanged,
     this.onClear,
   });
 
-  String _formatDateTime(DateTime dt) {
+  String _formatDisplay(DateTime dt) {
     if (includeTime) {
-      return DateFormat('MM/dd/yyyy hh:mm:ss a').format(dt);
-    }
-    return DateFormat('MM/dd/yyyy').format(dt);
-  }
-
-  String _formatCompact(DateTime dt) {
-    if (includeTime) {
-      return DateFormat('MMM d, h:mm a').format(dt);
+      return DateFormat('MMM d, hh:mma').format(dt).toLowerCase();
     }
     return DateFormat('MMM d, yyyy').format(dt);
   }
 
+  String _getDisplayText() {
+    if (startDate == null && endDate == null) {
+      return 'Set planned date...';
+    }
+    if (startDate != null && endDate != null) {
+      return '${_formatDisplay(startDate!)} ➔ ${_formatDisplay(endDate!)}';
+    }
+    if (startDate != null) {
+      return _formatDisplay(startDate!);
+    }
+    return _formatDisplay(endDate!);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final bool hasStart = startDate != null;
-    final bool hasEnd = endDate != null;
-    final bool hasValues = hasStart || hasEnd;
+    final hasDate = startDate != null || endDate != null;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1046,28 +871,20 @@ class OdooPlannedDateField extends StatelessWidget {
             Text(
               label,
               style: GoogleFonts.inter(
-                fontSize: 12,
+                fontSize: 13,
                 fontWeight: FontWeight.w600,
-                color: Colors.grey.shade800,
+                color: const Color(0xFF00A09D),
               ),
             ),
-            if (hasValues && onChanged != null && !isReadOnly) ...[
-              const Spacer(),
-              InkWell(
-                onTap: onClear ?? () => onChanged?.call(const OdooDateRangeResult()),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                  child: Text(
-                    'Clear',
-                    style: GoogleFonts.inter(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w500,
-                      color: AppTheme.primary,
-                    ),
-                  ),
-                ),
+            const SizedBox(width: 4),
+            Text(
+              '?',
+              style: GoogleFonts.inter(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: const Color(0xFF00A09D),
               ),
-            ],
+            ),
           ],
         ),
         const SizedBox(height: 6),
@@ -1080,143 +897,58 @@ class OdooPlannedDateField extends StatelessWidget {
                     initialStartDate: startDate,
                     initialEndDate: endDate,
                     includeTime: includeTime,
+                    allowRange: true,
                   );
-                  if (result != null && onChanged != null) {
-                    onChanged!(result);
+                  if (result != null) {
+                    onChanged(result);
                   }
                 },
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(10),
           child: Container(
-            height: 42,
-            padding: const EdgeInsets.symmetric(horizontal: 10),
+            height: 44,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
             decoration: BoxDecoration(
               color: isReadOnly ? Colors.grey.shade100 : Colors.white,
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(10),
               border: Border.all(
-                color: hasValues
-                    ? const Color(0xFF00A09D).withValues(alpha: 0.5)
-                    : Colors.grey.shade300,
-                width: 1.2,
+                color: hasDate ? const Color(0xFFEF5350).withValues(alpha: 0.5) : Colors.grey.shade300,
               ),
             ),
             child: Row(
               children: [
                 Icon(
-                  Icons.calendar_today_rounded,
-                  size: 15,
-                  color: hasValues ? const Color(0xFF714B67) : Colors.grey.shade500,
+                  Icons.calendar_month_rounded,
+                  size: 18,
+                  color: hasDate ? const Color(0xFFEF5350) : Colors.grey.shade600,
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 10),
                 Expanded(
-                  child: (hasStart && hasEnd)
-                      ? Row(
-                          children: [
-                            // Start Date
-                            Flexible(
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 3,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF00A09D).withValues(alpha: 0.1),
-                                  borderRadius: BorderRadius.circular(4),
-                                  border: Border.all(
-                                    color: const Color(0xFF00A09D).withValues(alpha: 0.4),
-                                  ),
-                                ),
-                                child: Text(
-                                  _formatDateTime(startDate!),
-                                  style: GoogleFonts.inter(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w600,
-                                    color: const Color(0xFF1B4965),
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ),
-                            const Padding(
-                              padding: EdgeInsets.symmetric(horizontal: 6),
-                              child: Icon(
-                                Icons.arrow_forward_rounded,
-                                size: 13,
-                                color: Colors.grey,
-                              ),
-                            ),
-                            // End Date
-                            Flexible(
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 3,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF714B67).withValues(alpha: 0.08),
-                                  borderRadius: BorderRadius.circular(4),
-                                  border: Border.all(
-                                    color: const Color(0xFF714B67).withValues(alpha: 0.3),
-                                  ),
-                                ),
-                                child: Text(
-                                  _formatCompact(endDate!),
-                                  style: GoogleFonts.inter(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w600,
-                                    color: const Color(0xFF714B67),
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ),
-                          ],
-                        )
-                      : (hasValues
-                          ? Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF00A09D).withValues(alpha: 0.08),
-                                borderRadius: BorderRadius.circular(4),
-                                border: Border.all(
-                                  color: const Color(0xFF00A09D).withValues(alpha: 0.3),
-                                ),
-                              ),
-                              child: Text(
-                                _formatDateTime((endDate ?? startDate)!),
-                                style: GoogleFonts.inter(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: const Color(0xFF1B4965),
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            )
-                          : Text(
-                              isReadOnly ? 'No planned date' : 'Select planned date...',
-                              style: GoogleFonts.inter(
-                                fontSize: 12,
-                                color: Colors.grey.shade500,
-                              ),
-                            )),
-                ),
-                if (isReadOnly)
-                  Icon(
-                    Icons.lock_outline_rounded,
-                    size: 13,
-                    color: Colors.grey.shade600,
-                  )
-                else
-                  Icon(
-                    Icons.arrow_drop_down_rounded,
-                    size: 20,
-                    color: Colors.grey.shade600,
+                  child: Text(
+                    _getDisplayText(),
+                    style: GoogleFonts.inter(
+                      fontSize: 13,
+                      fontWeight: hasDate ? FontWeight.w600 : FontWeight.w400,
+                      color: hasDate ? const Color(0xFFEF5350) : Colors.grey.shade500,
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
+                ),
+                if (hasDate && !isReadOnly) ...[
+                  InkWell(
+                    onTap: () {
+                      if (onClear != null) {
+                        onClear!();
+                      } else {
+                        onChanged(const OdooDateRangeResult());
+                      }
+                    },
+                    borderRadius: BorderRadius.circular(12),
+                    child: const Padding(
+                      padding: EdgeInsets.all(4),
+                      child: Icon(Icons.close_rounded, size: 16, color: Colors.grey),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),

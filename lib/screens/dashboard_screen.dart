@@ -478,6 +478,13 @@ class _DashboardScreenState extends State<DashboardScreen>
                         stageId: task.stageId ?? 0,
                         stageName: task.stageName,
                         dateDeadline: task.getEndDateTime(),
+                        dateStart: task.getStartDateTime(),
+                        allocatedHours: task.allocatedHours ?? 0.0,
+                        tags: task.tags,
+                        tagIds: task.tagIds,
+                        milestoneId: task.milestoneId,
+                        milestoneName: task.milestoneName,
+                        description: task.description,
                       ),
                     );
                   } catch (e) {

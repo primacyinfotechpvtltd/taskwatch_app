@@ -88,6 +88,33 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
     if (args is TaskDetailsModel) {
       task = args;
       _taskDetailsController.currentTask.value = args;
+    } else if (args is TaskModel) {
+      final model = TaskDetailsModel(
+        id: args.id,
+        name: args.name,
+        projectId: args.projectId,
+        projectName: args.projectName,
+        stageId: args.stageId ?? 0,
+        stageName: args.stageName,
+        dateDeadline: args.getEndDateTime(),
+        dateStart: args.getStartDateTime(),
+        allocatedHours: args.allocatedHours ?? 0.0,
+        tags: args.tags,
+        tagIds: args.tagIds,
+        milestoneId: args.milestoneId,
+        milestoneName: args.milestoneName,
+        description: args.description,
+      );
+      task = model;
+      _taskDetailsController.currentTask.value = model;
+    } else if (args is Map<String, dynamic>) {
+      final model = TaskDetailsModel.fromJson(args);
+      task = model;
+      _taskDetailsController.currentTask.value = model;
+    } else if (args is int) {
+      final model = TaskDetailsModel(id: args, name: 'Task #$args', stageId: 0);
+      task = model;
+      _taskDetailsController.currentTask.value = model;
     } else {
       debugPrint(
           'Error: TaskDetailScreen expected TaskDetailsModel but got ${args.runtimeType}');
@@ -100,11 +127,66 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
   }
 
   Future<void> _loadData() async {
-    await _taskDetailsController.loadAllTaskData(task.id);
+    await Future.wait([
+      _taskDetailsController.loadAllTaskData(task.id),
+      _fetchAllUsers(),
+      _fetchProjectMilestones(),
+      _fetchProjectTags(),
+    ]);
+
     _updateActiveStageIndex();
-    _fetchAllUsers();
-    _fetchProjectMilestones();
-    _fetchProjectTags();
+    _resolveTagsAndMilestones();
+
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  void _resolveTagsAndMilestones() {
+    if (_taskDetailsController.currentTask.value != null) {
+      final t = _taskDetailsController.currentTask.value!;
+      List<String> resolvedTags = List<String>.from(t.tags ?? []);
+      List<int> resolvedTagIds = List<int>.from(t.tagIds ?? []);
+
+      // If tagIds exist, resolve any missing names from _allProjectTags
+      if (resolvedTagIds.isNotEmpty && _allProjectTags.isNotEmpty) {
+        for (final id in resolvedTagIds) {
+          final found = _allProjectTags.where((pt) => pt.id == id).firstOrNull;
+          if (found != null && found.name.isNotEmpty && !resolvedTags.contains(found.name)) {
+            resolvedTags.add(found.name);
+          }
+        }
+      }
+
+      // If tags exist without tagIds, resolve IDs
+      if (resolvedTags.isNotEmpty && _allProjectTags.isNotEmpty) {
+        for (final name in resolvedTags) {
+          final found = _allProjectTags.where((pt) => pt.name.toLowerCase() == name.toLowerCase()).firstOrNull;
+          if (found != null && found.id > 0 && !resolvedTagIds.contains(found.id)) {
+            resolvedTagIds.add(found.id);
+          }
+        }
+      }
+
+      // If milestoneId exists but milestoneName is empty, resolve name
+      String? resolvedMilestoneName = t.milestoneName;
+      if ((resolvedMilestoneName == null || resolvedMilestoneName.isEmpty) &&
+          t.milestoneId != null &&
+          t.milestoneId! > 0 &&
+          _projectMilestones.isNotEmpty) {
+        final foundMs = _projectMilestones.where((m) => m.id == t.milestoneId).firstOrNull;
+        if (foundMs != null) {
+          resolvedMilestoneName = foundMs.name;
+        }
+      }
+
+      _taskDetailsController.currentTask.value = t.copyWith(
+        tags: resolvedTags,
+        tagIds: resolvedTagIds,
+        milestoneName: resolvedMilestoneName,
+      );
+      _taskDetailsController.currentTask.refresh();
+    }
   }
 
   Future<void> _fetchProjectMilestones() async {
@@ -117,6 +199,14 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
         _projectMilestones = list;
         _isLoadingMilestones = false;
       });
+      final t = _taskDetailsController.currentTask.value;
+      if (t != null && t.milestoneId != null && t.milestoneId! > 0) {
+        final found = list.where((m) => m.id == t.milestoneId).firstOrNull;
+        if (found != null && (t.milestoneName == null || t.milestoneName!.isEmpty || t.milestoneName != found.name)) {
+          _taskDetailsController.currentTask.value = t.copyWith(milestoneName: found.name);
+          _taskDetailsController.currentTask.refresh();
+        }
+      }
     }
   }
 
@@ -128,6 +218,24 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
         _allProjectTags = list;
         _isLoadingTags = false;
       });
+      final t = _taskDetailsController.currentTask.value;
+      if (t != null && t.tagIds != null && t.tagIds!.isNotEmpty) {
+        final resolved = <String>[];
+        for (final id in t.tagIds!) {
+          final found = list.where((pt) => pt.id == id).firstOrNull;
+          if (found != null && found.name.isNotEmpty) {
+            resolved.add(found.name);
+          }
+        }
+        if (resolved.isNotEmpty) {
+          final mergedTags = List<String>.from(t.tags ?? []);
+          for (final r in resolved) {
+            if (!mergedTags.contains(r)) mergedTags.add(r);
+          }
+          _taskDetailsController.currentTask.value = t.copyWith(tags: mergedTags);
+          _taskDetailsController.currentTask.refresh();
+        }
+      }
     }
   }
 
@@ -844,7 +952,14 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
   }
 
   Widget _buildMilestoneRow(ThemePalette theme) {
-    final milestone = _taskDetailsController.currentTask.value?.milestoneName;
+    final t = _taskDetailsController.currentTask.value;
+    String? milestone = t?.milestoneName;
+    if ((milestone == null || milestone.isEmpty) && t?.milestoneId != null && t!.milestoneId! > 0) {
+      final found = _projectMilestones.where((m) => m.id == t.milestoneId).firstOrNull;
+      if (found != null) {
+        milestone = found.name;
+      }
+    }
     final hasMilestone = milestone != null && milestone.isNotEmpty;
 
     return _buildCustomRow(
@@ -865,13 +980,13 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
               GestureDetector(
                 onTap: () => _showMilestoneDropdown(context, theme),
                 child: Text(
-                  hasMilestone ? milestone : 'new',
+                  hasMilestone ? milestone : 'Add milestone...',
                   style: TextStyle(
                     color: hasMilestone
                         ? theme.primaryTextColor
                         : theme.secondaryTextColor.withValues(alpha: 0.6),
                     fontSize: 13,
-                    fontWeight: FontWeight.w500,
+                    fontWeight: hasMilestone ? FontWeight.w600 : FontWeight.w400,
                   ),
                 ),
               ),
@@ -881,11 +996,31 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
                 child: const Icon(Icons.arrow_drop_down,
                     size: 18, color: Color(0xFF00A09D)),
               ),
+              if (hasMilestone) ...[
+                const SizedBox(width: 4),
+                GestureDetector(
+                  onTap: () async {
+                    if (_taskDetailsController.currentTask.value != null) {
+                      _taskDetailsController.currentTask.value =
+                          _taskDetailsController.currentTask.value!.copyWith(
+                        milestoneId: null,
+                        milestoneName: null,
+                      );
+                      _taskDetailsController.currentTask.refresh();
+                    }
+                    setState(() {});
+                    await _taskDetailsController.updateTaskMilestone(task.id, null, null);
+                    _taskDetailsController.currentTask.refresh();
+                    setState(() {});
+                  },
+                  child: const Icon(Icons.close, size: 14, color: Colors.grey),
+                ),
+              ],
               const SizedBox(width: 4),
               GestureDetector(
                 onTap: () => _showCreateMilestoneDialog(theme),
-                child: const Icon(Icons.arrow_forward,
-                    size: 14, color: Color(0xFF6B7280)),
+                child: const Icon(Icons.add_circle_outline,
+                    size: 15, color: Color(0xFF00A09D)),
               ),
             ],
           ),
@@ -1006,28 +1141,65 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
                     child: ListView(
                       shrinkWrap: true,
                       children: [
+                        // None / Clear option
+                        InkWell(
+                          onTap: () async {
+                            Navigator.of(dialogCtx).pop();
+                            if (_taskDetailsController.currentTask.value != null) {
+                              _taskDetailsController.currentTask.value =
+                                  _taskDetailsController.currentTask.value!.copyWith(
+                                milestoneId: null,
+                                milestoneName: null,
+                              );
+                              _taskDetailsController.currentTask.refresh();
+                            }
+                            setState(() {});
+                            await _taskDetailsController.updateTaskMilestone(task.id, null, null);
+                            _taskDetailsController.currentTask.refresh();
+                            setState(() {});
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.block, size: 14, color: Colors.grey),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'None (Clear Milestone)',
+                                  style: TextStyle(
+                                    color: theme.secondaryTextColor,
+                                    fontSize: 13,
+                                    fontStyle: FontStyle.italic,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
                         ...filtered.map((m) {
                           final isSelected = _taskDetailsController
                                   .currentTask.value?.milestoneId ==
                               m.id;
                           return InkWell(
-                           onTap: () async {
-  Navigator.of(dialogCtx).pop();
+                            onTap: () async {
+                              Navigator.of(dialogCtx).pop();
 
-  // 1. INSTANT LOCAL UPDATE
-  if (_taskDetailsController.currentTask.value != null) {
-    _taskDetailsController.currentTask.value =
-        _taskDetailsController.currentTask.value!.copyWith(
-      milestoneId: m.id,
-      milestoneName: m.name,
-    );
-  }
-  setState(() {});
+                              // 1. INSTANT LOCAL UPDATE
+                              if (_taskDetailsController.currentTask.value != null) {
+                                _taskDetailsController.currentTask.value =
+                                    _taskDetailsController.currentTask.value!.copyWith(
+                                  milestoneId: m.id,
+                                  milestoneName: m.name,
+                                );
+                                _taskDetailsController.currentTask.refresh();
+                              }
+                              setState(() {});
 
-  // 2. Persist to Odoo
-  await _taskDetailsController.updateTaskMilestone(task.id, m.id, m.name);
-  setState(() {});
-},
+                              // 2. Persist to Odoo
+                              await _taskDetailsController.updateTaskMilestone(task.id, m.id, m.name);
+                              _taskDetailsController.currentTask.refresh();
+                              setState(() {});
+                            },
                             child: Container(
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 12, vertical: 10),
@@ -1401,7 +1573,14 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
   }
 
   Widget _buildTagsRow(ThemePalette theme) {
-    final tags = _taskDetailsController.currentTask.value?.tags ?? [];
+    final t = _taskDetailsController.currentTask.value;
+    List<String> tags = List<String>.from(t?.tags ?? []);
+    if (tags.isEmpty && t?.tagIds != null && t!.tagIds!.isNotEmpty && _allProjectTags.isNotEmpty) {
+      tags = t.tagIds!.map((id) {
+        final found = _allProjectTags.where((pt) => pt.id == id).firstOrNull;
+        return found?.name ?? '';
+      }).where((s) => s.isNotEmpty).toList();
+    }
     final hasTags = tags.isNotEmpty;
 
     return _buildCustomRow(
@@ -1498,10 +1677,9 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
               .where((t) => t.name.toLowerCase().contains(query))
               .toList();
 
-          final currentTags =
-              _taskDetailsController.currentTask.value?.tags ?? [];
-          final currentTagIds =
-              _taskDetailsController.currentTask.value?.tagIds ?? [];
+          final currentTask = _taskDetailsController.currentTask.value;
+          final currentTags = List<String>.from(currentTask?.tags ?? []);
+          final currentTagIds = List<int>.from(currentTask?.tagIds ?? []);
 
           return Dialog(
             backgroundColor:
@@ -1509,7 +1687,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
             shape:
                 RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             child: Container(
-              width: 320,
+              width: 340,
               padding: const EdgeInsets.all(16),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -1518,7 +1696,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
                   Row(
                     children: [
                       Text(
-                        'Tags',
+                        'Select Tags',
                         style: TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.bold,
@@ -1576,7 +1754,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
                               filled: false,
                               contentPadding: EdgeInsets.zero,
                               border: InputBorder.none,
-                              hintText: 'Search...',
+                              hintText: 'Search or add tags...',
                               hintStyle: TextStyle(
                                 color: theme.isDark
                                     ? Colors.white38
@@ -1599,20 +1777,25 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
                       shrinkWrap: true,
                       children: [
                         ...filtered.map((t) {
-                          final isSelected = currentTags.contains(t.name);
+                          final isSelected = currentTags.any((tag) => tag.toLowerCase() == t.name.toLowerCase()) ||
+                              currentTagIds.contains(t.id);
                           return InkWell(
                             onTap: () async {
-                              Navigator.of(dialogCtx).pop();
-
-                              final updatedNames = List<String>.from(currentTags);
-                              final updatedIds = List<int>.from(currentTagIds);
+                              final updatedNames = List<String>.from(
+                                  _taskDetailsController.currentTask.value?.tags ?? []);
+                              final updatedIds = List<int>.from(
+                                  _taskDetailsController.currentTask.value?.tagIds ?? []);
 
                               if (isSelected) {
-                                updatedNames.remove(t.name);
+                                updatedNames.removeWhere((name) => name.toLowerCase() == t.name.toLowerCase());
                                 updatedIds.remove(t.id);
                               } else {
-                                updatedNames.add(t.name);
-                                updatedIds.add(t.id);
+                                if (!updatedNames.any((name) => name.toLowerCase() == t.name.toLowerCase())) {
+                                  updatedNames.add(t.name);
+                                }
+                                if (!updatedIds.contains(t.id)) {
+                                  updatedIds.add(t.id);
+                                }
                               }
 
                               // 1. INSTANT LOCAL UPDATE
@@ -1622,22 +1805,36 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
                                   tags: updatedNames,
                                   tagIds: updatedIds,
                                 );
+                                _taskDetailsController.currentTask.refresh();
                               }
+                              setDialogState(() {});
                               setState(() {});
 
-                              // 2. Persist to Odoo
+                              // 2. Persist to Odoo & REST
                               await _taskDetailsController.updateTaskTags(task.id, updatedIds, updatedNames);
-                              setState(() {});
+                              _taskDetailsController.currentTask.refresh();
+                              if (mounted) setState(() {});
                             },
                             child: Container(
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 12, vertical: 9),
-                              color: isSelected
-                                  ? const Color(0xFF00A09D)
-                                      .withValues(alpha: 0.08)
-                                  : Colors.transparent,
+                              decoration: BoxDecoration(
+                                color: isSelected
+                                    ? const Color(0xFF00A09D)
+                                        .withValues(alpha: 0.1)
+                                    : Colors.transparent,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
                               child: Row(
                                 children: [
+                                  Icon(
+                                    isSelected ? Icons.check_box : Icons.check_box_outline_blank,
+                                    size: 18,
+                                    color: isSelected
+                                        ? const Color(0xFF00A09D)
+                                        : theme.secondaryTextColor.withValues(alpha: 0.6),
+                                  ),
+                                  const SizedBox(width: 8),
                                   Expanded(
                                     child: Text(
                                       t.name,
@@ -1652,10 +1849,6 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
                                       ),
                                     ),
                                   ),
-                                  if (isSelected)
-                                    const Icon(Icons.check,
-                                        size: 14,
-                                        color: Color(0xFF00A09D)),
                                 ],
                               ),
                             ),
@@ -1666,20 +1859,30 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
                                 t.name.toLowerCase() == query))
                           InkWell(
                             onTap: () async {
-                              Navigator.of(dialogCtx).pop();
                               final newTag = await _taskDetailsController
                                   .createTag(searchController.text.trim());
                               if (newTag != null) {
-                                final updatedNames =
-                                  List<String>.from(currentTags)
-                                    ..add(newTag.name);
-                                final updatedIds =
-                                  List<int>.from(currentTagIds)
-                                    ..add(newTag.id);
+                                _allProjectTags.add(newTag);
+                                final updatedNames = List<String>.from(
+                                    _taskDetailsController.currentTask.value?.tags ?? [])..add(newTag.name);
+                                final updatedIds = List<int>.from(
+                                    _taskDetailsController.currentTask.value?.tagIds ?? [])..add(newTag.id);
+
+                                if (_taskDetailsController.currentTask.value != null) {
+                                  _taskDetailsController.currentTask.value =
+                                      _taskDetailsController.currentTask.value!.copyWith(
+                                    tags: updatedNames,
+                                    tagIds: updatedIds,
+                                  );
+                                  _taskDetailsController.currentTask.refresh();
+                                }
+                                setDialogState(() {});
+                                setState(() {});
+
                                 await _taskDetailsController.updateTaskTags(
                                     task.id, updatedIds, updatedNames);
-                                _fetchProjectTags();
-                                setState(() {});
+                                _taskDetailsController.currentTask.refresh();
+                                if (mounted) setState(() {});
                               }
                             },
                             child: Container(
@@ -1701,21 +1904,20 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
                   const Divider(height: 1),
                   const SizedBox(height: 8),
 
-                  // Search more
-                  InkWell(
-                    onTap: () => Navigator.of(dialogCtx).pop(),
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 8),
-                      child: const Text(
-                        'Search more...',
-                        style: TextStyle(
-                          color: Color(0xFF00A09D),
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
+                  // Done Button
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.of(dialogCtx).pop(),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF714B67),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(4),
                         ),
                       ),
+                      child: const Text('Done', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
                     ),
                   ),
                 ],
@@ -1730,18 +1932,31 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
   void _removeTag(String tagName) async {
     final currentTags = List<String>.from(
         _taskDetailsController.currentTask.value?.tags ?? []);
-    final currentTagIds = List<int>.from(
-        _taskDetailsController.currentTask.value?.tagIds ?? []);
+    currentTags.removeWhere((t) => t.toLowerCase() == tagName.toLowerCase());
 
-    currentTags.remove(tagName);
-    final foundTag =
-        _allProjectTags.where((t) => t.name == tagName).firstOrNull;
-    if (foundTag != null) {
-      currentTagIds.remove(foundTag.id);
+    final currentTagIds = <int>[];
+    for (final name in currentTags) {
+      final tag = _allProjectTags
+          .where((t) => t.name.toLowerCase() == name.toLowerCase())
+          .firstOrNull;
+      if (tag != null && tag.id > 0) {
+        currentTagIds.add(tag.id);
+      }
     }
+
+    if (_taskDetailsController.currentTask.value != null) {
+      _taskDetailsController.currentTask.value =
+          _taskDetailsController.currentTask.value!.copyWith(
+        tags: currentTags,
+        tagIds: currentTagIds,
+      );
+      _taskDetailsController.currentTask.refresh();
+    }
+    setState(() {});
 
     await _taskDetailsController.updateTaskTags(
         task.id, currentTagIds, currentTags);
+    _taskDetailsController.currentTask.refresh();
     setState(() {});
   }
 

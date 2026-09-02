@@ -169,6 +169,85 @@ class TaskModel {
     return null;
   }
 
+  // Tags getters
+  List<String> get tags {
+    if (json['tags'] is List) {
+      final list = (json['tags'] as List).map<String>((x) {
+        if (x is String) return x.trim();
+        if (x is Map && (x['name'] != null || x['display_name'] != null)) {
+          return (x['name'] ?? x['display_name']).toString().trim();
+        }
+        if (x is List && x.length > 1 && x[1] != null && x[1] != false) {
+          return x[1].toString().trim();
+        }
+        return '';
+      }).where((s) => s.isNotEmpty).toList();
+      if (list.isNotEmpty) return list;
+    }
+    if (json['tag_ids'] is List) {
+      final list = (json['tag_ids'] as List).map<String>((x) {
+        if (x is String) return x.trim();
+        if (x is Map && (x['name'] != null || x['display_name'] != null)) {
+          return (x['name'] ?? x['display_name']).toString().trim();
+        }
+        if (x is List && x.length > 1 && x[1] != null && x[1] != false) {
+          return x[1].toString().trim();
+        }
+        return '';
+      }).where((s) => s.isNotEmpty).toList();
+      if (list.isNotEmpty) return list;
+    }
+    return [];
+  }
+
+  List<int> get tagIds {
+    if (json['tag_ids'] is List) {
+      final list = (json['tag_ids'] as List).map<int>((x) {
+        if (x is int) return x;
+        if (x is Map && x['id'] is int) return x['id'] as int;
+        if (x is List && x.isNotEmpty && x[0] is int) return x[0] as int;
+        return int.tryParse(x.toString()) ?? 0;
+      }).where((id) => id > 0).toList();
+      if (list.isNotEmpty) return list;
+    }
+    if (json['tags'] is List) {
+      final list = (json['tags'] as List).map<int>((x) {
+        if (x is int) return x;
+        if (x is Map && x['id'] is int) return x['id'] as int;
+        if (x is List && x.isNotEmpty && x[0] is int) return x[0] as int;
+        return 0;
+      }).where((id) => id > 0).toList();
+      if (list.isNotEmpty) return list;
+    }
+    return [];
+  }
+
+  // Milestone getters
+  int? get milestoneId {
+    final m = json['milestone_id'] ?? json['milestone'];
+    if (m is int && m > 0) return m;
+    if (m is List && m.isNotEmpty && m[0] is int && (m[0] as int) > 0) return m[0] as int;
+    if (m is Map && m['id'] is int && (m['id'] as int) > 0) return m['id'] as int;
+    return null;
+  }
+
+  String? get milestoneName {
+    if (json['milestone_name'] is String && (json['milestone_name'] as String).trim().isNotEmpty && json['milestone_name'] != 'false') {
+      return json['milestone_name'].toString().trim();
+    }
+    final m = json['milestone_id'] ?? json['milestone'];
+    if (m is String && m != 'false' && m.trim().isNotEmpty) return m.trim();
+    if (m is List && m.length > 1 && m[1] != null && m[1] != false) {
+      final str = m[1].toString().trim();
+      if (str.isNotEmpty && str != 'false') return str;
+    }
+    if (m is Map && (m['name'] != null || m['display_name'] != null)) {
+      final str = (m['name'] ?? m['display_name'])?.toString().trim();
+      if (str != null && str.isNotEmpty && str != 'false') return str;
+    }
+    return null;
+  }
+
   // Assigner / Creator (Who assigned this task)
   int? get createUid {
     // 1. json['create_uid']

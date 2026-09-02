@@ -227,9 +227,28 @@ class MessageBubble extends StatelessWidget {
 
   const MessageBubble({super.key, required this.message});
 
+  bool _checkIsMyMessage() {
+    final currentUserName = Get.isRegistered<AuthController>()
+        ? Get.find<AuthController>().user.value?.name
+        : null;
+    final currentPartnerId = Get.isRegistered<DiscussController>()
+        ? Get.find<DiscussController>().partnerId.value
+        : -1;
+    final currentUserId = Get.isRegistered<AuthController>()
+        ? Get.find<AuthController>().user.value?.userId
+        : -1;
+
+    return message.isOutgoing ||
+        (currentPartnerId > 0 && message.authorId == currentPartnerId) ||
+        (currentUserId != null && currentUserId > 0 && message.authorId == currentUserId) ||
+        (currentUserName != null &&
+            currentUserName.trim().isNotEmpty &&
+            message.authorName.trim().toLowerCase() == currentUserName.trim().toLowerCase());
+  }
+
   @override
   Widget build(BuildContext context) {
-    final isOutgoing = message.isOutgoing;
+    final isOutgoing = _checkIsMyMessage();
     final nameHash = message.authorName.hashCode.abs();
     final avatarColors = [
       const Color(0xFFE2165F),
@@ -276,17 +295,19 @@ class MessageBubble extends StatelessWidget {
                   const SizedBox(width: 8),
                 ],
                 if (isOutgoing) ...[
-                  // 3-Dots Action Button on Hover / Tap
-                  IconButton(
-                    icon: const Icon(Icons.more_vert_rounded,
-                        size: 14, color: Colors.grey),
-                    onPressed: () => _showMessageActions(context),
-                    style: IconButton.styleFrom(
-                      minimumSize: const Size(22, 22),
-                      padding: EdgeInsets.zero,
+                  // 3-Dots Action Button on Hover / Tap (ONLY if NOT deleted)
+                  if (!message.isDeleted) ...[
+                    IconButton(
+                      icon: const Icon(Icons.more_vert_rounded,
+                          size: 16, color: Colors.grey),
+                      onPressed: () => _showMessageActions(context),
+                      style: IconButton.styleFrom(
+                        minimumSize: const Size(26, 26),
+                        padding: EdgeInsets.zero,
+                      ),
+                      tooltip: 'Message actions',
                     ),
-                    tooltip: 'Message actions',
-                  ),
+                  ],
                   _buildTimeText(),
                   const SizedBox(width: 6),
                 ],
@@ -295,7 +316,7 @@ class MessageBubble extends StatelessWidget {
                     clipBehavior: Clip.none,
                     children: [
                       GestureDetector(
-                        onLongPress: () => _showMessageActions(context),
+                        onLongPress: message.isDeleted ? null : () => _showMessageActions(context),
                         child: Container(
                           decoration: isOutgoing
                               ? BoxDecoration(
@@ -383,82 +404,109 @@ class MessageBubble extends StatelessWidget {
                                 ),
                               ],
 
-                              // Quoted reply banner
-                              if (message.isReply) ...[
-                                Container(
-                                  margin: const EdgeInsets.only(bottom: 6),
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 8, vertical: 5),
-                                  decoration: BoxDecoration(
-                                    color: isOutgoing
-                                        ? Colors.black.withOpacity(0.15)
-                                        : const Color(0xFF00A09D).withOpacity(0.08),
-                                    borderRadius: BorderRadius.circular(6),
-                                    border: Border(
-                                      left: BorderSide(
+                              // Deleted message display
+                              if (message.isDeleted) ...[
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.block_rounded,
+                                      size: 15,
+                                      color: isOutgoing
+                                          ? Colors.white.withValues(alpha: 0.8)
+                                          : Colors.grey.shade600,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      'This message is deleted',
+                                      style: GoogleFonts.inter(
+                                        fontSize: 13,
+                                        fontStyle: FontStyle.italic,
                                         color: isOutgoing
-                                            ? Colors.white.withOpacity(0.9)
-                                            : const Color(0xFF00A09D),
-                                        width: 3.5,
+                                            ? Colors.white.withValues(alpha: 0.85)
+                                            : Colors.grey.shade600,
                                       ),
                                     ),
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      if (message.replyAuthor != null &&
-                                          message.replyAuthor!.isNotEmpty)
-                                        Text(
-                                          message.replyAuthor!,
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.bold,
-                                            color: isOutgoing
-                                                ? Colors.white
-                                                : const Color(0xFF00A09D),
-                                          ),
-                                        ),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        message.replyText!,
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(
-                                          fontSize: 12,
+                                  ],
+                                ),
+                              ] else ...[
+                                // Quoted reply banner
+                                if (message.isReply) ...[
+                                  Container(
+                                    margin: const EdgeInsets.only(bottom: 6),
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 8, vertical: 5),
+                                    decoration: BoxDecoration(
+                                      color: isOutgoing
+                                          ? Colors.black.withValues(alpha: 0.15)
+                                          : const Color(0xFF00A09D).withValues(alpha: 0.08),
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border(
+                                        left: BorderSide(
                                           color: isOutgoing
-                                              ? Colors.white.withOpacity(0.85)
-                                              : Colors.black87,
+                                              ? Colors.white.withValues(alpha: 0.9)
+                                              : const Color(0xFF00A09D),
+                                          width: 3.5,
                                         ),
                                       ),
-                                    ],
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        if (message.replyAuthor != null &&
+                                            message.replyAuthor!.isNotEmpty)
+                                          Text(
+                                            message.replyAuthor!,
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.bold,
+                                              color: isOutgoing
+                                                  ? Colors.white
+                                                  : const Color(0xFF00A09D),
+                                            ),
+                                          ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          message.replyText!,
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: isOutgoing
+                                                ? Colors.white.withValues(alpha: 0.85)
+                                                : Colors.black87,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
-                                ),
-                              ],
-
-                              if (message.contentBody.isNotEmpty) ...[
-                                RichText(
-                                  text: TextSpan(
-                                    children: _parseMessageBody(
-                                        message.contentBody, isOutgoing),
-                                  ),
-                                ),
-                                if (_extractFirstUrl(message.contentBody) !=
-                                    null) ...[
-                                  const SizedBox(height: 6),
-                                  _buildLinkPreviewCard(
-                                      _extractFirstUrl(message.contentBody)!,
-                                      isOutgoing),
                                 ],
+
+                                if (message.contentBody.isNotEmpty) ...[
+                                  RichText(
+                                    text: TextSpan(
+                                      children: _parseMessageBody(
+                                          message.contentBody, isOutgoing),
+                                    ),
+                                  ),
+                                  if (_extractFirstUrl(message.contentBody) !=
+                                      null) ...[
+                                    const SizedBox(height: 6),
+                                    _buildLinkPreviewCard(
+                                        _extractFirstUrl(message.contentBody)!,
+                                        isOutgoing),
+                                  ],
+                                ],
+                                if (message.contentBody.isNotEmpty &&
+                                    message.attachments.isNotEmpty)
+                                  const SizedBox(height: 8),
+                                if (message.attachments.isNotEmpty)
+                                  ...message.attachments.map((attach) =>
+                                      _buildAttachmentItem(
+                                          context, attach, isOutgoing)),
                               ],
-                              if (message.contentBody.isNotEmpty &&
-                                  message.attachments.isNotEmpty)
-                                const SizedBox(height: 8),
-                              if (message.attachments.isNotEmpty)
-                                ...message.attachments.map((attach) =>
-                                    _buildAttachmentItem(
-                                        context, attach, isOutgoing)),
                             ],
                           ),
                         ),
@@ -1807,25 +1855,31 @@ class MessageBubble extends StatelessWidget {
 
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        margin: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(18),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.18),
-              blurRadius: 20,
-              offset: const Offset(0, 6),
-            ),
-          ],
+      builder: (ctx) => ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.85,
         ),
-        child: SafeArea(
-          child: SingleChildScrollView(
-            physics: const BouncingScrollPhysics(),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
+        child: Container(
+          margin: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.18),
+                blurRadius: 20,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: SafeArea(
+            child: SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
               children: [
                 // 1. Emoji Reactions Row (WhatsApp Style)
                 Container(
@@ -1934,11 +1988,156 @@ class MessageBubble extends StatelessWidget {
                     controller?.toggleStarMessage(message.id);
                   },
                 ),
+
+                // 6. Edit Message (ONLY for sent messages by current user)
+                if (_checkIsMyMessage() && !message.isDeleted) ...[
+                  ListTile(
+                    dense: true,
+                    visualDensity: VisualDensity.compact,
+                    leading: const Icon(Icons.edit_rounded,
+                        color: Color(0xFF00A09D), size: 18),
+                    title: Text(
+                      'Edit Message',
+                      style: GoogleFonts.inter(
+                          fontWeight: FontWeight.w600, fontSize: 13),
+                    ),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _showEditMessageDialog(context, controller, activeChannelId);
+                    },
+                  ),
+                ],
+
+                // 7. Delete Message (ONLY for sent messages by current user)
+                if (_checkIsMyMessage() && !message.isDeleted) ...[
+                  ListTile(
+                    dense: true,
+                    visualDensity: VisualDensity.compact,
+                    leading: const Icon(Icons.delete_outline_rounded,
+                        color: Color(0xFFEF4444), size: 18),
+                    title: Text(
+                      'Delete Message',
+                      style: GoogleFonts.inter(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                          color: const Color(0xFFEF4444)),
+                    ),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _showDeleteConfirmationDialog(context, controller, activeChannelId);
+                    },
+                  ),
+                ],
                 const SizedBox(height: 4),
               ],
             ),
           ),
         ),
+      ),
+    ));
+  }
+
+  void _showEditMessageDialog(
+    BuildContext context,
+    DiscussController? controller,
+    int channelId,
+  ) {
+    final editController = TextEditingController(
+      text: message.contentBody.isNotEmpty ? message.contentBody : message.cleanBody,
+    );
+
+    showDialog(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          'Edit Message',
+          style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        content: TextField(
+          controller: editController,
+          maxLines: 4,
+          minLines: 1,
+          autofocus: true,
+          decoration: InputDecoration(
+            hintText: 'Edit your message...',
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: const BorderSide(color: AppTheme.primary, width: 1.5),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx),
+            child: Text(
+              'Cancel',
+              style: GoogleFonts.inter(color: Colors.grey.shade700, fontWeight: FontWeight.w600),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final newText = editController.text.trim();
+              if (newText.isNotEmpty) {
+                Navigator.pop(dialogCtx);
+                await controller?.editMessage(channelId, message.id, newText);
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primary,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            child: Text(
+              'Save',
+              style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showDeleteConfirmationDialog(
+    BuildContext context,
+    DiscussController? controller,
+    int channelId,
+  ) {
+    showDialog(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          'Delete Message',
+          style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        content: Text(
+          'Are you sure you want to delete this message? This action will mark the message as deleted.',
+          style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade800),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx),
+            child: Text(
+              'Cancel',
+              style: GoogleFonts.inter(color: Colors.grey.shade700, fontWeight: FontWeight.w600),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(dialogCtx);
+              await controller?.deleteMessage(channelId, message.id);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFEF4444),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            child: Text(
+              'Delete',
+              style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
       ),
     );
   }

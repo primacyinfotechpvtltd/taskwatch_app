@@ -1,10 +1,7 @@
-import 'dart:convert';
-import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 import 'package:pi_task_watch/exports.dart';
 import 'package:pi_task_watch/models/idle_time_data.dart';
 import 'package:pi_task_watch/models/timesheet_model.dart';
-import 'package:pi_task_watch/utils/log_utils.dart'; // Added
 
 class TimesheetController extends GetxController {
   RxList<TimesheetModel> timesheetList = <TimesheetModel>[].obs;
@@ -18,14 +15,27 @@ class TimesheetController extends GetxController {
 
     final result = apiResponse.body['timesheets'];
 
-    final items =
-        result == null
-            ? <TimesheetModel>[]
-            : (result as List).map((e) => TimesheetModel.fromJson(e));
+    final rawItems = result == null
+        ? <TimesheetModel>[]
+        : (result as List).map((e) => TimesheetModel.fromJson(e)).toList();
 
-    timesheetList.value = items.toList();
+    // Deduplicate by timesheetId
+    final uniqueList = <TimesheetModel>[];
+    final seenIds = <int>{};
+    for (final item in rawItems) {
+      if (item.timesheetId > 0) {
+        if (!seenIds.contains(item.timesheetId)) {
+          seenIds.add(item.timesheetId);
+          uniqueList.add(item);
+        }
+      } else {
+        uniqueList.add(item);
+      }
+    }
 
-    return items.toList();
+    timesheetList.value = uniqueList;
+
+    return uniqueList;
   }
 
   //

@@ -1128,6 +1128,91 @@ class DiscussController extends GetxController {
     }
   }
 
+  /// Edit a previously sent message
+  Future<bool> editMessage(int channelId, int messageId, String newText) async {
+    try {
+      final trimmed = newText.trim();
+      if (trimmed.isEmpty) return false;
+
+      // 1. Optimistic local update
+      if (channelMessages.containsKey(channelId)) {
+        final list = channelMessages[channelId]!;
+        final idx = list.indexWhere((m) => m.id == messageId);
+        if (idx != -1) {
+          list[idx] = list[idx].copyWith(
+            body: trimmed,
+            cleanBody: trimmed,
+            contentBody: trimmed,
+          );
+          channelMessages[channelId] = [...list];
+        }
+      }
+
+      // 2. Remote update in Odoo mail.message
+      final res = await OdooRpcApiManager.write(
+        model: 'mail.message',
+        ids: [messageId],
+        values: {
+          'body': trimmed,
+        },
+      );
+
+      if (res.isSuccess) {
+        showToast('Message edited', idSuccess: true);
+        return true;
+      } else {
+        showToast('Failed to edit message: ${res.message}', idSuccess: false);
+        return false;
+      }
+    } catch (e) {
+      showToast('Error editing message: $e', idSuccess: false);
+      return false;
+    }
+  }
+
+  /// Delete a message sent by the user
+  Future<bool> deleteMessage(int channelId, int messageId) async {
+    try {
+      // 1. Optimistic update: mark as deleted
+      if (channelMessages.containsKey(channelId)) {
+        final list = channelMessages[channelId]!;
+        final idx = list.indexWhere((m) => m.id == messageId);
+        if (idx != -1) {
+          list[idx] = list[idx].copyWith(
+            body: '<em>This message is deleted</em>',
+            cleanBody: 'This message is deleted',
+            contentBody: 'This message is deleted',
+            isDeleted: true,
+          );
+          channelMessages[channelId] = [...list];
+        }
+      }
+
+      // 2. Remote update in Odoo: replace body with deleted text (or unlink)
+      final writeRes = await OdooRpcApiManager.write(
+        model: 'mail.message',
+        ids: [messageId],
+        values: {
+          'body': '<em>This message is deleted</em>',
+        },
+      );
+
+      if (!writeRes.isSuccess) {
+        // Attempt unlink if write failed
+        await OdooRpcApiManager.unlink(
+          model: 'mail.message',
+          ids: [messageId],
+        );
+      }
+
+      showToast('Message deleted', idSuccess: true);
+      return true;
+    } catch (e) {
+      showToast('Error deleting message: $e', idSuccess: false);
+      return false;
+    }
+  }
+
   Future<void> startDirectChat(int targetPartnerId, String targetPartnerName) async {
     try {
       isLoadingChannels.value = true;
