@@ -53,6 +53,7 @@ class TaskController extends GetxController {
     required String name,
     required int projectId,
     String? description,
+    DateTime? startDate,
     DateTime? deadline,
     double? allocatedHours,
   }) async {
@@ -82,18 +83,34 @@ class TaskController extends GetxController {
       }
 
       if (deadline != null) {
-        values['date_deadline'] = DateFormat('yyyy-MM-dd').format(deadline);
+        values['date_deadline'] = DateFormat('yyyy-MM-dd HH:mm:ss').format(deadline.toUtc());
       }
 
       if (allocatedHours != null && allocatedHours > 0) {
         values['allocated_hours'] = allocatedHours;
       }
 
+      // If startDate is also provided (double data / range mode), try with planned_date_begin
+      if (startDate != null) {
+        values['planned_date_begin'] = DateFormat('yyyy-MM-dd HH:mm:ss').format(startDate.toUtc());
+      }
+
       // Try creating via OdooRpcApiManager
-      final odooResponse = await OdooRpcApiManager.create(
+      var odooResponse = await OdooRpcApiManager.create(
         model: 'project.task',
         values: values,
       );
+
+      // If failed due to planned_date_begin not existing in standard Odoo, retry with date_deadline only
+      if (!odooResponse.isSuccess &&
+          values.containsKey('planned_date_begin') &&
+          (odooResponse.message.contains('planned_date_begin') || odooResponse.message.contains('Invalid field'))) {
+        values.remove('planned_date_begin');
+        odooResponse = await OdooRpcApiManager.create(
+          model: 'project.task',
+          values: values,
+        );
+      }
 
       if (odooResponse.isSuccess && odooResponse.data != null) {
         final int taskId = odooResponse.data as int;
@@ -111,8 +128,12 @@ class TaskController extends GetxController {
             'user_ids': [userId],
             if (description != null && description.trim().isNotEmpty)
               'description': description.trim(),
-            if (deadline != null)
-              'date_deadline': DateFormat('yyyy-MM-dd').format(deadline),
+            if (startDate != null)
+              'start_date': DateFormat('yyyy-MM-dd HH:mm:ss').format(startDate),
+            if (deadline != null) ...{
+              'date_deadline': DateFormat('yyyy-MM-dd HH:mm:ss').format(deadline),
+              'end_date': DateFormat('yyyy-MM-dd HH:mm:ss').format(deadline),
+            },
             if (allocatedHours != null && allocatedHours > 0)
               'allocated_hours': allocatedHours,
           },
@@ -146,6 +167,7 @@ class TaskController extends GetxController {
     required int taskId,
     String? name,
     String? description,
+    DateTime? startDate,
     DateTime? deadline,
     double? allocatedHours,
   }) async {
@@ -160,7 +182,10 @@ class TaskController extends GetxController {
         values['description'] = description.trim();
       }
       if (deadline != null) {
-        values['date_deadline'] = DateFormat('yyyy-MM-dd').format(deadline);
+        values['date_deadline'] = DateFormat('yyyy-MM-dd HH:mm:ss').format(deadline.toUtc());
+      }
+      if (startDate != null) {
+        values['planned_date_begin'] = DateFormat('yyyy-MM-dd HH:mm:ss').format(startDate.toUtc());
       }
       if (allocatedHours != null) {
         values['allocated_hours'] = allocatedHours;
@@ -169,11 +194,22 @@ class TaskController extends GetxController {
       if (values.isEmpty) return true;
 
       // Try via OdooRpcApiManager.write
-      final odooResponse = await OdooRpcApiManager.write(
+      var odooResponse = await OdooRpcApiManager.write(
         model: 'project.task',
         ids: [taskId],
         values: values,
       );
+
+      if (!odooResponse.isSuccess &&
+          values.containsKey('planned_date_begin') &&
+          (odooResponse.message.contains('planned_date_begin') || odooResponse.message.contains('Invalid field'))) {
+        values.remove('planned_date_begin');
+        odooResponse = await OdooRpcApiManager.write(
+          model: 'project.task',
+          ids: [taskId],
+          values: values,
+        );
+      }
 
       if (odooResponse.isSuccess) {
         showToast('Task updated successfully', idSuccess: true);

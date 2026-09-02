@@ -2,21 +2,19 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:intl/intl.dart';
 import 'package:pi_task_watch/controllers/auth_controller.dart';
 import 'package:pi_task_watch/controllers/project_controller.dart';
 import 'package:pi_task_watch/controllers/task_controller.dart';
 import 'package:pi_task_watch/managers/api_manager.dart';
 import 'package:pi_task_watch/managers/odoo_rpc_api_manager.dart';
 import 'package:pi_task_watch/models/project_model.dart';
-import 'package:pi_task_watch/models/task_details_model.dart';
 import 'package:pi_task_watch/models/task_model.dart';
-import 'package:pi_task_watch/screens/task_detail_screen.dart';
 import 'package:pi_task_watch/theme/app_theme.dart';
 import 'package:pi_task_watch/utils/duration_utils.dart';
 import 'package:pi_task_watch/utils/format_utils.dart';
 import 'package:pi_task_watch/widgets/compact_text_field.dart';
 import 'package:pi_task_watch/widgets/searchable_dropdown.dart';
+import 'package:pi_task_watch/widgets/odoo_date_time_picker.dart';
 
 enum TaskDialogMode { createNew, editExisting }
 
@@ -55,7 +53,20 @@ class _AddTaskDialogState extends State<AddTaskDialog> {
 
   DateTime? _selectedStartDate;
   DateTime? _selectedDeadline;
-  String _displayedAllocatedTime = '00:00';
+  String _displayedAllocatedTime = '0:00';
+  double _taskProgress = 0.0;
+
+  String _formatHoursDisplay(String val) {
+    final trimmed = val.trim();
+    if (trimmed.isEmpty) return '0:00';
+    if (trimmed.startsWith('0') && trimmed.length > 2 && trimmed[1] != ':') {
+      if (trimmed.startsWith('00:')) {
+        return '0:${trimmed.substring(3)}';
+      }
+      return trimmed.substring(1);
+    }
+    return trimmed;
+  }
 
   // "Assigned By" state (The person in Odoo who assigned/created this task)
   int? _assignedById;
@@ -74,9 +85,48 @@ class _AddTaskDialogState extends State<AddTaskDialog> {
   bool _isLoadingTasks = false;
   bool _isSubmitting = false;
 
+  bool get _isCreatedByCurrentUser {
+    final currentUser = _authController.user.value;
+    if (currentUser == null) return false;
+    final uid = currentUser.userId;
+    if (uid <= 0) return false;
+
+    // 1. When creating a new task, current user is the creator
+    if (_dialogMode == TaskDialogMode.createNew && _selectedTask == null) {
+      return true;
+    }
+
+    // 2. Check create_uid (creator in Odoo)
+    if (_assignedById != null && _assignedById == uid) return true;
+    if (_selectedTask?.createUid != null && _selectedTask!.createUid == uid) return true;
+
+    // 3. Check creator name
+    final currentName = currentUser.name.trim().toLowerCase();
+    if (_assignedByName.trim().isNotEmpty && currentName.isNotEmpty) {
+      if (_assignedByName.trim().toLowerCase() == currentName) return true;
+    }
+    if (_selectedTask?.createUserName != null &&
+        _selectedTask!.createUserName!.trim().isNotEmpty &&
+        currentName.isNotEmpty) {
+      if (_selectedTask!.createUserName!.trim().toLowerCase() == currentName) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   @override
   void initState() {
     super.initState();
+    if (widget.initialTask != null) {
+      _dialogMode = TaskDialogMode.editExisting;
+      _selectedTask = widget.initialTask;
+      _populateFieldsFromTask(widget.initialTask!);
+    } else {
+      _dialogMode = TaskDialogMode.createNew;
+      _resetFields();
+    }
     _fetchLoggedInUserAvatar();
     _loadProjects();
   }
@@ -203,31 +253,22 @@ class _AddTaskDialogState extends State<AddTaskDialog> {
 
       setState(() {
         _projectTasks = tasks;
-        if (widget.initialTask != null &&
-            _projectTasks.any((t) => t.id == widget.initialTask!.id)) {
-          _selectedTask = _projectTasks.firstWhere(
-            (t) => t.id == widget.initialTask!.id,
-          );
-          _dialogMode = TaskDialogMode.editExisting;
-          _populateFieldsFromTask(_selectedTask!);
-        } else if (_projectTasks.isNotEmpty) {
-          _selectedTask = _projectTasks.first;
-          _dialogMode = TaskDialogMode.editExisting;
-          _populateFieldsFromTask(_selectedTask!);
-        } else {
-          _selectedTask = null;
-          _dialogMode = TaskDialogMode.createNew;
-          _resetFields();
+        if (_dialogMode == TaskDialogMode.editExisting) {
+          if (widget.initialTask != null && _selectedTask == null) {
+            _selectedTask = _projectTasks.firstWhereOrNull((t) => t.id == widget.initialTask!.id) ?? widget.initialTask;
+          } else if (_selectedTask != null && _projectTasks.any((t) => t.id == _selectedTask!.id)) {
+            _selectedTask = _projectTasks.firstWhere((t) => t.id == _selectedTask!.id);
+          } else if (_selectedTask == null && _projectTasks.isNotEmpty) {
+            _selectedTask = _projectTasks.first;
+          }
+          if (_selectedTask != null) {
+            _populateFieldsFromTask(_selectedTask!);
+          }
         }
       });
     } catch (e) {
       if (mounted) {
-        setState(() {
-          _projectTasks = [];
-          _selectedTask = null;
-          _dialogMode = TaskDialogMode.createNew;
-          _resetFields();
-        });
+        setState(() => _projectTasks = []);
       }
     } finally {
       if (mounted) {
@@ -243,8 +284,10 @@ class _AddTaskDialogState extends State<AddTaskDialog> {
     _selectedDeadline = task.getEndDateTime();
 
     final formattedTime = task.getFormattedAllocatedTime();
-    _displayedAllocatedTime = formattedTime.isNotEmpty ? formattedTime : '00:00';
+    _displayedAllocatedTime = _formatHoursDisplay(formattedTime);
     _hoursController.text = _displayedAllocatedTime;
+    final progress = task.getProgress().percentage * 100;
+    _taskProgress = progress.clamp(0.0, 100.0);
 
     // 1. Initial resolution of "Assigned By" from task model getters
     _assignedById = task.createUid;
@@ -348,6 +391,8 @@ class _AddTaskDialogState extends State<AddTaskDialog> {
           'date_start',
           'date_deadline',
           'allocated_hours',
+          'progress',
+          'effective_hours',
         ],
         limit: 1,
       );
@@ -387,9 +432,18 @@ class _AddTaskDialogState extends State<AddTaskDialog> {
           final hours = (data['allocated_hours'] as num).toDouble();
           final duration = Duration(minutes: (hours * 60).round());
           final formatted = DurationUtils.formatDuration(duration);
+          final cleanFormatted = _formatHoursDisplay(formatted);
           setState(() {
-            _displayedAllocatedTime = formatted;
-            _hoursController.text = formatted;
+            _displayedAllocatedTime = cleanFormatted;
+            _hoursController.text = cleanFormatted;
+          });
+        }
+
+        // Update progress percentage
+        if (data['progress'] is num) {
+          final p = (data['progress'] as num).toDouble();
+          setState(() {
+            _taskProgress = p.clamp(0.0, 100.0);
           });
         }
 
@@ -725,8 +779,9 @@ class _AddTaskDialogState extends State<AddTaskDialog> {
   void _resetFields() {
     _taskNameController.clear();
     _descriptionController.clear();
-    _hoursController.clear();
-    _displayedAllocatedTime = '00:00';
+    _hoursController.text = '0:00';
+    _displayedAllocatedTime = '0:00';
+    _taskProgress = 0.0;
     _selectedStartDate = null;
     _selectedDeadline = null;
     _assignedById = null;
@@ -746,115 +801,6 @@ class _AddTaskDialogState extends State<AddTaskDialog> {
     _projectSearchController.dispose();
     _taskSearchController.dispose();
     super.dispose();
-  }
-
-  Future<void> _pickStartDate() async {
-    final now = DateTime.now();
-    final initialDate = _selectedStartDate ?? now;
-    final pickedDate = await showDatePicker(
-      context: context,
-      initialDate: initialDate,
-      firstDate: now.subtract(const Duration(days: 365)),
-      lastDate: now.add(const Duration(days: 730)),
-      builder: (context, child) => Theme(
-        data: Theme.of(context).copyWith(
-          colorScheme: ColorScheme.light(
-            primary: AppTheme.primary,
-            onPrimary: Colors.white,
-            surface: Colors.white,
-            onSurface: Colors.black87,
-          ),
-        ),
-        child: child!,
-      ),
-    );
-
-    if (pickedDate != null && mounted) {
-      final initialTime = TimeOfDay.fromDateTime(_selectedStartDate ?? now);
-      final pickedTime = await showTimePicker(
-        context: context,
-        initialTime: initialTime,
-      );
-
-      setState(() {
-        if (pickedTime != null) {
-          _selectedStartDate = DateTime(
-            pickedDate.year,
-            pickedDate.month,
-            pickedDate.day,
-            pickedTime.hour,
-            pickedTime.minute,
-          );
-        } else {
-          _selectedStartDate = pickedDate;
-        }
-      });
-    }
-  }
-
-  Future<void> _pickDeadline() async {
-    final now = DateTime.now();
-    final initialDate = _selectedDeadline ?? now;
-    final pickedDate = await showDatePicker(
-      context: context,
-      initialDate: initialDate,
-      firstDate: now.subtract(const Duration(days: 365)),
-      lastDate: now.add(const Duration(days: 730)),
-      builder: (context, child) => Theme(
-        data: Theme.of(context).copyWith(
-          colorScheme: ColorScheme.light(
-            primary: AppTheme.primary,
-            onPrimary: Colors.white,
-            surface: Colors.white,
-            onSurface: Colors.black87,
-          ),
-        ),
-        child: child!,
-      ),
-    );
-
-    if (pickedDate != null && mounted) {
-      final initialTime = TimeOfDay.fromDateTime(_selectedDeadline ?? now);
-      final pickedTime = await showTimePicker(
-        context: context,
-        initialTime: initialTime,
-      );
-
-      setState(() {
-        if (pickedTime != null) {
-          _selectedDeadline = DateTime(
-            pickedDate.year,
-            pickedDate.month,
-            pickedDate.day,
-            pickedTime.hour,
-            pickedTime.minute,
-          );
-        } else {
-          _selectedDeadline = pickedDate;
-        }
-      });
-    }
-  }
-
-  void _openFullScreenTaskDetail() {
-    if (_selectedTask == null) return;
-    Get.toNamed(
-      TaskDetailScreen.routeName,
-      arguments: TaskDetailsModel(
-        id: _selectedTask!.id,
-        name: _taskNameController.text.trim().isNotEmpty
-            ? _taskNameController.text.trim()
-            : _selectedTask!.name,
-        projectId: _selectedTask!.projectId ?? _selectedProject?.id,
-        projectName: _selectedTask!.projectName ?? _selectedProject?.name,
-        stageId: _selectedTask!.stageId ?? 0,
-        stageName: _selectedTask!.stageName,
-        dateDeadline: _selectedDeadline,
-        dateStart: _selectedStartDate,
-        description: _descriptionController.text.trim(),
-        allocatedHours: _selectedTask!.allocatedHours ?? 0.0,
-      ),
-    );
   }
 
   double? _parseAllocatedHoursInput(String text) {
@@ -901,10 +847,16 @@ class _AddTaskDialogState extends State<AddTaskDialog> {
 
     try {
       if (_dialogMode == TaskDialogMode.editExisting && _selectedTask != null) {
-        // For existing tasks, only update description & notes (time & dates are fixed)
+        final allocatedHours = _parseAllocatedHoursInput(_hoursController.text);
+        final bool canEditAll = _isCreatedByCurrentUser;
+
         final success = await _taskController.updateTask(
           taskId: _selectedTask!.id,
+          name: canEditAll && taskName.isNotEmpty ? taskName : null,
           description: _descriptionController.text.trim(),
+          startDate: canEditAll ? _selectedStartDate : null,
+          deadline: canEditAll ? _selectedDeadline : null,
+          allocatedHours: canEditAll ? allocatedHours : null,
         );
 
         if (success && mounted) {
@@ -922,6 +874,7 @@ class _AddTaskDialogState extends State<AddTaskDialog> {
           description: _descriptionController.text.trim().isNotEmpty
               ? _descriptionController.text.trim()
               : null,
+          startDate: _selectedStartDate,
           deadline: _selectedDeadline,
           allocatedHours: allocatedHours,
         );
@@ -947,6 +900,7 @@ class _AddTaskDialogState extends State<AddTaskDialog> {
     final loggedInUserEmail = currentUser?.email ?? '';
 
     final bool isEditing = _dialogMode == TaskDialogMode.editExisting;
+    final bool canEditAll = !isEditing || _isCreatedByCurrentUser;
 
     return Dialog(
       backgroundColor: Colors.white,
@@ -1011,8 +965,8 @@ class _AddTaskDialogState extends State<AddTaskDialog> {
                         ),
                       const SizedBox(height: 16),
 
-                      // If project has existing tasks, show Mode Toggle (Edit Existing vs Create New)
-                      if (_selectedProject != null) ...[
+                      // If in Edit mode, show task selector dropdown so user can switch tasks
+                      if (isEditing && _selectedProject != null) ...[
                         if (_isLoadingTasks)
                           const Padding(
                             padding: EdgeInsets.symmetric(vertical: 8),
@@ -1025,93 +979,23 @@ class _AddTaskDialogState extends State<AddTaskDialog> {
                             ),
                           )
                         else if (_projectTasks.isNotEmpty) ...[
-                          _buildModeSelector(),
-                          const SizedBox(height: 16),
-
-                          // If in Edit Existing mode, show task selector dropdown & EYE button
-                          if (isEditing) ...[
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _buildFieldLabel('Select Existing Task in Project *'),
-                                ),
-                                if (_selectedTask != null) ...[
-                                  Tooltip(
-                                    message: 'View full task details fullscreen',
-                                    child: InkWell(
-                                      onTap: _openFullScreenTaskDetail,
-                                      borderRadius: BorderRadius.circular(6),
-                                      child: Container(
-                                        padding: const EdgeInsets.all(5),
-                                        decoration: BoxDecoration(
-                                          color: AppTheme.primary.withValues(alpha: 0.08),
-                                          borderRadius: BorderRadius.circular(6),
-                                          border: Border.all(
-                                            color: AppTheme.primary.withValues(alpha: 0.25),
-                                            width: 1,
-                                          ),
-                                        ),
-                                        child: Icon(
-                                          Icons.visibility_rounded,
-                                          size: 15,
-                                          color: AppTheme.primary,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            SearchableDropdown<TaskModel>(
-                              value: _selectedTask,
-                              items: _projectTasks,
-                              hint: 'Select Task to View/Edit',
-                              height: 42,
-                              searchController: _taskSearchController,
-                              itemToString: (task) =>
-                                  '${task.name} (${task.stageName ?? 'Stage'})',
-                              onChanged: (task) {
-                                if (task != null) {
-                                  setState(() {
-                                    _selectedTask = task;
-                                    _populateFieldsFromTask(task);
-                                  });
-                                }
-                              },
-                            ),
-                            const SizedBox(height: 16),
-                          ],
-                        ] else ...[
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 8,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.blue.shade50,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: Colors.blue.shade100),
-                            ),
-                            child: Row(
-                              children: [
-                                Icon(
-                                  Icons.info_outline,
-                                  size: 16,
-                                  color: Colors.blue.shade700,
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    'No existing tasks found in this project. Creating a new task.',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.blue.shade800,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
+                          _buildFieldLabel('Select Existing Task in Project *'),
+                          const SizedBox(height: 6),
+                          SearchableDropdown<TaskModel>(
+                            value: _selectedTask,
+                            items: _projectTasks,
+                            hint: 'Select Task to View/Edit',
+                            height: 42,
+                            searchController: _taskSearchController,
+                            itemToString: (task) => task.name,
+                            onChanged: (task) {
+                              if (task != null) {
+                                setState(() {
+                                  _selectedTask = task;
+                                  _populateFieldsFromTask(task);
+                                });
+                              }
+                            },
                           ),
                           const SizedBox(height: 16),
                         ],
@@ -1119,10 +1003,10 @@ class _AddTaskDialogState extends State<AddTaskDialog> {
 
                       // Task Title
                       _buildFieldLabel(
-                        isEditing ? 'Task Title' : 'Task Title *',
+                        canEditAll ? 'Task Title *' : 'Task Title',
                       ),
                       const SizedBox(height: 6),
-                      if (isEditing)
+                      if (isEditing && !canEditAll)
                         Container(
                           height: 42,
                           padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -1154,7 +1038,7 @@ class _AddTaskDialogState extends State<AddTaskDialog> {
                                 ),
                               ),
                               Tooltip(
-                                message: 'Task title is fixed for existing tasks.',
+                                message: 'Task title is fixed for tasks assigned by managers.',
                                 child: Container(
                                   padding: const EdgeInsets.all(4),
                                   decoration: BoxDecoration(
@@ -1196,106 +1080,117 @@ class _AddTaskDialogState extends State<AddTaskDialog> {
                       ),
                       const SizedBox(height: 16),
 
-                      // Start Time & End Time (2 fields in a row) - Read-only / Locked for existing tasks
+                      // Planned Date (Odoo Style Start Date & Deadline Range Picker)
+                      OdooPlannedDateField(
+                        startDate: _selectedStartDate,
+                        endDate: _selectedDeadline,
+                        isReadOnly: isEditing && !canEditAll,
+                        includeTime: true,
+                        onChanged: (result) {
+                          setState(() {
+                            _selectedStartDate = result.startDate;
+                            _selectedDeadline = result.endDate;
+
+                            if (result.startDate != null && result.endDate != null) {
+                              final diff = result.endDate!.difference(result.startDate!);
+                              if (!diff.isNegative && diff.inMinutes > 0) {
+                                final hours = diff.inHours;
+                                final mins = diff.inMinutes % 60;
+                                final formatted = '$hours:${mins.toString().padLeft(2, '0')}';
+                                _displayedAllocatedTime = formatted;
+                                _hoursController.text = formatted;
+                              }
+                            }
+                          });
+                        },
+                        onClear: (isEditing && !canEditAll)
+                            ? null
+                            : () {
+                                setState(() {
+                                  _selectedStartDate = null;
+                                  _selectedDeadline = null;
+                                });
+                              },
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Allocated Time (Odoo Style: "Allocated Time   0:00  (22%)" with teal underline)
                       Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          // Start Time
-                          Expanded(
-                            child: _buildTimePickerField(
-                              label: 'Start Time',
-                              icon: Icons.play_circle_outline_rounded,
-                              dateTime: _selectedStartDate,
-                              hintText: 'Set start time',
-                              onTap: isEditing ? null : _pickStartDate,
-                              onClear: isEditing
-                                  ? null
-                                  : () => setState(() => _selectedStartDate = null),
-                              isReadOnly: isEditing,
+                          _buildFieldLabel('Allocated Time'),
+                          const SizedBox(width: 24),
+                          if (isEditing && !canEditAll)
+                            Container(
+                              padding: const EdgeInsets.only(bottom: 2),
+                              decoration: const BoxDecoration(
+                                border: Border(
+                                  bottom: BorderSide(
+                                    color: Color(0xFF00A09D),
+                                    width: 1.5,
+                                  ),
+                                ),
+                              ),
+                              child: Text(
+                                _formatHoursDisplay(_displayedAllocatedTime),
+                                style: GoogleFonts.inter(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                  color: const Color(0xFF1B2559),
+                                ),
+                              ),
+                            )
+                          else
+                            Container(
+                              width: 60,
+                              padding: const EdgeInsets.only(bottom: 2),
+                              decoration: const BoxDecoration(
+                                border: Border(
+                                  bottom: BorderSide(
+                                    color: Color(0xFF00A09D),
+                                    width: 1.5,
+                                  ),
+                                ),
+                              ),
+                              child: TextField(
+                                controller: _hoursController,
+                                style: GoogleFonts.inter(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                  color: const Color(0xFF1B2559),
+                                ),
+                                decoration: const InputDecoration(
+                                  isDense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                  border: InputBorder.none,
+                                  hintText: '0:00',
+                                  hintStyle: TextStyle(
+                                    color: Colors.grey,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                  decimal: true,
+                                ),
+                                onChanged: (val) {
+                                  setState(() {
+                                    _displayedAllocatedTime = val;
+                                  });
+                                },
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 12),
-                          // End Time / Deadline
-                          Expanded(
-                            child: _buildTimePickerField(
-                              label: 'End Time',
-                              icon: Icons.alarm_rounded,
-                              dateTime: _selectedDeadline,
-                              hintText: 'Set end time',
-                              onTap: isEditing ? null : _pickDeadline,
-                              onClear: isEditing
-                                  ? null
-                                  : () => setState(() => _selectedDeadline = null),
-                              isReadOnly: isEditing,
+                          const SizedBox(width: 8),
+                          Text(
+                            '(${_taskProgress.toStringAsFixed(0)}%)',
+                            style: GoogleFonts.inter(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                              color: const Color(0xFF1B2559),
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 16),
-
-                      // Allocated Time (Erase '(Hours)' text, show '00:00') - Read-only / Locked for existing tasks
-                      _buildFieldLabel('Allocated Time'),
-                      const SizedBox(height: 6),
-                      if (isEditing)
-                        Container(
-                          height: 42,
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade100,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: Colors.grey.shade300),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.timer_outlined,
-                                size: 18,
-                                color: AppTheme.primary,
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  _displayedAllocatedTime.isNotEmpty
-                                      ? _displayedAllocatedTime
-                                      : '00:00',
-                                  style: GoogleFonts.inter(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w600,
-                                    color: Colors.black87,
-                                  ),
-                                ),
-                              ),
-                              Tooltip(
-                                message:
-                                    'Allocated time is fixed for existing tasks and cannot be modified.',
-                                child: Container(
-                                  padding: const EdgeInsets.all(4),
-                                  decoration: BoxDecoration(
-                                    color: Colors.grey.shade200,
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: Icon(
-                                    Icons.lock_outline_rounded,
-                                    size: 13,
-                                    color: Colors.grey.shade700,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        )
-                      else
-                        CompactTextField(
-                          controller: _hoursController,
-                          hintText: '00:00 (e.g. 01:30 or 2.5)',
-                          prefixIcon: Icon(
-                            Icons.timer_outlined,
-                            size: 18,
-                            color: AppTheme.primary,
-                          ),
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                        ),
                       const SizedBox(height: 16),
 
                       // Description & Notes (Editable for both existing and new tasks)
@@ -1367,225 +1262,7 @@ class _AddTaskDialogState extends State<AddTaskDialog> {
     );
   }
 
-  Widget _buildTimePickerField({
-    required String label,
-    required IconData icon,
-    required DateTime? dateTime,
-    required String hintText,
-    required VoidCallback? onTap,
-    required VoidCallback? onClear,
-    bool isReadOnly = false,
-  }) {
-    final hasValue = dateTime != null;
-    final formatted = hasValue
-        ? DateFormat('dd MMM yyyy, hh:mm a').format(dateTime)
-        : (isReadOnly ? 'Not set' : hintText);
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildFieldLabel(label),
-        const SizedBox(height: 6),
-        InkWell(
-          onTap: isReadOnly ? null : onTap,
-          borderRadius: BorderRadius.circular(10),
-          child: Container(
-            height: 42,
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            decoration: BoxDecoration(
-              color: isReadOnly ? Colors.grey.shade100 : Colors.grey.shade50,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                color: isReadOnly ? Colors.grey.shade300 : Colors.grey.shade200,
-              ),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  icon,
-                  size: 16,
-                  color: isReadOnly ? Colors.grey.shade600 : AppTheme.primary,
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    formatted,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight:
-                          hasValue ? FontWeight.w600 : FontWeight.normal,
-                      color: hasValue ? Colors.black87 : Colors.grey.shade500,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                if (isReadOnly)
-                  Tooltip(
-                    message:
-                        '$label is fixed for existing tasks and cannot be modified.',
-                    child: Container(
-                      padding: const EdgeInsets.all(3),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade200,
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(
-                        Icons.lock_outline_rounded,
-                        size: 12,
-                        color: Colors.grey.shade700,
-                      ),
-                    ),
-                  )
-                else if (hasValue && onClear != null)
-                  GestureDetector(
-                    onTap: onClear,
-                    child: const Padding(
-                      padding: EdgeInsets.only(left: 4),
-                      child: Icon(
-                        Icons.close,
-                        size: 15,
-                        color: Colors.grey,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildModeSelector() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.grey.shade100,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.grey.shade300),
-      ),
-      padding: const EdgeInsets.all(3),
-      child: Row(
-        children: [
-          Expanded(
-            child: InkWell(
-              onTap: () {
-                setState(() {
-                  _dialogMode = TaskDialogMode.editExisting;
-                  if (_selectedTask != null) {
-                    _populateFieldsFromTask(_selectedTask!);
-                  } else if (_projectTasks.isNotEmpty) {
-                    _selectedTask = _projectTasks.first;
-                    _populateFieldsFromTask(_selectedTask!);
-                  }
-                });
-              },
-              borderRadius: BorderRadius.circular(8),
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                decoration: BoxDecoration(
-                  color: _dialogMode == TaskDialogMode.editExisting
-                      ? Colors.white
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(8),
-                  boxShadow: _dialogMode == TaskDialogMode.editExisting
-                      ? [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.05),
-                            blurRadius: 4,
-                            offset: const Offset(0, 1),
-                          ),
-                        ]
-                      : null,
-                ),
-                alignment: Alignment.center,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.edit_calendar_rounded,
-                      size: 16,
-                      color: _dialogMode == TaskDialogMode.editExisting
-                          ? AppTheme.primary
-                          : Colors.grey.shade600,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Existing Tasks (${_projectTasks.length})',
-                      style: GoogleFonts.inter(
-                        fontSize: 12,
-                        fontWeight: _dialogMode == TaskDialogMode.editExisting
-                            ? FontWeight.bold
-                            : FontWeight.w500,
-                        color: _dialogMode == TaskDialogMode.editExisting
-                            ? AppTheme.primary
-                            : Colors.grey.shade700,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          Expanded(
-            child: InkWell(
-              onTap: () {
-                setState(() {
-                  _dialogMode = TaskDialogMode.createNew;
-                  _resetFields();
-                });
-              },
-              borderRadius: BorderRadius.circular(8),
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                decoration: BoxDecoration(
-                  color: _dialogMode == TaskDialogMode.createNew
-                      ? Colors.white
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(8),
-                  boxShadow: _dialogMode == TaskDialogMode.createNew
-                      ? [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.05),
-                            blurRadius: 4,
-                            offset: const Offset(0, 1),
-                          ),
-                        ]
-                      : null,
-                ),
-                alignment: Alignment.center,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.add_circle_outline_rounded,
-                      size: 16,
-                      color: _dialogMode == TaskDialogMode.createNew
-                          ? AppTheme.primary
-                          : Colors.grey.shade600,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Create New Task',
-                      style: GoogleFonts.inter(
-                        fontSize: 12,
-                        fontWeight: _dialogMode == TaskDialogMode.createNew
-                            ? FontWeight.bold
-                            : FontWeight.w500,
-                        color: _dialogMode == TaskDialogMode.createNew
-                            ? AppTheme.primary
-                            : Colors.grey.shade700,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 
   Widget _buildAssignedByCard({
     required bool isEditing,
@@ -1648,7 +1325,7 @@ class _AddTaskDialogState extends State<AddTaskDialog> {
     }
 
     final assignerEmail = _assignedByEmail.trim();
-    final assignerId = _assignedById ?? 0;
+    final assignerId = _assignedById ?? _assignedByEmployeeId ?? 0;
 
     return _buildPersonCard(
       userId: assignerId,
@@ -1909,7 +1586,7 @@ class _AddTaskDialogState extends State<AddTaskDialog> {
           const SizedBox(width: 12),
           Text(
             _dialogMode == TaskDialogMode.editExisting
-                ? 'Manage Task in Project'
+                ? 'Edit Task'
                 : 'Create New Task',
             style: GoogleFonts.spaceGrotesk(
               fontSize: 17,

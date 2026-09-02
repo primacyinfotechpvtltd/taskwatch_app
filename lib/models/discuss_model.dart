@@ -157,6 +157,10 @@ class DiscussMessageModel {
   final int id;
   final String body;
   final String cleanBody;
+  final int? parentId;
+  final String? replyAuthor;
+  final String? replyText;
+  final String contentBody;
   final int authorId;
   final String authorName;
   final DateTime date;
@@ -169,6 +173,10 @@ class DiscussMessageModel {
     required this.id,
     required this.body,
     required this.cleanBody,
+    this.parentId,
+    this.replyAuthor,
+    this.replyText,
+    String? contentBody,
     required this.authorId,
     required this.authorName,
     required this.date,
@@ -176,14 +184,17 @@ class DiscussMessageModel {
     this.isStarred = false,
     this.attachmentIds = const [],
     this.attachments = const [],
-  });
+  }) : contentBody = contentBody ?? cleanBody;
+
+  bool get isReply => (replyText != null && replyText!.isNotEmpty);
 
   String get displayBody {
-    if (cleanBody.trim().isEmpty && (attachments.isNotEmpty || attachmentIds.isNotEmpty)) {
+    final text = contentBody.isNotEmpty ? contentBody : cleanBody;
+    if (text.trim().isEmpty && (attachments.isNotEmpty || attachmentIds.isNotEmpty)) {
       final isImage = attachments.any((a) => a.mimetype.startsWith('image/'));
       return isImage ? '📷 Image' : '📄 Attachment';
     }
-    return cleanBody;
+    return text;
   }
 
   factory DiscussMessageModel.fromJson(Map<String, dynamic> json, int currentPartnerId) {
@@ -195,6 +206,14 @@ class DiscussMessageModel {
       authName = authorField[1].toString();
     } else if (authorField is int) {
       authId = authorField;
+    }
+
+    int? parentMsgId;
+    final parentField = json['parent_id'];
+    if (parentField is List && parentField.isNotEmpty) {
+      parentMsgId = parentField[0] is int ? parentField[0] as int : null;
+    } else if (parentField is int && parentField > 0) {
+      parentMsgId = parentField;
     }
 
     String bodyStr = json['body'] ?? '';
@@ -215,10 +234,51 @@ class DiscussMessageModel {
 
     final bool starred = json['starred'] == true || json['is_starred'] == true;
 
+    String? replyAuthor;
+    String? replyText;
+
+    // Unescape HTML entities first to reliably detect quotes
+    final unescaped = bodyStr
+        .replaceAll('&lt;', '<')
+        .replaceAll('&gt;', '>')
+        .replaceAll('&quot;', '"')
+        .replaceAll('&#39;', "'");
+
+    String cleanBody = FormatUtils.cleanHtml(unescaped);
+    String contentBody = cleanBody;
+
+    // Parse blockquote if present: e.g. <blockquote><b>Aniket Rai:</b> hi</blockquote> or &lt;blockquote&gt;
+    final quoteMatch = RegExp(
+      r'<blockquote[^>]*>(?:<p[^>]*>)?(?:<b[^>]*>)?([^:<]+)?(?::\s*</b>|:\s*</b\s*>|:)?\s*([\s\S]*?)(?:</p>)?</blockquote>',
+      caseSensitive: false,
+    ).firstMatch(unescaped);
+
+    if (quoteMatch != null) {
+      replyAuthor = quoteMatch.group(1)?.trim();
+      replyText = FormatUtils.cleanHtml(quoteMatch.group(2) ?? '').trim();
+      final remaining = unescaped.replaceFirst(quoteMatch.group(0)!, '');
+      contentBody = FormatUtils.cleanHtml(remaining).trim();
+    } else {
+      // Also check for plain text quoted format: "» Author: text\nReply"
+      final plainQuoteMatch = RegExp(
+        r'^»\s*([^:\n]+):\s*([^\n]+)\n+([\s\S]*)',
+        caseSensitive: false,
+      ).firstMatch(cleanBody);
+      if (plainQuoteMatch != null) {
+        replyAuthor = plainQuoteMatch.group(1)?.trim();
+        replyText = plainQuoteMatch.group(2)?.trim();
+        contentBody = plainQuoteMatch.group(3)?.trim() ?? '';
+      }
+    }
+
     return DiscussMessageModel(
       id: json['id'] ?? 0,
       body: bodyStr,
-      cleanBody: FormatUtils.cleanHtml(bodyStr),
+      cleanBody: cleanBody,
+      parentId: parentMsgId,
+      replyAuthor: replyAuthor,
+      replyText: replyText,
+      contentBody: contentBody,
       authorId: authId,
       authorName: authName,
       date: msgDate,
@@ -232,6 +292,10 @@ class DiscussMessageModel {
     int? id,
     String? body,
     String? cleanBody,
+    int? parentId,
+    String? replyAuthor,
+    String? replyText,
+    String? contentBody,
     int? authorId,
     String? authorName,
     DateTime? date,
@@ -244,6 +308,10 @@ class DiscussMessageModel {
       id: id ?? this.id,
       body: body ?? this.body,
       cleanBody: cleanBody ?? this.cleanBody,
+      parentId: parentId ?? this.parentId,
+      replyAuthor: replyAuthor ?? this.replyAuthor,
+      replyText: replyText ?? this.replyText,
+      contentBody: contentBody ?? this.contentBody,
       authorId: authorId ?? this.authorId,
       authorName: authorName ?? this.authorName,
       date: date ?? this.date,

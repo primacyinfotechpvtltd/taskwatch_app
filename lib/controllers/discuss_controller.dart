@@ -831,7 +831,15 @@ class DiscussController extends GetxController {
           ['res_id', '=', channelId],
           ['message_type', '=', 'comment']
         ],
-        fields: ['id', 'body', 'author_id', 'date', 'message_type', 'attachment_ids'],
+        fields: [
+          'id',
+          'body',
+          'author_id',
+          'date',
+          'message_type',
+          'attachment_ids',
+          'parent_id',
+        ],
         order: 'id desc',
         limit: 50,
       );
@@ -843,6 +851,21 @@ class DiscussController extends GetxController {
             Map<String, dynamic>.from(raw),
             partnerId.value,
           ));
+        }
+
+        // Resolve parent_id replies from available messages
+        final Map<int, DiscussMessageModel> idMap = {for (final m in msgs) m.id: m};
+        for (var i = 0; i < msgs.length; i++) {
+          final m = msgs[i];
+          if (m.parentId != null && m.parentId! > 0 && (m.replyText == null || m.replyText!.isEmpty)) {
+            final parent = idMap[m.parentId!];
+            if (parent != null) {
+              msgs[i] = m.copyWith(
+                replyAuthor: parent.authorName,
+                replyText: parent.contentBody.isNotEmpty ? parent.contentBody : parent.cleanBody,
+              );
+            }
+          }
         }
 
         // Collect all attachment IDs from fetched messages
@@ -1022,24 +1045,36 @@ class DiscussController extends GetxController {
       isSendingMessage.value = true;
 
       // Handle reply context if active
-      String bodyToSend = text;
       final replying = replyingMessage.value;
+      int? parentMessageId;
+      String? replyAuthor;
+      String? replyText;
+
       if (replying != null) {
-        final replyAuthor = replying.authorName;
-        final replyText = replying.cleanBody.isNotEmpty
-            ? replying.cleanBody
-            : (replying.attachments.isNotEmpty
-                ? '📎 ${replying.attachments.first.name}'
-                : 'Message');
-        bodyToSend = '<blockquote><b>$replyAuthor:</b> $replyText</blockquote>\n$text';
+        parentMessageId = replying.id > 0 ? replying.id : null;
+        replyAuthor = replying.authorName;
+        replyText = replying.contentBody.isNotEmpty
+            ? replying.contentBody
+            : (replying.cleanBody.isNotEmpty
+                ? replying.cleanBody
+                : (replying.attachments.isNotEmpty
+                    ? '📎 ${replying.attachments.first.name}'
+                    : 'Message'));
         replyingMessage.value = null;
       }
+
+      final trimmedText = text.trim();
+      final bodyForOdoo = trimmedText;
       
       // 1. Optimistic Local Update for UI responsiveness
       final localMsg = DiscussMessageModel(
         id: DateTime.now().millisecondsSinceEpoch, // temporary local id
-        body: bodyToSend,
-        cleanBody: FormatUtils.cleanHtml(bodyToSend),
+        body: bodyForOdoo,
+        cleanBody: trimmedText,
+        parentId: parentMessageId,
+        replyAuthor: replyAuthor,
+        replyText: replyText,
+        contentBody: trimmedText,
         authorId: partnerId.value,
         authorName: Get.find<AuthController>().user.value?.name ?? 'Me',
         date: DateTime.now(),
@@ -1053,17 +1088,22 @@ class DiscussController extends GetxController {
       }
       scrollToBottom(animate: true);
 
-      // 2. Perform remote API post
-      debugPrint('DISCUSS_SEND: Posting message to channel=$channelId');
+      // 2. Perform remote API post with parent_id
+      debugPrint('DISCUSS_SEND: Posting message to channel=$channelId, parent_id=$parentMessageId');
+      final Map<String, dynamic> kwargs = {
+        'body': bodyForOdoo,
+        'message_type': 'comment',
+        'subtype_xmlid': 'mail.mt_comment',
+      };
+      if (parentMessageId != null && parentMessageId > 0) {
+        kwargs['parent_id'] = parentMessageId;
+      }
+
       final response = await OdooRpcApiManager.call(
         model: channelModelName.value,
         method: 'message_post',
         args: [channelId],
-        kwargs: {
-          'body': bodyToSend,
-          'message_type': 'comment',
-          'subtype_xmlid': 'mail.mt_comment',
-        },
+        kwargs: kwargs,
       );
 
       if (response.isSuccess) {

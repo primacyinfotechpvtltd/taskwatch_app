@@ -11,6 +11,9 @@ class TaskDetailsModel {
   final List<TaskAssignee> userIds;
   final List<String> userNames;
   final List<String>? tags;
+  final List<int>? tagIds;
+  final int? milestoneId;
+  final String? milestoneName;
   final DateTime? dateDeadline;
   final DateTime? dateStart;
   final double allocatedHours;
@@ -34,6 +37,9 @@ class TaskDetailsModel {
     this.userIds = const <TaskAssignee>[],
     this.userNames = const [],
     this.tags,
+    this.tagIds,
+    this.milestoneId,
+    this.milestoneName,
     this.dateDeadline,
     this.dateStart,
     this.allocatedHours = 0.0,
@@ -102,12 +108,31 @@ class TaskDetailsModel {
               if (x is Map) return (x['name'] ?? '').toString();
               return x.toString();
             }).toList()
+          : (json['tags'] is List
+              ? List<String>.from(json['tags'].map((x) => x.toString()))
+              : null),
+      tagIds: json['tag_ids'] is List
+          ? (json['tag_ids'] as List).map((x) {
+              if (x is int) return x;
+              if (x is List && x.isNotEmpty && x[0] is int) return x[0] as int;
+              if (x is Map && x['id'] is int) return x['id'] as int;
+              return int.tryParse(x.toString()) ?? 0;
+            }).where((id) => id > 0).toList()
           : null,
+      milestoneId: json['milestone_id'] is List
+          ? (json['milestone_id'] as List).first
+          : (json['milestone_id'] is int ? json['milestone_id'] : null),
+      milestoneName: json['milestone_name'] is String
+          ? json['milestone_name']
+          : (json['milestone_id'] is List &&
+                  (json['milestone_id'] as List).length > 1
+              ? json['milestone_id'][1]?.toString()
+              : null),
       dateDeadline: (json['date_deadline'] ?? json['end_date']) is String
-          ? DateTime.tryParse(json['date_deadline'] ?? json['end_date'])
+          ? FormatUtils.parseOdooDateTime(json['date_deadline'] ?? json['end_date'])
           : null,
-      dateStart: (json['date_start'] ?? json['start_date']) is String
-          ? DateTime.tryParse(json['date_start'] ?? json['start_date'])
+      dateStart: (json['planned_date_begin'] ?? json['date_start'] ?? json['start_date']) is String
+          ? FormatUtils.parseOdooDateTime(json['planned_date_begin'] ?? json['date_start'] ?? json['start_date'])
           : null,
       allocatedHours: json['allocated_time_in_hours'] is String
           ? _parseDurationToHours(json['allocated_time_in_hours'])
@@ -119,10 +144,9 @@ class TaskDetailsModel {
           : 0.0),
       priority: json['priority'] is String
           ? json['priority']
-          : (json['priority'] == false ? null : json['priority']?.toString()),
-      state: json['state'] is String
-          ? json['state']
-          : (json['state'] == false ? null : json['state']?.toString()),
+          : json['priority']?.toString(),
+      state:
+          json['state'] is String ? json['state'] : json['state']?.toString(),
       parentId: json['parent_id'] is List
           ? (json['parent_id'] as List).first
           : (json['parent_id'] is int ? json['parent_id'] : null),
@@ -134,10 +158,10 @@ class TaskDetailsModel {
           : null,
       usedTime: json['used_time'] is String
           ? json['used_time']
-          : (json['used_time'] == false ? null : json['used_time']?.toString()),
-      taskUrl: json['task_url'] is String
-          ? json['task_url']
-          : (json['task_url'] == false ? null : json['task_url']?.toString()),
+          : (json['used_time'] is Map
+              ? json['used_time']['formatted']?.toString()
+              : null),
+      taskUrl: json['task_url']?.toString(),
     );
   }
 
@@ -150,7 +174,7 @@ class TaskDetailsModel {
     return hours + (minutes / 60.0);
   }
 
-  /// Convert TaskModel to JSON
+  /// Convert TaskModel to JSON (for API requests or storage)
   Map<String, dynamic> toJson() {
     return {
       'id': id,
@@ -162,7 +186,9 @@ class TaskDetailsModel {
       'stage_name': stageName,
       'user_ids': userIds.map((u) => u.toJson()).toList(),
       'user_names': userNames,
-      'tag_ids': tags,
+      'tag_ids': tagIds ?? tags,
+      'milestone_id': milestoneId,
+      'milestone_name': milestoneName,
       'date_deadline': dateDeadline?.toIso8601String(),
       'date_start': dateStart?.toIso8601String(),
       'allocated_hours': allocatedHours,
@@ -189,6 +215,9 @@ class TaskDetailsModel {
     List<TaskAssignee>? userIds,
     List<String>? userNames,
     List<String>? tags,
+    List<int>? tagIds,
+    int? milestoneId,
+    String? milestoneName,
     DateTime? dateDeadline,
     DateTime? dateStart,
     double? allocatedHours,
@@ -198,6 +227,8 @@ class TaskDetailsModel {
     int? parentId,
     DateTime? createDate,
     DateTime? writeDate,
+    String? usedTime,
+    String? taskUrl,
   }) {
     return TaskDetailsModel(
       id: id ?? this.id,
@@ -210,6 +241,9 @@ class TaskDetailsModel {
       userIds: userIds ?? this.userIds,
       userNames: userNames ?? this.userNames,
       tags: tags ?? this.tags,
+      tagIds: tagIds ?? this.tagIds,
+      milestoneId: milestoneId ?? this.milestoneId,
+      milestoneName: milestoneName ?? this.milestoneName,
       dateDeadline: dateDeadline ?? this.dateDeadline,
       dateStart: dateStart ?? this.dateStart,
       allocatedHours: allocatedHours ?? this.allocatedHours,
@@ -292,10 +326,12 @@ class TaskDetailsModel {
 
   /// Get first assignee initial for avatar
   String getFirstAssigneeInitial() {
-    if (userIds.isNotEmpty) {
-      return userIds.first.name[0].toUpperCase();
+    if (userIds.isNotEmpty && userIds.first.name.trim().isNotEmpty) {
+      return userIds.first.name.trim()[0].toUpperCase();
     }
-    if (userNames.isNotEmpty) return userNames.first[0].toUpperCase();
+    if (userNames.isNotEmpty && userNames.first.trim().isNotEmpty) {
+      return userNames.first.trim()[0].toUpperCase();
+    }
     return '?';
   }
 
@@ -303,15 +339,6 @@ class TaskDetailsModel {
   String toString() {
     return 'TaskDetailsModel(id: $id, name: $name, stage: $stageName, users: $userNames, progress: $progressPercentage%)';
   }
-
-  @override
-  bool operator ==(Object other) {
-    if (identical(this, other)) return true;
-    return other is TaskDetailsModel && other.id == id;
-  }
-
-  @override
-  int get hashCode => id.hashCode;
 }
 
 /// Task Stage Model (User Example #2)
@@ -789,5 +816,61 @@ class TaskAttachment {
       return '${(fileSize / 1024).toStringAsFixed(1)} KB';
     }
     return '${(fileSize / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+}
+
+class ProjectMilestone {
+  final int id;
+  final String name;
+  final int? projectId;
+  final DateTime? deadline;
+  final bool isReached;
+
+  ProjectMilestone({
+    required this.id,
+    required this.name,
+    this.projectId,
+    this.deadline,
+    this.isReached = false,
+  });
+
+  factory ProjectMilestone.fromJson(Map<String, dynamic> json) {
+    return ProjectMilestone(
+      id: json['id'] is int
+          ? json['id']
+          : (int.tryParse(json['id']?.toString() ?? '0') ?? 0),
+      name: json['name']?.toString() ?? '',
+      projectId: json['project_id'] is List
+          ? (json['project_id'] as List).first
+          : (json['project_id'] is int ? json['project_id'] : null),
+      deadline: json['deadline'] is String
+          ? DateTime.tryParse(json['deadline'])
+          : null,
+      isReached: json['is_reached'] == true,
+    );
+  }
+}
+
+class ProjectTag {
+  final int id;
+  final String name;
+  final int? color;
+
+  ProjectTag({
+    required this.id,
+    required this.name,
+    this.color,
+  });
+
+  factory ProjectTag.fromJson(Map<String, dynamic> json) {
+    return ProjectTag(
+      id: json['id'] is int
+          ? json['id']
+          : (int.tryParse(json['id']?.toString() ?? '0') ?? 0),
+      name: json['name']?.toString() ?? '',
+      color: json['color'] is int
+          ? json['color']
+          : int.tryParse(json['color']?.toString() ?? '0'),
+    );
   }
 }

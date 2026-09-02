@@ -4,7 +4,6 @@ import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:pi_task_watch/exports.dart';
-import 'package:pi_task_watch/managers/odoo_rpc_api_manager.dart';
 
 /// Controller for managing tasks and their related data
 /// Handles all API interactions for task management including:
@@ -56,8 +55,159 @@ class TaskDetailsController extends GetxController {
         endPoint: 'tasks/$taskId',
       );
 
-      if (response.isSuccess) {
-        currentTask.value = TaskDetailsModel.fromJson(response.data);
+      TaskDetailsModel? loaded;
+      if (response.isSuccess && response.data != null) {
+        loaded = TaskDetailsModel.fromJson(response.data);
+      }
+
+      // Enrich with live Odoo data for user_ids, tag_ids, milestone_id
+      try {
+        final odooTaskRes = await OdooRpcApiManager.searchRead(
+          model: 'project.task',
+          domain: [
+            ['id', '=', taskId],
+          ],
+          fields: [
+            'id',
+            'name',
+            'description',
+            'project_id',
+            'stage_id',
+            'user_ids',
+            'tag_ids',
+            'milestone_id',
+            'date_deadline',
+            'planned_date_begin',
+            'date_start',
+            'allocated_hours',
+            'priority',
+          ],
+          limit: 1,
+        );
+
+        if (odooTaskRes.isSuccess &&
+            odooTaskRes.data != null &&
+            (odooTaskRes.data as List).isNotEmpty) {
+          final m = (odooTaskRes.data as List).first as Map<String, dynamic>;
+          
+          // 1. Resolve Assignee Names from res.users
+          List<TaskAssignee> resolvedAssignees = [];
+          if (m['user_ids'] is List) {
+            final uIds = (m['user_ids'] as List)
+                .map((x) => x is int ? x : (x is List && x.isNotEmpty ? x[0] as int : 0))
+                .where((id) => id > 0)
+                .toList();
+            if (uIds.isNotEmpty) {
+              try {
+                final usersRes = await OdooRpcApiManager.searchRead(
+                  model: 'res.users',
+                  domain: [
+                    ['id', 'in', uIds]
+                  ],
+                  fields: ['id', 'name'],
+                );
+                if (usersRes.isSuccess && usersRes.data is List) {
+                  resolvedAssignees = (usersRes.data as List).map<TaskAssignee>((u) {
+                    return TaskAssignee(
+                      id: u['id'] is int ? u['id'] : int.tryParse(u['id'].toString()) ?? 0,
+                      name: u['name']?.toString() ?? 'Unknown',
+                    );
+                  }).toList();
+                }
+              } catch (_) {}
+            }
+          }
+
+          // 2. Resolve Tags from project.tags
+          List<String> resolvedTagNames = [];
+          List<int> resolvedTagIds = [];
+          if (m['tag_ids'] is List) {
+            final tIds = (m['tag_ids'] as List)
+                .map((x) => x is int ? x : (x is List && x.isNotEmpty ? x[0] as int : 0))
+                .where((id) => id > 0)
+                .toList();
+            if (tIds.isNotEmpty) {
+              resolvedTagIds = tIds;
+              try {
+                final tagsRes = await OdooRpcApiManager.searchRead(
+                  model: 'project.tags',
+                  domain: [
+                    ['id', 'in', tIds]
+                  ],
+                  fields: ['id', 'name'],
+                );
+                if (tagsRes.isSuccess && tagsRes.data is List) {
+                  resolvedTagNames = (tagsRes.data as List)
+                      .map<String>((t) => t['name']?.toString() ?? '')
+                      .where((s) => s.isNotEmpty)
+                      .toList();
+                }
+              } catch (_) {}
+            }
+          }
+
+          // 3. Resolve Milestone Name from project.milestone
+          int? resolvedMilestoneId;
+          String? resolvedMilestoneName;
+          if (m['milestone_id'] is List && (m['milestone_id'] as List).length > 1) {
+            resolvedMilestoneId = m['milestone_id'][0] as int;
+            resolvedMilestoneName = m['milestone_id'][1]?.toString();
+          } else if (m['milestone_id'] is int) {
+            resolvedMilestoneId = m['milestone_id'] as int;
+            try {
+              final msRes = await OdooRpcApiManager.searchRead(
+                model: 'project.milestone',
+                domain: [
+                  ['id', '=', resolvedMilestoneId]
+                ],
+                fields: ['id', 'name'],
+                limit: 1,
+              );
+              if (msRes.isSuccess && msRes.data is List && (msRes.data as List).isNotEmpty) {
+                resolvedMilestoneName = (msRes.data as List).first['name']?.toString();
+              }
+            } catch (_) {}
+          }
+
+          final odooModel = TaskDetailsModel.fromJson(m);
+
+          final finalAssignees = resolvedAssignees.isNotEmpty
+              ? resolvedAssignees
+              : (odooModel.userIds.isNotEmpty ? odooModel.userIds : (loaded?.userIds ?? []));
+          final finalUserNames = finalAssignees.map((a) => a.name).toList();
+          final finalTags = resolvedTagNames.isNotEmpty
+              ? resolvedTagNames
+              : (odooModel.tags ?? loaded?.tags);
+          final finalTagIds = resolvedTagIds.isNotEmpty
+              ? resolvedTagIds
+              : (odooModel.tagIds ?? loaded?.tagIds);
+
+          if (loaded != null) {
+            loaded = loaded.copyWith(
+              userIds: finalAssignees,
+              userNames: finalUserNames,
+              tags: finalTags,
+              tagIds: finalTagIds,
+              milestoneId: resolvedMilestoneId ?? odooModel.milestoneId ?? loaded.milestoneId,
+              milestoneName: resolvedMilestoneName ?? odooModel.milestoneName ?? loaded.milestoneName,
+            );
+          } else {
+            loaded = odooModel.copyWith(
+              userIds: finalAssignees,
+              userNames: finalUserNames,
+              tags: finalTags,
+              tagIds: finalTagIds,
+              milestoneId: resolvedMilestoneId ?? odooModel.milestoneId,
+              milestoneName: resolvedMilestoneName ?? odooModel.milestoneName,
+            );
+          }
+        }
+      } catch (e) {
+        debugPrint('Error enriching task details from Odoo: $e');
+      }
+
+      if (loaded != null) {
+        currentTask.value = loaded;
         return currentTask.value;
       } else {
         throw Exception(response.message);
@@ -707,6 +857,278 @@ class TaskDetailsController extends GetxController {
       return false;
     } finally {
       isLoading.value = false;
+    }
+  }
+
+  /// Update Task Assignees in Odoo project.task
+Future<bool> updateTaskAssignees(int taskId, List<int> userIds) async {
+  try {
+    isLoading.value = true;
+    final validTaskId = taskId > 0 ? taskId : (currentTask.value?.id ?? 0);
+    if (validTaskId <= 0) return false;
+
+    final res = await OdooRpcApiManager.write(
+      model: 'project.task',
+      ids: [validTaskId],
+      values: {
+        'user_ids': [
+          [6, 0, userIds]
+        ],
+      },
+    );
+
+    if (res.isSuccess) {
+      showToast('Assignees updated successfully', idSuccess: true);
+      return true; // trust the screen's optimistic update — no refetch here
+    } else {
+      final restRes = await ApiManager.postRequest(
+        endPoint: 'tasks/$validTaskId',
+        data: {'user_ids': userIds},
+      );
+      if (restRes.isSuccess) {
+        showToast('Assignees updated successfully', idSuccess: true);
+        return true;
+      }
+      showToast('Failed to update assignees: ${res.message}', idSuccess: false);
+      return false;
+    }
+  } catch (e) {
+    showToast('Error updating assignees: $e', idSuccess: false);
+    return false;
+  } finally {
+    isLoading.value = false;
+  }
+}
+
+  /// Get Milestones for current project or all projects
+  Future<List<ProjectMilestone>> getProjectMilestones(int? projectId) async {
+    try {
+      final domain = <dynamic>[];
+      if (projectId != null && projectId > 0) {
+        domain.add(['project_id', '=', projectId]);
+      }
+      final res = await OdooRpcApiManager.searchRead(
+        model: 'project.milestone',
+        domain: domain,
+        fields: ['id', 'name', 'project_id', 'deadline', 'is_reached'],
+        limit: 80,
+      );
+      if (res.isSuccess && res.data is List) {
+        return (res.data as List)
+            .map<ProjectMilestone>((m) => ProjectMilestone.fromJson(m))
+            .toList();
+      }
+    } catch (e) {
+      debugPrint('Error getting project milestones: $e');
+    }
+    return [];
+  }
+
+  /// Create a new Milestone in Odoo project.milestone
+  Future<ProjectMilestone?> createMilestone({
+    required String name,
+    int? projectId,
+    DateTime? deadline,
+    bool isReached = false,
+  }) async {
+    try {
+      final values = <String, dynamic>{
+        'name': name,
+        'is_reached': isReached,
+      };
+      if (projectId != null && projectId > 0) {
+        values['project_id'] = projectId;
+      }
+      if (deadline != null) {
+        values['deadline'] = DateFormat('yyyy-MM-dd').format(deadline);
+      }
+
+      final res = await OdooRpcApiManager.create(
+        model: 'project.milestone',
+        values: values,
+      );
+
+      if (res.isSuccess && res.data != null) {
+        final newId = res.data is int
+            ? res.data as int
+            : int.tryParse(res.data.toString()) ?? 0;
+        showToast('Milestone created', idSuccess: true);
+        return ProjectMilestone(
+          id: newId,
+          name: name,
+          projectId: projectId,
+          deadline: deadline,
+          isReached: isReached,
+        );
+      } else {
+        showToast('Failed to create milestone: ${res.message}', idSuccess: false);
+      }
+    } catch (e) {
+      showToast('Error creating milestone: $e', idSuccess: false);
+    }
+    return null;
+  }
+
+  /// Update Task Milestone in Odoo project.task
+  Future<bool> updateTaskMilestone(int taskId, int? milestoneId, String? milestoneName) async {
+    try {
+      final validTaskId = taskId > 0 ? taskId : (currentTask.value?.id ?? 0);
+      if (validTaskId <= 0) return false;
+
+      // 1. Optimistic instant local update
+      if (currentTask.value != null) {
+        currentTask.value = currentTask.value!.copyWith(
+          milestoneId: milestoneId,
+          milestoneName: milestoneName,
+        );
+        currentTask.refresh();
+      }
+
+      final res = await OdooRpcApiManager.write(
+        model: 'project.task',
+        ids: [validTaskId],
+        values: {
+          'milestone_id': (milestoneId != null && milestoneId > 0) ? milestoneId : false,
+        },
+      );
+
+      if (res.isSuccess) {
+        showToast('Milestone updated', idSuccess: true);
+        return true;
+      } else {
+        showToast('Failed to update milestone: ${res.message}', idSuccess: false);
+        return false;
+      }
+    } catch (e) {
+      showToast('Error updating milestone: $e', idSuccess: false);
+      return false;
+    }
+  }
+
+  /// Get Project Tags from Odoo project.tags
+  Future<List<ProjectTag>> getProjectTags() async {
+    try {
+      final res = await OdooRpcApiManager.searchRead(
+        model: 'project.tags',
+        domain: [],
+        fields: ['id', 'name', 'color'],
+        limit: 100,
+      );
+      if (res.isSuccess && res.data is List) {
+        return (res.data as List)
+            .map<ProjectTag>((t) => ProjectTag.fromJson(t))
+            .toList();
+      }
+    } catch (e) {
+      debugPrint('Error getting project tags: $e');
+    }
+    return [];
+  }
+
+  /// Create a new Tag in Odoo project.tags
+  Future<ProjectTag?> createTag(String name) async {
+    try {
+      final res = await OdooRpcApiManager.create(
+        model: 'project.tags',
+        values: {'name': name},
+      );
+      if (res.isSuccess && res.data != null) {
+        final newId = res.data is int
+            ? res.data as int
+            : int.tryParse(res.data.toString()) ?? 0;
+        showToast('Tag created', idSuccess: true);
+        return ProjectTag(id: newId, name: name);
+      } else {
+        showToast('Failed to create tag: ${res.message}', idSuccess: false);
+      }
+    } catch (e) {
+      showToast('Error creating tag: $e', idSuccess: false);
+    }
+    return null;
+  }
+
+  /// Update Task Tags in Odoo project.task
+  Future<bool> updateTaskTags(int taskId, List<int> tagIds, List<String> tagNames) async {
+    try {
+      final validTaskId = taskId > 0 ? taskId : (currentTask.value?.id ?? 0);
+      if (validTaskId <= 0) return false;
+
+      // 1. Optimistic instant local update
+      if (currentTask.value != null) {
+        currentTask.value = currentTask.value!.copyWith(
+          tags: tagNames,
+          tagIds: tagIds,
+        );
+        currentTask.refresh();
+      }
+
+      final res = await OdooRpcApiManager.write(
+        model: 'project.task',
+        ids: [validTaskId],
+        values: {
+          'tag_ids': [
+            [6, 0, tagIds]
+          ],
+        },
+      );
+
+      if (res.isSuccess) {
+        showToast('Tags updated', idSuccess: true);
+        return true;
+      } else {
+        showToast('Failed to update tags: ${res.message}', idSuccess: false);
+        return false;
+      }
+    } catch (e) {
+      showToast('Error updating tags: $e', idSuccess: false);
+      return false;
+    }
+  }
+
+  /// Update Task Planned Dates (planned_date_begin and date_deadline) in Odoo project.task
+  Future<bool> updateTaskPlannedDates(
+    int taskId, {
+    DateTime? startDate,
+    DateTime? deadline,
+  }) async {
+    try {
+      final validTaskId = taskId > 0 ? taskId : (currentTask.value?.id ?? 0);
+      if (validTaskId <= 0) return false;
+
+      // 1. Optimistic instant local update
+      if (currentTask.value != null) {
+        currentTask.value = currentTask.value!.copyWith(
+          dateStart: startDate,
+          dateDeadline: deadline,
+        );
+        currentTask.refresh();
+      }
+
+      final values = <String, dynamic>{
+        'planned_date_begin': startDate != null
+            ? DateFormat('yyyy-MM-dd HH:mm:ss').format(startDate.toUtc())
+            : false,
+        'date_deadline': deadline != null
+            ? DateFormat('yyyy-MM-dd HH:mm:ss').format(deadline.toUtc())
+            : false,
+      };
+
+      final res = await OdooRpcApiManager.write(
+        model: 'project.task',
+        ids: [validTaskId],
+        values: values,
+      );
+
+      if (res.isSuccess) {
+        showToast('Planned date updated', idSuccess: true);
+        return true;
+      } else {
+        showToast('Failed to update planned date: ${res.message}', idSuccess: false);
+        return false;
+      }
+    } catch (e) {
+      showToast('Error updating planned date: $e', idSuccess: false);
+      return false;
     }
   }
 

@@ -383,22 +383,76 @@ class MessageBubble extends StatelessWidget {
                                 ),
                               ],
 
-                              if (message.cleanBody.isNotEmpty) ...[
+                              // Quoted reply banner
+                              if (message.isReply) ...[
+                                Container(
+                                  margin: const EdgeInsets.only(bottom: 6),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 5),
+                                  decoration: BoxDecoration(
+                                    color: isOutgoing
+                                        ? Colors.black.withOpacity(0.15)
+                                        : const Color(0xFF00A09D).withOpacity(0.08),
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border(
+                                      left: BorderSide(
+                                        color: isOutgoing
+                                            ? Colors.white.withOpacity(0.9)
+                                            : const Color(0xFF00A09D),
+                                        width: 3.5,
+                                      ),
+                                    ),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      if (message.replyAuthor != null &&
+                                          message.replyAuthor!.isNotEmpty)
+                                        Text(
+                                          message.replyAuthor!,
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.bold,
+                                            color: isOutgoing
+                                                ? Colors.white
+                                                : const Color(0xFF00A09D),
+                                          ),
+                                        ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        message.replyText!,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: isOutgoing
+                                              ? Colors.white.withOpacity(0.85)
+                                              : Colors.black87,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+
+                              if (message.contentBody.isNotEmpty) ...[
                                 RichText(
                                   text: TextSpan(
                                     children: _parseMessageBody(
-                                        message.cleanBody, isOutgoing),
+                                        message.contentBody, isOutgoing),
                                   ),
                                 ),
-                                if (_extractFirstUrl(message.cleanBody) !=
+                                if (_extractFirstUrl(message.contentBody) !=
                                     null) ...[
                                   const SizedBox(height: 6),
                                   _buildLinkPreviewCard(
-                                      _extractFirstUrl(message.cleanBody)!,
+                                      _extractFirstUrl(message.contentBody)!,
                                       isOutgoing),
                                 ],
                               ],
-                              if (message.cleanBody.isNotEmpty &&
+                              if (message.contentBody.isNotEmpty &&
                                   message.attachments.isNotEmpty)
                                 const SizedBox(height: 8),
                               if (message.attachments.isNotEmpty)

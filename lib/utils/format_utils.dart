@@ -142,12 +142,12 @@ class FormatUtils {
 
     // 2. Replace block-level opening tags with appropriate spacing/newlines
     result = result
-        .replaceAll(RegExp(r'<p[^>]*>', caseSensitive: false), '\n\n')
+        .replaceAll(RegExp(r'<p[^>]*>', caseSensitive: false), '')
         .replaceAll(RegExp(r'<div[^>]*>', caseSensitive: false), '\n')
         .replaceAll(RegExp(r'<tr[^>]*>', caseSensitive: false), '\n')
         .replaceAll(RegExp(r'<td[^>]*>', caseSensitive: false), ' ')
         .replaceAll(RegExp(r'<th[^>]*>', caseSensitive: false), ' ')
-        .replaceAll(RegExp(r'<h[1-6][^>]*>', caseSensitive: false), '\n\n')
+        .replaceAll(RegExp(r'<h[1-6][^>]*>', caseSensitive: false), '\n')
         .replaceAll(RegExp(r'<li[^>]*>', caseSensitive: false), '\n• ')
         .replaceAll(RegExp(r'<ul[^>]*>', caseSensitive: false), '\n')
         .replaceAll(RegExp(r'<ol[^>]*>', caseSensitive: false), '\n')
@@ -157,7 +157,7 @@ class FormatUtils {
 
     // 3. Replace block-level closing tags with appropriate newlines or spaces
     result = result
-        .replaceAll(RegExp(r'</p>', caseSensitive: false), '\n\n')
+        .replaceAll(RegExp(r'</p>', caseSensitive: false), '\n')
         .replaceAll(RegExp(r'</div>', caseSensitive: false), '\n')
         .replaceAll(RegExp(r'</td>', caseSensitive: false), ' ')
         .replaceAll(RegExp(r'</tr>', caseSensitive: false), '\n')

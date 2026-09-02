@@ -1183,35 +1183,25 @@ class _AddAnnouncementDialogState extends State<AddAnnouncementDialog> {
     final firstDate = isStart ? DateTime.now().subtract(const Duration(days: 30)) : _startDate;
     final lastDate = DateTime.now().add(const Duration(days: 365));
 
-    final picked = await showDatePicker(
+    final result = await showOdooDateRangePicker(
       context: context,
-      initialDate: initialDate,
+      initialStartDate: initialDate,
       firstDate: firstDate,
       lastDate: lastDate,
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.light(
-              primary: AppTheme.primary,
-              onPrimary: Colors.white,
-              onSurface: Colors.black,
-            ),
-          ),
-          child: child!,
-        );
-      },
+      allowRange: false,
+      includeTime: false,
     );
 
-    if (picked != null) {
+    if (result?.startDate != null) {
       setState(() {
         if (isStart) {
-          _startDate = picked;
+          _startDate = result!.startDate!;
           // Ensure end date is after start date
           if (_endDate.isBefore(_startDate)) {
             _endDate = _startDate.add(const Duration(days: 1));
           }
         } else {
-          _endDate = picked;
+          _endDate = result!.startDate!;
         }
       });
     }

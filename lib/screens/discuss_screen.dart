@@ -863,11 +863,13 @@ class _DiscussScreenState extends State<DiscussScreen> {
                         ),
                       ),
                       Text(
-                        replying.cleanBody.isNotEmpty
-                            ? replying.cleanBody
-                            : (replying.attachments.isNotEmpty
-                                ? '📎 ${replying.attachments.first.name}'
-                                : 'Attachment'),
+                        replying.contentBody.isNotEmpty
+                            ? replying.contentBody
+                            : (replying.cleanBody.isNotEmpty
+                                ? replying.cleanBody
+                                : (replying.attachments.isNotEmpty
+                                    ? '📎 ${replying.attachments.first.name}'
+                                    : 'Attachment')),
                         style: TextStyle(
                           fontSize: 11,
                           color: Colors.grey.shade700,

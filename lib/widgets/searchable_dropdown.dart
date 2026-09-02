@@ -11,6 +11,7 @@ class SearchableDropdown<T> extends StatefulWidget {
   final double height;
   final TextEditingController searchController;
   final String Function(T) itemToString;
+  final Widget Function(T item, bool isSelected)? itemWidgetBuilder;
 
   const SearchableDropdown({
     super.key,
@@ -22,6 +23,7 @@ class SearchableDropdown<T> extends StatefulWidget {
     this.isRequired = false,
     this.height = 40,
     required this.itemToString,
+    this.itemWidgetBuilder,
   });
 
   @override
@@ -31,6 +33,16 @@ class SearchableDropdown<T> extends StatefulWidget {
 class _SearchableDropdownState<T> extends State<SearchableDropdown<T>> {
   @override
   Widget build(BuildContext context) {
+    String? stage;
+    if (widget.value != null) {
+      try {
+        final dynamic v = widget.value;
+        if (v.stageName != null && v.stageName.toString().isNotEmpty) {
+          stage = v.stageName.toString();
+        }
+      } catch (_) {}
+    }
+
     return GestureDetector(
       onTap: () {
         showDialog(
@@ -44,6 +56,7 @@ class _SearchableDropdownState<T> extends State<SearchableDropdown<T>> {
               searchController: widget.searchController,
               onChanged: widget.onChanged,
               itemToString: widget.itemToString,
+              itemWidgetBuilder: widget.itemWidgetBuilder,
             );
           },
         );
@@ -61,18 +74,54 @@ class _SearchableDropdownState<T> extends State<SearchableDropdown<T>> {
             Icon(Icons.storage_outlined, size: 16, color: Colors.grey.shade400),
             const SizedBox(width: 8),
             Expanded(
-              child: Text(
-                widget.value != null
-                    ? widget.itemToString(widget.value as T)
-                    : widget.hint,
-                style: GoogleFonts.inter(
-                  fontSize: 13,
-                  color: widget.value != null
-                      ? Colors.black87
-                      : Colors.grey.shade400,
-                ),
-                overflow: TextOverflow.ellipsis,
-              ),
+              child: widget.value != null
+                  ? Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            widget.itemToString(widget.value as T),
+                            style: GoogleFonts.inter(
+                              fontSize: 13,
+                              color: Colors.black87,
+                              fontWeight: FontWeight.w500,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (stage != null) ...[
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF00A09D).withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(
+                                    color: const Color(0xFF00A09D).withValues(alpha: 0.3)),
+                              ),
+                              child: Text(
+                                stage,
+                                style: GoogleFonts.inter(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: const Color(0xFF00A09D),
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    )
+                  : Text(
+                      widget.hint,
+                      style: GoogleFonts.inter(
+                        fontSize: 13,
+                        color: Colors.grey.shade400,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
             ),
             Icon(Icons.unfold_more, color: Colors.grey.shade400, size: 18),
           ],
@@ -89,6 +138,7 @@ class _SearchableDropdownDialog<T> extends StatefulWidget {
   final TextEditingController searchController;
   final Function(T?) onChanged;
   final String Function(T) itemToString;
+  final Widget Function(T item, bool isSelected)? itemWidgetBuilder;
 
   const _SearchableDropdownDialog({
     required this.items,
@@ -97,6 +147,7 @@ class _SearchableDropdownDialog<T> extends StatefulWidget {
     required this.searchController,
     required this.onChanged,
     required this.itemToString,
+    this.itemWidgetBuilder,
   });
 
   @override
@@ -123,6 +174,16 @@ class _SearchableDropdownDialogState<T>
   void dispose() {
     _searchFocusNode.dispose();
     super.dispose();
+  }
+
+  String? _getStageFromItem(T item) {
+    try {
+      final dynamic v = item;
+      if (v.stageName != null && v.stageName.toString().isNotEmpty) {
+        return v.stageName.toString();
+      }
+    } catch (_) {}
+    return null;
   }
 
   @override
@@ -181,7 +242,7 @@ class _SearchableDropdownDialogState<T>
                 controller: widget.searchController,
                 focusNode: _searchFocusNode,
                 decoration: InputDecoration(
-                  hintText: 'Search databases...',
+                  hintText: 'Search...',
                   hintStyle:
                       GoogleFonts.inter(fontSize: 13, color: Colors.grey),
                   isDense: true,
@@ -196,7 +257,11 @@ class _SearchableDropdownDialogState<T>
                   contentPadding:
                       const EdgeInsets.symmetric(vertical: 0, horizontal: 12),
                 ),
-                style: GoogleFonts.inter(fontSize: 13),
+                cursorColor: AppTheme.primary,
+                style: GoogleFonts.inter(
+                  fontSize: 13,
+                  color: Colors.black87,
+                ),
                 onChanged: (value) {
                   setState(() {
                     _filteredItems = widget.items
@@ -253,29 +318,57 @@ class _SearchableDropdownDialogState<T>
                                         : Colors.transparent,
                                   ),
                                 ),
-                                child: Row(
-                                  children: [
-                                    if (isSelected)
-                                      const Icon(Icons.check_circle,
-                                          size: 18, color: AppTheme.primary),
-                                    if (isSelected) const SizedBox(width: 10),
-                                    Expanded(
-                                      child: Text(
-                                        widget.itemToString(item),
-                                        style: GoogleFonts.inter(
-                                          fontSize: 13,
-                                          fontWeight: isSelected
-                                              ? FontWeight.bold
-                                              : FontWeight.normal,
-                                          color: isSelected
-                                              ? AppTheme.primary
-                                              : Colors.black87,
-                                        ),
-                                        overflow: TextOverflow.ellipsis,
+                                child: widget.itemWidgetBuilder != null
+                                    ? widget.itemWidgetBuilder!(item, isSelected)
+                                    : Row(
+                                        children: [
+                                          if (isSelected)
+                                            const Icon(Icons.check_circle,
+                                                size: 18, color: AppTheme.primary),
+                                          if (isSelected)
+                                            const SizedBox(width: 10),
+                                          Expanded(
+                                            child: Text(
+                                              widget.itemToString(item),
+                                              style: GoogleFonts.inter(
+                                                fontSize: 13,
+                                                fontWeight: isSelected
+                                                    ? FontWeight.bold
+                                                    : FontWeight.normal,
+                                                color: isSelected
+                                                    ? AppTheme.primary
+                                                    : Colors.black87,
+                                              ),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                          if (_getStageFromItem(item) != null) ...[
+                                            const SizedBox(width: 8),
+                                            Flexible(
+                                              child: Container(
+                                                padding: const EdgeInsets.symmetric(
+                                                    horizontal: 8, vertical: 3),
+                                                decoration: BoxDecoration(
+                                                  color: const Color(0xFF00A09D).withValues(alpha: 0.1),
+                                                  borderRadius: BorderRadius.circular(4),
+                                                  border: Border.all(
+                                                    color: const Color(0xFF00A09D).withValues(alpha: 0.3),
+                                                  ),
+                                                ),
+                                                child: Text(
+                                                  _getStageFromItem(item)!,
+                                                  style: GoogleFonts.inter(
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.w600,
+                                                    color: const Color(0xFF00A09D),
+                                                  ),
+                                                  overflow: TextOverflow.ellipsis,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ],
                                       ),
-                                    ),
-                                  ],
-                                ),
                               ),
                             ),
                           );

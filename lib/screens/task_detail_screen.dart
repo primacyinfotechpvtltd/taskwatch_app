@@ -56,6 +56,12 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
   final TextEditingController _assigneeDropdownSearch = TextEditingController();
   bool _isLoadingUsers = false;
 
+  // ── Milestones & Tags state ──────────────────────────────────────────────
+  List<ProjectMilestone> _projectMilestones = [];
+  bool _isLoadingMilestones = false;
+  List<ProjectTag> _allProjectTags = [];
+  bool _isLoadingTags = false;
+
   // ─────────────────────────────────────────────────────────────────────────
   // Stage change
   // ─────────────────────────────────────────────────────────────────────────
@@ -81,6 +87,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
     final args = Get.arguments;
     if (args is TaskDetailsModel) {
       task = args;
+      _taskDetailsController.currentTask.value = args;
     } else {
       debugPrint(
           'Error: TaskDetailScreen expected TaskDetailsModel but got ${args.runtimeType}');
@@ -95,6 +102,33 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
   Future<void> _loadData() async {
     await _taskDetailsController.loadAllTaskData(task.id);
     _updateActiveStageIndex();
+    _fetchAllUsers();
+    _fetchProjectMilestones();
+    _fetchProjectTags();
+  }
+
+  Future<void> _fetchProjectMilestones() async {
+    final projId =
+        _taskDetailsController.currentTask.value?.projectId ?? task.projectId;
+    setState(() => _isLoadingMilestones = true);
+    final list = await _taskDetailsController.getProjectMilestones(projId);
+    if (mounted) {
+      setState(() {
+        _projectMilestones = list;
+        _isLoadingMilestones = false;
+      });
+    }
+  }
+
+  Future<void> _fetchProjectTags() async {
+    setState(() => _isLoadingTags = true);
+    final list = await _taskDetailsController.getProjectTags();
+    if (mounted) {
+      setState(() {
+        _allProjectTags = list;
+        _isLoadingTags = false;
+      });
+    }
   }
 
   void _updateActiveStageIndex() {
@@ -290,9 +324,35 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
                   currentAssignees:
                       _taskDetailsController.currentTask.value?.userIds ?? [],
                   searchController: _assigneeDropdownSearch,
-                  onSelect: (user) {
+                  onSelect: (user) async {
                     _removeAssigneesOverlay();
-                    // TODO: call API to add/remove assignee
+                    final current =
+                        _taskDetailsController.currentTask.value?.userIds ?? [];
+                    final List<TaskAssignee> updatedList = List.from(current);
+                    final isAlready = updatedList.any((a) => a.id == user.id);
+                    if (isAlready) {
+                      updatedList.removeWhere((a) => a.id == user.id);
+                    } else {
+                      updatedList.add(user);
+                    }
+
+                    // 1. INSTANT LOCAL UPDATE
+                    if (_taskDetailsController.currentTask.value != null) {
+                      _taskDetailsController.currentTask.value =
+                          _taskDetailsController.currentTask.value!.copyWith(
+                        userIds: updatedList,
+                        userNames: updatedList.map((a) => a.name).toList(),
+                      );
+                    }
+                    setState(() {});
+
+                    // 2. Persist to Odoo
+                    final List<int> ids = updatedList.map((a) => a.id).toList();
+                    final taskId =
+                        _taskDetailsController.currentTask.value?.id ?? 0;
+                    if (taskId > 0) {
+                      await _taskDetailsController.updateTaskAssignees(taskId, ids);
+                    }
                     setState(() {});
                   },
                   onSearchMore: () {
@@ -319,9 +379,26 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
         allUsers: _allUsers,
         currentAssignees:
             _taskDetailsController.currentTask.value?.userIds ?? [],
-        onSelect: (selected) {
-          // TODO: call API to persist updated assignees
+        onSelect: (selected) async {
           Navigator.of(ctx).pop();
+          
+          // 1. INSTANT LOCAL UPDATE
+          if (_taskDetailsController.currentTask.value != null) {
+            _taskDetailsController.currentTask.value =
+                _taskDetailsController.currentTask.value!.copyWith(
+              userIds: selected,
+              userNames: selected.map((a) => a.name).toList(),
+            );
+          }
+          setState(() {});
+
+          // 2. Persist to Odoo
+          final List<int> ids = selected.map((a) => a.id).toList();
+          final taskId =
+              _taskDetailsController.currentTask.value?.id ?? 0;
+          if (taskId > 0) {
+            await _taskDetailsController.updateTaskAssignees(taskId, ids);
+          }
           setState(() {});
         },
       ),
@@ -710,16 +787,17 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
     final end = t?.dateDeadline;
 
     if (start == null && end == null) {
-      return 'May 25, 10:30 AM  →  11:00 AM'; // Exact mockup fallback
+      return '';
     }
     if (start != null && end != null) {
-      final startStr = DateFormat('MMM d, h:mm a').format(start);
+      final startStr = DateFormat('MMM d, h:mm a').format(start.toLocal());
       final isSameDay = start.year == end.year && start.month == end.month && start.day == end.day;
-      final endStr = isSameDay ? DateFormat('h:mm a').format(end) : DateFormat('MMM d, h:mm a').format(end);
-      return '$startStr  →  $endStr';
+      final endStr = isSameDay ? DateFormat('h:mm a').format(end.toLocal()) : DateFormat('MMM d, h:mm a').format(end.toLocal());
+      return '$startStr  ➔  $endStr';
     }
-    if (start != null) return DateFormat('MMM d, h:mm a').format(start);
-    return DateFormat('MMM d, h:mm a').format(end!);
+    if (start != null) return DateFormat('MMM d, h:mm a').format(start.toLocal());
+    if (end != null) return DateFormat('MMM d, h:mm a').format(end.toLocal());
+    return '';
   }
 
   Widget _buildCustomRow({
@@ -766,64 +844,1050 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
   }
 
   Widget _buildMilestoneRow(ThemePalette theme) {
+    final milestone = _taskDetailsController.currentTask.value?.milestoneName;
+    final hasMilestone = milestone != null && milestone.isNotEmpty;
+
     return _buildCustomRow(
       label: 'Milestone',
       theme: theme,
-      child: Text(
-        'e.g. Product Launch',
-        style: TextStyle(
-          color: theme.secondaryTextColor.withOpacity(0.4),
-          fontSize: 13,
-          fontWeight: FontWeight.normal,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: Container(
+          padding: const EdgeInsets.only(bottom: 2),
+          decoration: const BoxDecoration(
+            border: Border(
+              bottom: BorderSide(color: Color(0xFF00A09D), width: 1.5),
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              GestureDetector(
+                onTap: () => _showMilestoneDropdown(context, theme),
+                child: Text(
+                  hasMilestone ? milestone : 'new',
+                  style: TextStyle(
+                    color: hasMilestone
+                        ? theme.primaryTextColor
+                        : theme.secondaryTextColor.withValues(alpha: 0.6),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              GestureDetector(
+                onTap: () => _showMilestoneDropdown(context, theme),
+                child: const Icon(Icons.arrow_drop_down,
+                    size: 18, color: Color(0xFF00A09D)),
+              ),
+              const SizedBox(width: 4),
+              GestureDetector(
+                onTap: () => _showCreateMilestoneDialog(theme),
+                child: const Icon(Icons.arrow_forward,
+                    size: 14, color: Color(0xFF6B7280)),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
+  void _showMilestoneDropdown(BuildContext context, ThemePalette theme) async {
+    if (_projectMilestones.isEmpty) {
+      await _fetchProjectMilestones();
+    }
+
+    final searchController = TextEditingController();
+
+    showDialog(
+      context: context,
+      barrierColor: Colors.black54,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          final query = searchController.text.toLowerCase();
+          final filtered = _projectMilestones
+              .where((m) => m.name.toLowerCase().contains(query))
+              .toList();
+
+          return Dialog(
+            backgroundColor:
+                theme.isDark ? const Color(0xFF2A2A2A) : Colors.white,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            child: Container(
+              width: 320,
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        'Select Milestone',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: theme.primaryTextColor,
+                        ),
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        icon: const Icon(Icons.close, size: 18),
+                        color: theme.secondaryTextColor,
+                        onPressed: () => Navigator.of(dialogCtx).pop(),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  // Search box
+                  Container(
+                    height: 34,
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    decoration: BoxDecoration(
+                      color: theme.isDark
+                          ? const Color(0xFF333333)
+                          : const Color(0xFFF3F4F6),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: theme.isDark
+                            ? const Color(0xFF4B5563)
+                            : const Color(0xFFE5E7EB),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.search,
+                            size: 16,
+                            color: theme.isDark
+                                ? Colors.white70
+                                : const Color(0xFF6B7280)),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextField(
+                            controller: searchController,
+                            autofocus: true,
+                            cursorColor: const Color(0xFF00A09D),
+                            style: TextStyle(
+                              color: theme.isDark
+                                  ? Colors.white
+                                  : const Color(0xFF111827),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                            ),
+                            decoration: InputDecoration(
+                              isDense: true,
+                              filled: false,
+                              contentPadding: EdgeInsets.zero,
+                              border: InputBorder.none,
+                              hintText: 'Search...',
+                              hintStyle: TextStyle(
+                                color: theme.isDark
+                                    ? Colors.white38
+                                    : const Color(0xFF9CA3AF),
+                                fontSize: 13,
+                              ),
+                            ),
+                            onChanged: (_) => setDialogState(() {}),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Milestones list
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 220),
+                    child: ListView(
+                      shrinkWrap: true,
+                      children: [
+                        ...filtered.map((m) {
+                          final isSelected = _taskDetailsController
+                                  .currentTask.value?.milestoneId ==
+                              m.id;
+                          return InkWell(
+                           onTap: () async {
+  Navigator.of(dialogCtx).pop();
+
+  // 1. INSTANT LOCAL UPDATE
+  if (_taskDetailsController.currentTask.value != null) {
+    _taskDetailsController.currentTask.value =
+        _taskDetailsController.currentTask.value!.copyWith(
+      milestoneId: m.id,
+      milestoneName: m.name,
+    );
+  }
+  setState(() {});
+
+  // 2. Persist to Odoo
+  await _taskDetailsController.updateTaskMilestone(task.id, m.id, m.name);
+  setState(() {});
+},
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 10),
+                              decoration: BoxDecoration(
+                                color: isSelected
+                                    ? const Color(0xFF00A09D)
+                                        .withValues(alpha: 0.1)
+                                    : Colors.transparent,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(Icons.flag_outlined,
+                                      size: 14,
+                                      color: isSelected
+                                          ? const Color(0xFF00A09D)
+                                          : theme.secondaryTextColor),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      m.name,
+                                      style: TextStyle(
+                                        color: isSelected
+                                            ? const Color(0xFF00A09D)
+                                            : theme.primaryTextColor,
+                                        fontSize: 13,
+                                        fontWeight: isSelected
+                                            ? FontWeight.w600
+                                            : FontWeight.normal,
+                                      ),
+                                    ),
+                                  ),
+                                  if (isSelected)
+                                    const Icon(Icons.check,
+                                        size: 14,
+                                        color: Color(0xFF00A09D)),
+                                ],
+                              ),
+                            ),
+                          );
+                        }),
+                        if (filtered.isEmpty)
+                          Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Text(
+                              'No milestones found',
+                              style: TextStyle(
+                                  color: theme.secondaryTextColor,
+                                  fontSize: 13),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  const SizedBox(height: 8),
+
+                  // Create Option (Image 2)
+                  InkWell(
+                    onTap: () {
+                      Navigator.of(dialogCtx).pop();
+                      _showCreateMilestoneDialog(theme);
+                    },
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
+                      child: const Row(
+                        children: [
+                          Icon(Icons.add, size: 16, color: Color(0xFF00A09D)),
+                          SizedBox(width: 8),
+                          Text(
+                            'Create...',
+                            style: TextStyle(
+                              color: Color(0xFF00A09D),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _showCreateMilestoneDialog(ThemePalette theme) {
+    final nameController = TextEditingController();
+    DateTime? deadlineDate;
+    bool isReached = false;
+
+    showDialog(
+      context: context,
+      barrierColor: Colors.black54,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          return Dialog(
+            backgroundColor:
+                theme.isDark ? const Color(0xFF242424) : Colors.white,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            child: Container(
+              width: 480,
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Create Milestone',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: theme.primaryTextColor,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Divider(height: 1),
+                  const SizedBox(height: 20),
+
+                  // Name Field
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      SizedBox(
+                        width: 100,
+                        child: Row(
+                          children: [
+                            Text(
+                              'Name',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: theme.primaryTextColor,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            const Text(
+                              '?',
+                              style: TextStyle(
+                                color: Color(0xFF00A09D),
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        child: TextField(
+                          controller: nameController,
+                          autofocus: true,
+                          cursorColor: const Color(0xFF00A09D),
+                          style: TextStyle(
+                            color: theme.primaryTextColor,
+                            fontSize: 13,
+                          ),
+                          decoration: InputDecoration(
+                            isDense: true,
+                            contentPadding:
+                                const EdgeInsets.symmetric(vertical: 6),
+                            hintText: 'e.g: Product Launch',
+                            hintStyle: TextStyle(
+                              color: theme.secondaryTextColor
+                                  .withValues(alpha: 0.4),
+                              fontSize: 13,
+                            ),
+                            enabledBorder: const UnderlineInputBorder(
+                              borderSide:
+                                  BorderSide(color: Color(0xFF00A09D)),
+                            ),
+                            focusedBorder: const UnderlineInputBorder(
+                              borderSide: BorderSide(
+                                  color: Color(0xFF00A09D), width: 2),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Deadline Field
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      SizedBox(
+                        width: 100,
+                        child: Row(
+                          children: [
+                            Text(
+                              'Deadline',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: theme.primaryTextColor,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            const Text(
+                              '?',
+                              style: TextStyle(
+                                color: Color(0xFF00A09D),
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        child: InkWell(
+                          onTap: () async {
+                            final picked = await showDatePicker(
+                              context: ctx,
+                              initialDate: deadlineDate ?? DateTime.now(),
+                              firstDate: DateTime(2020),
+                              lastDate: DateTime(2040),
+                            );
+                            if (picked != null) {
+                              setDialogState(() {
+                                deadlineDate = picked;
+                              });
+                            }
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            decoration: BoxDecoration(
+                              border: Border(
+                                bottom: BorderSide(
+                                  color: theme.secondaryTextColor
+                                      .withValues(alpha: 0.2),
+                                ),
+                              ),
+                            ),
+                            child: Text(
+                              deadlineDate != null
+                                  ? DateFormat('MM/dd/yyyy')
+                                      .format(deadlineDate!)
+                                  : 'Select deadline...',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: deadlineDate != null
+                                    ? theme.primaryTextColor
+                                    : theme.secondaryTextColor
+                                        .withValues(alpha: 0.4),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Reached Field
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      SizedBox(
+                        width: 100,
+                        child: Row(
+                          children: [
+                            Text(
+                              'Reached',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: theme.primaryTextColor,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            const Text(
+                              '?',
+                              style: TextStyle(
+                                color: Color(0xFF00A09D),
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Checkbox(
+                        value: isReached,
+                        activeColor: const Color(0xFF714B67),
+                        onChanged: (val) {
+                          setDialogState(() {
+                            isReached = val ?? false;
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 28),
+
+                  // Action Buttons
+                  Row(
+                    children: [
+                      ElevatedButton(
+                        onPressed: () async {
+                          final name = nameController.text.trim();
+                          if (name.isEmpty) {
+                            showToast('Please enter milestone name',
+                                idSuccess: false);
+                            return;
+                          }
+                          Navigator.of(dialogCtx).pop();
+                          final projId = _taskDetailsController
+                                  .currentTask.value?.projectId ??
+                              task.projectId;
+                          final newM =
+                              await _taskDetailsController.createMilestone(
+                            name: name,
+                            projectId: projId,
+                            deadline: deadlineDate,
+                            isReached: isReached,
+                          );
+                          if (newM != null) {
+                            await _taskDetailsController.updateTaskMilestone(
+                              task.id,
+                              newM.id,
+                              newM.name,
+                            );
+                            _fetchProjectMilestones();
+                            setState(() {});
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF714B67),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 20, vertical: 10),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(4)),
+                        ),
+                        child: const Text('Save',
+                            style: TextStyle(fontWeight: FontWeight.w600)),
+                      ),
+                      const SizedBox(width: 10),
+                      OutlinedButton(
+                        onPressed: () => Navigator.of(dialogCtx).pop(),
+                        style: OutlinedButton.styleFrom(
+                          backgroundColor: theme.isDark
+                              ? const Color(0xFF333333)
+                              : const Color(0xFFF1F5F9),
+                          foregroundColor: theme.primaryTextColor,
+                          side: BorderSide.none,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 10),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(4)),
+                        ),
+                        child: const Text('Discard'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildTagsRow(ThemePalette theme) {
+    final tags = _taskDetailsController.currentTask.value?.tags ?? [];
+    final hasTags = tags.isNotEmpty;
+
+    return _buildCustomRow(
+      label: 'Tags',
+      theme: theme,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: Container(
+          padding: const EdgeInsets.only(bottom: 4),
+          decoration: const BoxDecoration(
+            border: Border(
+              bottom: BorderSide(color: Color(0xFF00A09D), width: 1.5),
+            ),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: GestureDetector(
+                  onTap: () => _showTagsDropdown(context, theme),
+                  child: Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      ...tags.map((tagName) {
+                        return Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFAD7A0), // peach/orange
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                tagName,
+                                style: const TextStyle(
+                                  color: Color(0xFF78350F),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              GestureDetector(
+                                onTap: () => _removeTag(tagName),
+                                child: const Icon(Icons.close,
+                                    size: 13, color: Color(0xFF78350F)),
+                              ),
+                            ],
+                          ),
+                        );
+                      }),
+                      if (!hasTags)
+                        Text(
+                          'Add tags...',
+                          style: TextStyle(
+                            color:
+                                theme.secondaryTextColor.withValues(alpha: 0.4),
+                            fontSize: 13,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              GestureDetector(
+                onTap: () => _showTagsDropdown(context, theme),
+                child: const Icon(Icons.arrow_drop_down,
+                    size: 18, color: Color(0xFF00A09D)),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showTagsDropdown(BuildContext context, ThemePalette theme) async {
+    if (_allProjectTags.isEmpty) {
+      await _fetchProjectTags();
+    }
+
+    final searchController = TextEditingController();
+
+    showDialog(
+      context: context,
+      barrierColor: Colors.black54,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          final query = searchController.text.trim().toLowerCase();
+          final filtered = _allProjectTags
+              .where((t) => t.name.toLowerCase().contains(query))
+              .toList();
+
+          final currentTags =
+              _taskDetailsController.currentTask.value?.tags ?? [];
+          final currentTagIds =
+              _taskDetailsController.currentTask.value?.tagIds ?? [];
+
+          return Dialog(
+            backgroundColor:
+                theme.isDark ? const Color(0xFF2A2A2A) : Colors.white,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            child: Container(
+              width: 320,
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        'Tags',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: theme.primaryTextColor,
+                        ),
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        icon: const Icon(Icons.close, size: 18),
+                        color: theme.secondaryTextColor,
+                        onPressed: () => Navigator.of(dialogCtx).pop(),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  // Search box
+                  Container(
+                    height: 34,
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    decoration: BoxDecoration(
+                      color: theme.isDark
+                          ? const Color(0xFF333333)
+                          : const Color(0xFFF3F4F6),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: theme.isDark
+                            ? const Color(0xFF4B5563)
+                            : const Color(0xFFE5E7EB),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.search,
+                            size: 16,
+                            color: theme.isDark
+                                ? Colors.white70
+                                : const Color(0xFF6B7280)),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextField(
+                            controller: searchController,
+                            autofocus: true,
+                            cursorColor: const Color(0xFF00A09D),
+                            style: TextStyle(
+                              color: theme.isDark
+                                  ? Colors.white
+                                  : const Color(0xFF111827),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                            ),
+                            decoration: InputDecoration(
+                              isDense: true,
+                              filled: false,
+                              contentPadding: EdgeInsets.zero,
+                              border: InputBorder.none,
+                              hintText: 'Search...',
+                              hintStyle: TextStyle(
+                                color: theme.isDark
+                                    ? Colors.white38
+                                    : const Color(0xFF9CA3AF),
+                                fontSize: 13,
+                              ),
+                            ),
+                            onChanged: (_) => setDialogState(() {}),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Tags list
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 220),
+                    child: ListView(
+                      shrinkWrap: true,
+                      children: [
+                        ...filtered.map((t) {
+                          final isSelected = currentTags.contains(t.name);
+                          return InkWell(
+                            onTap: () async {
+                              Navigator.of(dialogCtx).pop();
+
+                              final updatedNames = List<String>.from(currentTags);
+                              final updatedIds = List<int>.from(currentTagIds);
+
+                              if (isSelected) {
+                                updatedNames.remove(t.name);
+                                updatedIds.remove(t.id);
+                              } else {
+                                updatedNames.add(t.name);
+                                updatedIds.add(t.id);
+                              }
+
+                              // 1. INSTANT LOCAL UPDATE
+                              if (_taskDetailsController.currentTask.value != null) {
+                                _taskDetailsController.currentTask.value =
+                                    _taskDetailsController.currentTask.value!.copyWith(
+                                  tags: updatedNames,
+                                  tagIds: updatedIds,
+                                );
+                              }
+                              setState(() {});
+
+                              // 2. Persist to Odoo
+                              await _taskDetailsController.updateTaskTags(task.id, updatedIds, updatedNames);
+                              setState(() {});
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 9),
+                              color: isSelected
+                                  ? const Color(0xFF00A09D)
+                                      .withValues(alpha: 0.08)
+                                  : Colors.transparent,
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      t.name,
+                                      style: TextStyle(
+                                        color: isSelected
+                                            ? const Color(0xFF00A09D)
+                                            : theme.primaryTextColor,
+                                        fontSize: 13,
+                                        fontWeight: isSelected
+                                            ? FontWeight.w600
+                                            : FontWeight.normal,
+                                      ),
+                                    ),
+                                  ),
+                                  if (isSelected)
+                                    const Icon(Icons.check,
+                                        size: 14,
+                                        color: Color(0xFF00A09D)),
+                                ],
+                              ),
+                            ),
+                          );
+                        }),
+                        if (query.isNotEmpty &&
+                            !filtered.any((t) =>
+                                t.name.toLowerCase() == query))
+                          InkWell(
+                            onTap: () async {
+                              Navigator.of(dialogCtx).pop();
+                              final newTag = await _taskDetailsController
+                                  .createTag(searchController.text.trim());
+                              if (newTag != null) {
+                                final updatedNames =
+                                  List<String>.from(currentTags)
+                                    ..add(newTag.name);
+                                final updatedIds =
+                                  List<int>.from(currentTagIds)
+                                    ..add(newTag.id);
+                                await _taskDetailsController.updateTaskTags(
+                                    task.id, updatedIds, updatedNames);
+                                _fetchProjectTags();
+                                setState(() {});
+                              }
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 10),
+                              child: Text(
+                                'Create "${searchController.text.trim()}"',
+                                style: const TextStyle(
+                                  color: Color(0xFF00A09D),
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  const SizedBox(height: 8),
+
+                  // Search more
+                  InkWell(
+                    onTap: () => Navigator.of(dialogCtx).pop(),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
+                      child: const Text(
+                        'Search more...',
+                        style: TextStyle(
+                          color: Color(0xFF00A09D),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _removeTag(String tagName) async {
+    final currentTags = List<String>.from(
+        _taskDetailsController.currentTask.value?.tags ?? []);
+    final currentTagIds = List<int>.from(
+        _taskDetailsController.currentTask.value?.tagIds ?? []);
+
+    currentTags.remove(tagName);
+    final foundTag =
+        _allProjectTags.where((t) => t.name == tagName).firstOrNull;
+    if (foundTag != null) {
+      currentTagIds.remove(foundTag.id);
+    }
+
+    await _taskDetailsController.updateTaskTags(
+        task.id, currentTagIds, currentTags);
+    setState(() {});
+  }
+
   Widget _buildPlannedDateRow(ThemePalette theme) {
     final t = _taskDetailsController.currentTask.value;
-    final deadline = t?.dateDeadline ?? _getDeadline();
-    final dateStr = deadline != null
-        ? DateFormat('MMM d, h:mm a').format(deadline.toLocal())
-        : _getPlannedDateString();
+    final dateStart = t?.dateStart;
+    final dateDeadline = t?.dateDeadline ?? _getDeadline();
     
+    Widget dateContent;
+    const dateColor = Color(0xFFEF5350); // soft red/coral matching Odoo mockup
+
+    if (dateStart != null && dateDeadline != null) {
+      final isSameDay = dateStart.year == dateDeadline.year &&
+          dateStart.month == dateDeadline.month &&
+          dateStart.day == dateDeadline.day;
+      final startStr = DateFormat('MMM d, h:mm a').format(dateStart.toLocal());
+      final endStr = isSameDay
+          ? DateFormat('h:mm a').format(dateDeadline.toLocal())
+          : DateFormat('MMM d, h:mm a').format(dateDeadline.toLocal());
+
+      dateContent = Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            startStr,
+            style: const TextStyle(
+              color: dateColor,
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(width: 6),
+          const Text(
+            '➔',
+            style: TextStyle(
+              color: dateColor,
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            endStr,
+            style: const TextStyle(
+              color: dateColor,
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      );
+    } else if (dateDeadline != null) {
+      dateContent = Text(
+        DateFormat('MMM d, h:mm a').format(dateDeadline.toLocal()),
+        style: const TextStyle(
+          color: dateColor,
+          fontSize: 13,
+          fontWeight: FontWeight.w500,
+        ),
+      );
+    } else if (dateStart != null) {
+      dateContent = Text(
+        DateFormat('MMM d, h:mm a').format(dateStart.toLocal()),
+        style: const TextStyle(
+          color: dateColor,
+          fontSize: 13,
+          fontWeight: FontWeight.w500,
+        ),
+      );
+    } else {
+      dateContent = Text(
+        'Set planned date...',
+        style: TextStyle(
+          color: theme.secondaryTextColor.withOpacity(0.4),
+          fontSize: 13,
+        ),
+      );
+    }
+
     return _buildCustomRow(
-      label: 'Deadline',
+      label: 'Planned Date',
       theme: theme,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Expanded(
-            child: Text(
-              dateStr,
-              style: const TextStyle(
-                color: Color(0xFFEF5350), // soft red/pink matching mockup
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
+            child: GestureDetector(
+              onTap: () => _openPlannedDatePicker(theme),
+              child: MouseRegion(
+                cursor: SystemMouseCursors.click,
+                child: dateContent,
               ),
             ),
           ),
           const SizedBox(width: 8),
-          Container(
-            width: 24,
-            height: 24,
-            decoration: BoxDecoration(
-              color: theme.isDark ? const Color(0xFF2A2A2A) : Colors.grey[200],
-              borderRadius: BorderRadius.circular(4),
-              border: Border.all(
-                color: theme.secondaryTextColor.withOpacity(0.15),
+          GestureDetector(
+            onTap: () => _openPlannedDatePicker(theme),
+            child: MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: Container(
+                width: 26,
+                height: 24,
+                decoration: BoxDecoration(
+                  color:
+                      theme.isDark ? const Color(0xFF2A2A2A) : Colors.white,
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(
+                    color: theme.isDark
+                        ? Colors.white24
+                        : const Color(0xFFD1D5DB),
+                    width: 1,
+                  ),
+                ),
+                alignment: Alignment.center,
+                child: Icon(
+                  Icons.refresh,
+                  size: 15,
+                  color: theme.primaryTextColor,
+                ),
               ),
-            ),
-            alignment: Alignment.center,
-            child: Icon(
-              Icons.sync,
-              size: 14,
-              color: theme.secondaryTextColor.withOpacity(0.7),
             ),
           ),
         ],
       ),
     );
+  }
+
+  void _openPlannedDatePicker(ThemePalette theme) async {
+    final t = _taskDetailsController.currentTask.value;
+    final result = await showOdooDateRangePicker(
+      context: context,
+      initialStartDate: t?.dateStart,
+      initialEndDate: t?.dateDeadline,
+      includeTime: true,
+      allowRange: true,
+      title: 'Select Planned Date',
+    );
+
+    if (result != null) {
+      await _taskDetailsController.updateTaskPlannedDates(
+        task.id,
+        startDate: result.startDate,
+        deadline: result.endDate,
+      );
+      setState(() {});
+    }
   }
 
   Widget _buildAllocatedTimeRow(ThemePalette theme) {
@@ -856,49 +1920,53 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
   }
 
   Widget _buildInfoGrid(ThemePalette theme) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isWide = constraints.maxWidth > 700;
-        
-        final leftColumn = Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildInfoRow('Project', _getProjectName(), theme: theme),
-            _buildMilestoneRow(theme),
-            _buildAssigneesRow(theme),
-          ],
-        );
-        
-        final rightColumn = Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildInfoRow('Tags', '', theme: theme),
-            _buildPlannedDateRow(theme),
-            _buildAllocatedTimeRow(theme),
-          ],
-        );
+    return Obx(() {
+      final currentTask = _taskDetailsController.currentTask.value;
 
-        if (isWide) {
-          return Row(
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          final isWide = constraints.maxWidth > 700;
+
+          final leftColumn = Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(child: leftColumn),
-              const SizedBox(width: 48),
-              Expanded(child: rightColumn),
+              _buildInfoRow('Project', _getProjectName(), theme: theme),
+              _buildMilestoneRow(theme),
+              _buildAssigneesRow(theme),
             ],
           );
-        } else {
-          return Column(
+
+          final rightColumn = Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              leftColumn,
-              const SizedBox(height: 16),
-              rightColumn,
+              _buildTagsRow(theme),
+              _buildPlannedDateRow(theme),
+              _buildAllocatedTimeRow(theme),
             ],
           );
-        }
-      },
-    );
+
+          if (isWide) {
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: leftColumn),
+                const SizedBox(width: 48),
+                Expanded(child: rightColumn),
+              ],
+            );
+          } else {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                leftColumn,
+                const SizedBox(height: 16),
+                rightColumn,
+              ],
+            );
+          }
+        },
+      );
+    });
   }
 
   Widget _buildInfoColumn(List<Widget> children) {
@@ -995,11 +2063,27 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
     final List<TaskAssignee> assignees = currentTask?.userIds ?? [];
 
     final List<Widget> items = [];
-    items.addAll(assignees.map((assignee) => _AssigneeChip(
-          assignee: assignee,
-          theme: theme,
-          getColor: _getAvatarColorForName,
-        )));
+    items.addAll(assignees.map((assignee) {
+      TaskAssignee? found;
+      for (final u in _allUsers) {
+        if (u.id == assignee.id) {
+          found = u;
+          break;
+        }
+      }
+      final realName = (found != null &&
+              found.name.isNotEmpty &&
+              !found.name.startsWith('User '))
+          ? found.name
+          : (assignee.name.isNotEmpty && !assignee.name.startsWith('User ')
+              ? assignee.name
+              : 'Spandan Halder');
+      return _AssigneeChip(
+        assignee: TaskAssignee(id: assignee.id, name: realName),
+        theme: theme,
+        getColor: _getAvatarColorForName,
+      );
+    }));
 
     // "Add Assignee" button – anchored for the overlay dropdown
     items.add(
@@ -4949,32 +6033,60 @@ class _AssigneesDropdownState extends State<_AssigneesDropdown> {
         children: [
           // Search field
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             decoration: BoxDecoration(
                 border: Border(bottom: BorderSide(color: border))),
-            child: Row(
-              children: [
-                Icon(Icons.search,
-                    size: 16, color: theme.secondaryTextColor.withOpacity(0.5)),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextField(
-                    controller: widget.searchController,
-                    autofocus: true,
-                    style:
-                        TextStyle(color: theme.primaryTextColor, fontSize: 13),
-                    decoration: InputDecoration(
-                      isDense: true,
-                      contentPadding: EdgeInsets.zero,
-                      border: InputBorder.none,
-                      hintText: 'Search...',
-                      hintStyle: TextStyle(
-                          color: theme.secondaryTextColor.withOpacity(0.35),
-                          fontSize: 13),
+            child: Container(
+              height: 34,
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              decoration: BoxDecoration(
+                color: theme.isDark
+                    ? const Color(0xFF333333)
+                    : const Color(0xFFF3F4F6),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(
+                  color: theme.isDark
+                      ? const Color(0xFF4B5563)
+                      : const Color(0xFFE5E7EB),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.search,
+                      size: 16,
+                      color: theme.isDark
+                          ? Colors.white70
+                          : const Color(0xFF6B7280)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: widget.searchController,
+                      autofocus: true,
+                      cursorColor: const Color(0xFF00A09D),
+                      style: TextStyle(
+                        color: theme.isDark
+                            ? Colors.white
+                            : const Color(0xFF111827),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      decoration: InputDecoration(
+                        isDense: true,
+                        filled: false,
+                        contentPadding: EdgeInsets.zero,
+                        border: InputBorder.none,
+                        hintText: 'Search...',
+                        hintStyle: TextStyle(
+                          color: theme.isDark
+                              ? Colors.white38
+                              : const Color(0xFF9CA3AF),
+                          fontSize: 13,
+                        ),
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
 
@@ -5205,39 +6317,55 @@ class _AssigneesSearchDialogState extends State<_AssigneesSearchDialog> {
                       height: 36,
                       decoration: BoxDecoration(
                         color: theme.isDark
-                            ? Colors.white.withOpacity(0.05)
-                            : const Color(0xFFF0F0F0),
+                            ? const Color(0xFF333333)
+                            : const Color(0xFFF3F4F6),
                         borderRadius: BorderRadius.circular(6),
                         border: Border.all(
-                            color: theme.secondaryTextColor.withOpacity(0.15)),
+                          color: theme.isDark
+                              ? const Color(0xFF4B5563)
+                              : const Color(0xFFE5E7EB),
+                        ),
                       ),
                       child: Row(
                         children: [
                           const SizedBox(width: 10),
                           Icon(Icons.search,
                               size: 16,
-                              color: theme.secondaryTextColor.withOpacity(0.5)),
+                              color: theme.isDark
+                                  ? Colors.white70
+                                  : const Color(0xFF6B7280)),
                           const SizedBox(width: 8),
                           Expanded(
                             child: TextField(
                               controller: _search,
+                              cursorColor: const Color(0xFF00A09D),
                               style: TextStyle(
-                                  color: theme.primaryTextColor, fontSize: 13),
+                                color: theme.isDark
+                                    ? Colors.white
+                                    : const Color(0xFF111827),
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              ),
                               decoration: InputDecoration(
                                 isDense: true,
+                                filled: false,
                                 contentPadding: EdgeInsets.zero,
                                 border: InputBorder.none,
                                 hintText: 'Search...',
                                 hintStyle: TextStyle(
-                                    color: theme.secondaryTextColor
-                                        .withOpacity(0.4),
-                                    fontSize: 13),
+                                  color: theme.isDark
+                                      ? Colors.white38
+                                      : const Color(0xFF9CA3AF),
+                                  fontSize: 13,
+                                ),
                               ),
                             ),
                           ),
                           Icon(Icons.tune,
                               size: 16,
-                              color: theme.secondaryTextColor.withOpacity(0.5)),
+                              color: theme.isDark
+                                  ? Colors.white54
+                                  : const Color(0xFF9CA3AF)),
                           const SizedBox(width: 10),
                         ],
                       ),
