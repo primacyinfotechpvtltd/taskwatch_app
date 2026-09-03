@@ -898,8 +898,27 @@ class DiscussController extends GetxController {
                   msgAttachments.add(attachmentsMap[id]!);
                 }
               }
-              msgs[i] = msgs[i].copyWith(attachments: msgAttachments);
+              final bool shouldBeDeleted = msgs[i].isDeleted ||
+                  (msgs[i].contentBody.trim().isEmpty &&
+                      msgs[i].cleanBody.trim().isEmpty &&
+                      msgAttachments.isEmpty &&
+                      !msgs[i].isReply);
+
+              msgs[i] = msgs[i].copyWith(
+                attachments: msgAttachments,
+                isDeleted: shouldBeDeleted,
+              );
             }
+          }
+        }
+
+        // Check for messages without attachments that might be empty/deleted
+        for (var i = 0; i < msgs.length; i++) {
+          if (msgs[i].contentBody.trim().isEmpty &&
+              msgs[i].cleanBody.trim().isEmpty &&
+              msgs[i].attachments.isEmpty &&
+              !msgs[i].isReply) {
+            msgs[i] = msgs[i].copyWith(isDeleted: true);
           }
         }
         
@@ -1173,7 +1192,40 @@ class DiscussController extends GetxController {
   /// Delete a message sent by the user
   Future<bool> deleteMessage(int channelId, int messageId) async {
     try {
-      // 1. Optimistic update: mark as deleted
+      // Find attachment IDs if any
+      List<int> attachmentIdsToDelete = [];
+      if (channelMessages.containsKey(channelId)) {
+        final list = channelMessages[channelId]!;
+        final msg = list.firstWhereOrNull((m) => m.id == messageId);
+        if (msg != null) {
+          attachmentIdsToDelete = [...msg.attachmentIds];
+        }
+      }
+
+      // If attachment IDs were not in memory, query them from Odoo mail.message
+      if (attachmentIdsToDelete.isEmpty) {
+        try {
+          final msgData = await OdooRpcApiManager.searchRead(
+            model: 'mail.message',
+            domain: [
+              ['id', '=', messageId]
+            ],
+            fields: ['attachment_ids'],
+            limit: 1,
+          );
+          if (msgData.isSuccess && msgData.data != null && (msgData.data as List).isNotEmpty) {
+            final raw = (msgData.data as List).first;
+            if (raw['attachment_ids'] is List) {
+              attachmentIdsToDelete = (raw['attachment_ids'] as List)
+                  .map((x) => x is int ? x : int.tryParse(x.toString()) ?? 0)
+                  .where((x) => x > 0)
+                  .toList();
+            }
+          }
+        } catch (_) {}
+      }
+
+      // 1. Optimistic update: mark as deleted and wipe all attachments locally, retaining bubble in chat
       if (channelMessages.containsKey(channelId)) {
         final list = channelMessages[channelId]!;
         final idx = list.indexWhere((m) => m.id == messageId);
@@ -1183,27 +1235,38 @@ class DiscussController extends GetxController {
             cleanBody: 'This message is deleted',
             contentBody: 'This message is deleted',
             isDeleted: true,
+            attachments: [],
+            attachmentIds: [],
           );
           channelMessages[channelId] = [...list];
         }
       }
 
-      // 2. Remote update in Odoo: replace body with deleted text (or unlink)
-      final writeRes = await OdooRpcApiManager.write(
+      // 2. Unlink attachments from ir.attachment in Odoo so files are deleted from storage
+      if (attachmentIdsToDelete.isNotEmpty) {
+        try {
+          await OdooRpcApiManager.unlink(
+            model: 'ir.attachment',
+            ids: attachmentIdsToDelete,
+          );
+          debugPrint('DISCUSS_DELETE: Successfully unlinked attachments: $attachmentIdsToDelete');
+        } catch (e) {
+          debugPrint('DISCUSS_DELETE: Error unlinking ir.attachment: $e');
+        }
+      }
+
+      // 3. Update mail.message in Odoo: set body to deleted notice and clear attachment relations
+      // (Keeps message bubble in chat history showing "This message is deleted" rather than disappearing)
+      await OdooRpcApiManager.write(
         model: 'mail.message',
         ids: [messageId],
         values: {
-          'body': '<em>This message is deleted</em>',
+          'body': '<p><em>This message is deleted</em></p>',
+          'attachment_ids': [
+            [6, 0, []] // Clears all attachment relations in Odoo
+          ],
         },
       );
-
-      if (!writeRes.isSuccess) {
-        // Attempt unlink if write failed
-        await OdooRpcApiManager.unlink(
-          model: 'mail.message',
-          ids: [messageId],
-        );
-      }
 
       showToast('Message deleted', idSuccess: true);
       return true;

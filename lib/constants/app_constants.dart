@@ -8,7 +8,7 @@ class AppConstant {
   static const String apiHostName =
       isDebug ? "staging-pi.o19.primacyinfotech.com" : "staging-pi.o19.primacyinfotech.com";
   //
-  static const int apiPort = isDebug ? 8017 : 9070;
+  static const int? apiPort = null;
   //
   // Enable manual URL changes - user enters database URL
   static bool userCanChangeUrl = true;
@@ -20,8 +20,11 @@ class AppConstant {
       _userGivenApiServerUrl = null;
     } else {
       // Remove trailing slash if present to prevent double slashes later
-      _userGivenApiServerUrl =
+      var clean =
           value.endsWith('/') ? value.substring(0, value.length - 1) : value;
+      // Strip port :9070 and :8017
+      clean = clean.replaceAll(':9070', '').replaceAll(':8017', '');
+      _userGivenApiServerUrl = clean;
     }
   }
 
@@ -32,10 +35,8 @@ class AppConstant {
     if (_userGivenApiServerUrl != null && _userGivenApiServerUrl!.isNotEmpty) {
       return _userGivenApiServerUrl!;
     }
-    // Otherwise, fall back to the default URL from constants
-    return apiPort != null
-        ? "$apiScheme://$apiHostName:$apiPort"
-        : "$apiScheme://$apiHostName";
+    // Default URL without port number
+    return "$apiScheme://$apiHostName";
   }
 
   //

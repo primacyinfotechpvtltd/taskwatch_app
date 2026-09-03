@@ -1,3 +1,4 @@
+import 'package:intl/intl.dart';
 import 'package:pi_task_watch/utils/format_utils.dart';
 
 class TaskDetailsModel {
@@ -651,6 +652,33 @@ class TaskTimesheet {
       unitAmount: (json['unit_amount'] ?? 0.0).toDouble(),
       duration: json['duration'] ?? '00:00',
     );
+  }
+
+  String get formattedDate {
+    if (date.isEmpty) return '';
+    try {
+      final parsed = DateTime.tryParse(date);
+      if (parsed != null) {
+        return DateFormat('MMM d').format(parsed);
+      }
+    } catch (_) {}
+    return date;
+  }
+
+  String get formattedDuration {
+    if (unitAmount > 0) {
+      final totalMinutes = (unitAmount * 60).round();
+      final hours = totalMinutes ~/ 60;
+      final minutes = totalMinutes % 60;
+      return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}';
+    }
+    if (duration.isNotEmpty && duration.contains(':')) {
+      final parts = duration.split(':');
+      final h = int.tryParse(parts[0].trim()) ?? 0;
+      final m = int.tryParse(parts[1].trim()) ?? 0;
+      return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
+    }
+    return duration.isNotEmpty ? duration : '00:00';
   }
 
   Map<String, dynamic> toJson() {

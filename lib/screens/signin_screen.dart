@@ -47,20 +47,37 @@ class _SigninScreenState extends State<SigninScreen>
     );
     _animationController.forward();
 
-    // Restore server URL and attempt auto-login
+    // Restore server URL, load saved credentials and attempt auto-login
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _authController.restoreServerUrl();
 
       // Update the controller text with the restored URL
       _serverUrlController.text = AppConstant.apiServerUrl;
+
+      // Pre-fill saved credentials if remembered
+      final savedCreds = await _authController.getSavedCredentials();
+      final isRemembered = savedCreds['rememberMe'] == true;
+      final savedEmail = (savedCreds['email'] as String?) ?? '';
+      final savedPassword = (savedCreds['password'] as String?) ?? '';
+      final savedDb = (savedCreds['db'] as String?) ?? '';
+
+      if (isRemembered || savedEmail.isNotEmpty) {
+        _emailController.text = savedEmail;
+        _passwordController.text = savedPassword;
+        _rememberMe = isRemembered;
+        if (savedDb.isNotEmpty) {
+          _selectedDatabase = savedDb;
+        }
+      }
+
       if (mounted) setState(() {});
 
-      // Attempt auto-login if credentials exist
+      // Attempt auto-login if credentials exist and session is active
       final result = await _authController.attemptAutoLogin();
 
       // If auto-login was not successful or not attempted, fetch databases for current URL
       if (!result && _isValidUrl(AppConstant.apiServerUrl)) {
-        _fetchDatabases();
+        await _fetchDatabases();
       }
     });
   }
@@ -70,6 +87,18 @@ class _SigninScreenState extends State<SigninScreen>
     try {
       final databases = await _authController.getAllDb();
       _databases.value = databases;
+
+      if (_selectedDatabase == null ||
+          !_databases.contains(_selectedDatabase)) {
+        final savedCreds = await _authController.getSavedCredentials();
+        final savedDb = (savedCreds['db'] as String?) ?? '';
+        if (savedDb.isNotEmpty && _databases.contains(savedDb)) {
+          _selectedDatabase = savedDb;
+        } else if (_databases.length == 1) {
+          _selectedDatabase = _databases.first;
+        }
+      }
+      if (mounted) setState(() {});
 
       if (kDebugMode) {
         print(
@@ -129,6 +158,7 @@ class _SigninScreenState extends State<SigninScreen>
 
     // Update the server URL
     AppConstant.userGivenApiServerUrl = trimmedUrl;
+    _serverUrlController.text = AppConstant.apiServerUrl;
 
     print("🔗 API Server URL updated: ${AppConstant.apiServerUrl}");
     print("🔗 API Base URL updated: ${AppConstant.apiBaseUrl}");

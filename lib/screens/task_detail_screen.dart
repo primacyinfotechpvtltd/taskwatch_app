@@ -3239,51 +3239,327 @@ class _TaskDetailScreenState extends State<TaskDetailScreen>
         return const Center(child: CircularProgressIndicator());
       }
       final timesheets = _taskDetailsController.timesheets;
-      return Column(
-        children: [
-          _buildTableHeader(
-              ['Date', 'Employee', 'Description', 'Time Spent'], theme),
-          Expanded(
-            child: timesheets.isEmpty
-                ? Center(
-                    child: Text('No timesheets',
-                        style: TextStyle(
-                            color: theme.secondaryTextColor.withOpacity(0.5))))
-                : ListView.builder(
-                    itemCount: timesheets.length,
-                    itemBuilder: (context, index) {
-                      final t = timesheets[index];
-                      return _buildTableRow(
-                        [t.date, t.employeeName, t.description, t.duration],
-                        theme: theme,
-                        isLast: index == timesheets.length - 1,
-                      );
-                    },
-                  ),
+      if (timesheets.isEmpty) {
+        return Center(
+          child: Text(
+            'No timesheets',
+            style: TextStyle(
+              color: theme.secondaryTextColor.withValues(alpha: 0.5),
+              fontSize: 13,
+            ),
           ),
-          const Divider(color: Colors.white10),
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
+        );
+      }
+
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          final tableWidth =
+              constraints.maxWidth > 580 ? constraints.maxWidth : 580.0;
+          return SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: SizedBox(
+              width: tableWidth,
+              child: Column(
+                children: [
+                  _buildTimesheetTableHeader(theme),
+                  Expanded(
+                    child: ListView.builder(
+                      itemCount: timesheets.length,
+                      itemBuilder: (context, index) {
+                        final t = timesheets[index];
+                        return _buildTimesheetTableRow(
+                          t,
+                          theme: theme,
+                          isLast: index == timesheets.length - 1,
+                        );
+                      },
+                    ),
+                  ),
+                  _buildTimesheetTotalRow(theme),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+    });
+  }
+
+  Widget _buildTimesheetTableHeader(ThemePalette theme) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 12),
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(
+            color: theme.isDark ? Colors.white24 : Colors.black12,
+            width: 1.0,
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 80,
+            child: Text(
+              'Date',
+              style: TextStyle(
+                color: theme.secondaryTextColor,
+                fontSize: 12.5,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          SizedBox(
+            width: 155,
+            child: Text(
+              'Employee',
+              style: TextStyle(
+                color: theme.secondaryTextColor,
+                fontSize: 12.5,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              'Description',
+              style: TextStyle(
+                color: theme.secondaryTextColor,
+                fontSize: 12.5,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          SizedBox(
+            width: 85,
+            child: Text(
+              'Time Spent',
+              textAlign: TextAlign.right,
+              style: TextStyle(
+                color: theme.secondaryTextColor,
+                fontSize: 12.5,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          const SizedBox(width: 36), // Alignment for trash can column
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTimesheetTableRow(
+    TaskTimesheet t, {
+    required ThemePalette theme,
+    required bool isLast,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 12),
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(
+            color: isLast
+                ? Colors.transparent
+                : (theme.isDark
+                    ? Colors.white10
+                    : Colors.black.withValues(alpha: 0.06)),
+            width: 0.8,
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          // 1. Date (Formatted as "Sep 3", "Sep 2", etc.)
+          SizedBox(
+            width: 80,
+            child: Text(
+              t.formattedDate,
+              style: TextStyle(
+                color: theme.primaryTextColor,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+
+          // 2. Employee Avatar & Name
+          SizedBox(
+            width: 155,
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                Text('Total Spent: ',
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: t.employeeId > 0
+                        ? OdooNetworkImage(
+                            model: 'hr.employee',
+                            id: t.employeeId,
+                            field: 'image_128',
+                            placeholder: _InitialAvatar(
+                              name: t.employeeName,
+                              size: 24,
+                              fontSize: 10,
+                            ),
+                            errorWidget: _InitialAvatar(
+                              name: t.employeeName,
+                              size: 24,
+                              fontSize: 10,
+                            ),
+                          )
+                        : _InitialAvatar(
+                            name: t.employeeName,
+                            size: 24,
+                            fontSize: 10,
+                          ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    t.employeeName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                        color: theme.secondaryTextColor, fontSize: 12)),
-                Text(
-                  _taskDetailsController.getTotalTimeSpent(),
-                  style: TextStyle(
-                    color: theme.primaryTextColor,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12,
+                      color: theme.primaryTextColor,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ),
               ],
             ),
           ),
+
+          // 3. Description (Single line with Tooltip matching Odoo)
+          Expanded(
+            child: Tooltip(
+              message: t.description,
+              waitDuration: const Duration(milliseconds: 350),
+              child: Text(
+                t.description,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: theme.primaryTextColor,
+                  fontSize: 12.5,
+                ),
+              ),
+            ),
+          ),
+
+          // 4. Time Spent (Two-digit HH:mm format e.g. "00:53", "01:19")
+          SizedBox(
+            width: 85,
+            child: Text(
+              t.formattedDuration,
+              textAlign: TextAlign.right,
+              style: TextStyle(
+                color: theme.primaryTextColor,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+
+          // 5. Delete Action (Trash Can Icon)
+          SizedBox(
+            width: 36,
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: IconButton(
+                icon: Icon(
+                  Icons.delete_outline_rounded,
+                  size: 16,
+                  color: theme.secondaryTextColor.withValues(alpha: 0.6),
+                ),
+                splashRadius: 16,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                tooltip: 'Delete timesheet line',
+                onPressed: () => _confirmDeleteTimesheet(t),
+              ),
+            ),
+          ),
         ],
-      );
-    });
+      ),
+    );
+  }
+
+  Widget _buildTimesheetTotalRow(ThemePalette theme) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 12),
+      decoration: BoxDecoration(
+        border: Border(
+          top: BorderSide(
+            color: theme.isDark ? Colors.white24 : Colors.black12,
+            width: 1.0,
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          const SizedBox(width: 80),
+          const SizedBox(width: 155),
+          Expanded(
+            child: Text(
+              'Total Spent',
+              textAlign: TextAlign.right,
+              style: TextStyle(
+                color: theme.secondaryTextColor,
+                fontSize: 12.5,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          SizedBox(
+            width: 85,
+            child: Text(
+              _taskDetailsController.getTotalTimeSpent(),
+              textAlign: TextAlign.right,
+              style: TextStyle(
+                color: theme.primaryTextColor,
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+              ),
+            ),
+          ),
+          const SizedBox(width: 36),
+        ],
+      ),
+    );
+  }
+
+  void _confirmDeleteTimesheet(TaskTimesheet t) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text(
+          'Delete Timesheet Line',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        content: Text(
+          'Are you sure you want to delete this timesheet entry (${t.formattedDate} • ${t.formattedDuration})?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              final taskId = _taskDetailsController.currentTask.value?.id ?? 0;
+              await _taskDetailsController.deleteTimesheet(t.id, taskId);
+            },
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildSubtasksTab(ThemePalette theme) {

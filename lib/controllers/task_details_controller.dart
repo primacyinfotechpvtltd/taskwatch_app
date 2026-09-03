@@ -1429,6 +1429,35 @@ Future<bool> updateTaskAssignees(int taskId, List<int> userIds) async {
     }
   }
 
+  /// Delete a timesheet entry
+  Future<bool> deleteTimesheet(int timesheetId, int taskId) async {
+    try {
+      // 1. Try Odoo RPC unlink on account.analytic.line
+      await OdooRpcApiManager.unlink(
+        model: 'account.analytic.line',
+        ids: [timesheetId],
+      );
+
+      // 2. Also try API endpoint if exists
+      try {
+        await ApiManager.deleteRequest(endPoint: 'timesheets/$timesheetId');
+      } catch (_) {}
+
+      // 3. Remove locally
+      timesheets.removeWhere((t) => t.id == timesheetId);
+      showToast('Timesheet line deleted', idSuccess: true);
+
+      // 4. Refresh timesheets from server if taskId available
+      if (taskId > 0) {
+        await getTaskTimesheets(taskId);
+      }
+      return true;
+    } catch (e) {
+      showToast('Failed to delete timesheet: $e', idSuccess: false);
+      return false;
+    }
+  }
+
   /// 8. Get Task Subtasks
   Future<List<Subtask>> getSubtasks(int taskId) async {
     try {
@@ -1614,21 +1643,29 @@ Future<bool> updateTaskAssignees(int taskId, List<int> userIds) async {
 
   /// Calculate total time spent from timesheets or pre-calculated usedTime
   String getTotalTimeSpent() {
-    if (currentTask.value?.usedTime != null) {
-      return currentTask.value!.usedTime!;
+    if (timesheets.isNotEmpty) {
+      double totalHours = 0;
+      for (var timesheet in timesheets) {
+        totalHours += timesheet.unitAmount;
+      }
+      final hours = totalHours.floor();
+      final minutes = ((totalHours - hours) * 60).round();
+      return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}';
     }
 
-    if (timesheets.isEmpty) return '00:00';
-
-    double totalHours = 0;
-    for (var timesheet in timesheets) {
-      totalHours += timesheet.unitAmount;
+    if (currentTask.value?.usedTime != null &&
+        currentTask.value!.usedTime!.isNotEmpty) {
+      final val = currentTask.value!.usedTime!;
+      if (val.contains(':')) {
+        final parts = val.split(':');
+        final h = int.tryParse(parts[0].trim()) ?? 0;
+        final m = int.tryParse(parts[1].trim()) ?? 0;
+        return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
+      }
+      return val;
     }
 
-    final hours = totalHours.floor();
-    final minutes = ((totalHours - hours) * 60).round();
-
-    return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}';
+    return '00:00';
   }
 
   /// Clear all data (useful when navigating away)

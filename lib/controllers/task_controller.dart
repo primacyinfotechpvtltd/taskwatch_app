@@ -27,6 +27,16 @@ class TaskController extends GetxController {
 
   final Rxn<TaskModel> currentTask = Rxn<TaskModel>();
 
+  void clearCache() {
+    _taskList.clear();
+    taskStages.clear();
+    taskActivities.clear();
+    taskSubtasks.clear();
+    taskBlockedBy.clear();
+    taskTimesheets.clear();
+    currentTask.value = null;
+  }
+
   Future<List<TaskModel>> getTaskList({required int? projectId}) async {
     try {
       _isLoading.value = true;

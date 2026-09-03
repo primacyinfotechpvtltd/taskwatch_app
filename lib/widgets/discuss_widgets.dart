@@ -260,6 +260,12 @@ class MessageBubble extends StatelessWidget {
     ];
     final avatarColor = avatarColors[nameHash % avatarColors.length];
 
+    final isEffectivelyDeleted = message.isDeleted ||
+        (message.contentBody.trim().isEmpty &&
+            message.cleanBody.trim().isEmpty &&
+            message.attachments.isEmpty &&
+            !message.isReply);
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 16),
       child: Align(
@@ -296,7 +302,7 @@ class MessageBubble extends StatelessWidget {
                 ],
                 if (isOutgoing) ...[
                   // 3-Dots Action Button on Hover / Tap (ONLY if NOT deleted)
-                  if (!message.isDeleted) ...[
+                  if (!isEffectivelyDeleted) ...[
                     IconButton(
                       icon: const Icon(Icons.more_vert_rounded,
                           size: 16, color: Colors.grey),
@@ -316,7 +322,9 @@ class MessageBubble extends StatelessWidget {
                     clipBehavior: Clip.none,
                     children: [
                       GestureDetector(
-                        onLongPress: message.isDeleted ? null : () => _showMessageActions(context),
+                        onLongPress: isEffectivelyDeleted
+                            ? null
+                            : () => _showMessageActions(context),
                         child: Container(
                           decoration: isOutgoing
                               ? BoxDecoration(
@@ -405,7 +413,7 @@ class MessageBubble extends StatelessWidget {
                               ],
 
                               // Deleted message display
-                              if (message.isDeleted) ...[
+                              if (isEffectivelyDeleted) ...[
                                 Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
@@ -1990,7 +1998,11 @@ class MessageBubble extends StatelessWidget {
                 ),
 
                 // 6. Edit Message (ONLY for sent messages by current user)
-                if (_checkIsMyMessage() && !message.isDeleted) ...[
+                if (_checkIsMyMessage() &&
+                    !message.isDeleted &&
+                    (message.contentBody.trim().isNotEmpty ||
+                        message.attachments.isNotEmpty ||
+                        message.isReply)) ...[
                   ListTile(
                     dense: true,
                     visualDensity: VisualDensity.compact,
@@ -2009,7 +2021,11 @@ class MessageBubble extends StatelessWidget {
                 ],
 
                 // 7. Delete Message (ONLY for sent messages by current user)
-                if (_checkIsMyMessage() && !message.isDeleted) ...[
+                if (_checkIsMyMessage() &&
+                    !message.isDeleted &&
+                    (message.contentBody.trim().isNotEmpty ||
+                        message.attachments.isNotEmpty ||
+                        message.isReply)) ...[
                   ListTile(
                     dense: true,
                     visualDensity: VisualDensity.compact,

@@ -1,9 +1,6 @@
 import 'dart:async';
 import 'package:pi_task_watch/exports.dart';
 import 'package:intl/intl.dart';
-import 'package:google_fonts/google_fonts.dart';
-import 'package:pi_task_watch/widgets/announcement_widgets.dart';
-import 'package:pi_task_watch/utils/dialog_utils.dart';
 
 class AnnouncementController extends GetxController {
   final RxList<AnnouncementModel> announcements = <AnnouncementModel>[].obs;
@@ -70,18 +67,123 @@ class AnnouncementController extends GetxController {
   Future<void> fetchAnnouncements() async {
     try {
       isLoading.value = true;
-      final response = await OdooRpcApiManager.searchRead(
+
+      int? currentUserId;
+      int? currentEmployeeId;
+      int? currentDepartmentId;
+      int? currentJobId;
+
+      if (Get.isRegistered<AuthController>()) {
+        final auth = Get.find<AuthController>();
+        currentUserId = auth.user.value?.userId;
+        currentEmployeeId = auth.employeeId;
+      }
+
+      // If employeeId or departmentId not yet resolved, query hr.employee
+      if (currentUserId != null && (currentEmployeeId == null || currentDepartmentId == null)) {
+        try {
+          final empResp = await OdooRpcApiManager.searchRead(
+            model: 'hr.employee',
+            domain: [
+              ['user_id', '=', currentUserId]
+            ],
+            fields: ['id', 'department_id', 'job_id'],
+            limit: 1,
+          );
+          if (empResp.isSuccess && empResp.data != null && (empResp.data as List).isNotEmpty) {
+            final emp = (empResp.data as List).first as Map;
+            currentEmployeeId ??= emp['id'] is int ? emp['id'] as int : int.tryParse(emp['id'].toString());
+            if (emp['department_id'] is List && (emp['department_id'] as List).isNotEmpty) {
+              final firstVal = (emp['department_id'] as List).first;
+              currentDepartmentId = firstVal is int ? firstVal : int.tryParse(firstVal.toString());
+            } else if (emp['department_id'] is int) {
+              currentDepartmentId = emp['department_id'] as int;
+            }
+            if (emp['job_id'] is List && (emp['job_id'] as List).isNotEmpty) {
+              final firstVal = (emp['job_id'] as List).first;
+              currentJobId = firstVal is int ? firstVal : int.tryParse(firstVal.toString());
+            } else if (emp['job_id'] is int) {
+              currentJobId = emp['job_id'] as int;
+            }
+            if (currentEmployeeId != null && Get.isRegistered<AuthController>()) {
+              Get.find<AuthController>().employeeId = currentEmployeeId;
+            }
+          }
+        } catch (e) {
+          debugPrint('Error resolving current employee for announcements: $e');
+        }
+      }
+
+      // 1. Try querying with full fields
+      var response = await OdooRpcApiManager.searchRead(
         model: 'hr.announcement',
-        domain: [], // Retrieve all announcements
+        domain: [],
         order: 'create_date desc',
       );
 
+      // 2. Fallback with standard safe fields if first query fails
+      if (!response.isSuccess) {
+        response = await OdooRpcApiManager.searchRead(
+          model: 'hr.announcement',
+          domain: [],
+          fields: [
+            'id',
+            'name',
+            'announcement_reason',
+            'announcement',
+            'date_start',
+            'date_end',
+            'is_announcement',
+            'is_birthday_announcement',
+            'birthday_employee_id',
+            'state',
+            'announcement_type',
+            'employee_ids',
+            'department_ids',
+            'job_ids',
+            'user_ids',
+            'create_uid',
+            'create_date',
+          ],
+          order: 'create_date desc',
+        );
+      }
+
+      // 3. Fallback with minimal fields
+      if (!response.isSuccess) {
+        response = await OdooRpcApiManager.searchRead(
+          model: 'hr.announcement',
+          domain: [],
+          fields: [
+            'id',
+            'name',
+            'announcement_reason',
+            'date_start',
+            'date_end',
+            'state',
+            'announcement_type',
+            'employee_ids',
+          ],
+        );
+      }
+
       if (response.isSuccess && response.data != null) {
         isModuleAvailable.value = true;
-        final records = response.data!;
-        announcements.value = records
+        final records = response.data as List;
+        final allList = records
             .map((json) => AnnouncementModel.fromJson(Map<String, dynamic>.from(json)))
             .toList();
+
+        // Filter user-wise targeted announcements
+        final filteredList = allList.where((a) => a.isVisibleToUser(
+          currentUserId: currentUserId,
+          currentEmployeeId: currentEmployeeId,
+          currentDepartmentId: currentDepartmentId,
+          currentJobId: currentJobId,
+        )).toList();
+
+        announcements.value = filteredList;
+        debugPrint('ANNOUNCEMENT: Fetched ${allList.length} total, filtered ${filteredList.length} for user (UID: $currentUserId, EmpID: $currentEmployeeId, DeptID: $currentDepartmentId, JobID: $currentJobId)');
 
         // Check for active approved birthday announcement to auto-popup instantly
         _checkAndShowBirthdayPopup();
@@ -89,23 +191,22 @@ class AnnouncementController extends GetxController {
         final err = response.message.toLowerCase();
         if (err.contains("doesn't exist") ||
             err.contains("not found") ||
-            err.contains("access denied") ||
-            err.contains("hr.announcement")) {
+            err.contains("cannot find") ||
+            err.contains("model")) {
           isModuleAvailable.value = false;
-          announcements.clear();
         } else {
-          if (announcements.isEmpty) {
-            isModuleAvailable.value = false;
+          // If network or permission error, keep module available if we previously had it
+          if (announcements.isNotEmpty) {
+            isModuleAvailable.value = true;
           }
         }
         debugPrint('==================================================');
-        debugPrint('⚠️ ODOO API WARNING: FAILED TO FETCH ANNOUNCEMENTS: ${response.message}');
+        debugPrint('⚠️ ODOO API ANNOUNCEMENT STATUS: ${response.message}');
         debugPrint('==================================================');
       }
     } catch (e, stack) {
       debugPrint('ANNOUNCEMENT_ERROR: $e');
       debugPrint('ANNOUNCEMENT_STACKTRACE: $stack');
-      isModuleAvailable.value = false;
     } finally {
       isLoading.value = false;
     }

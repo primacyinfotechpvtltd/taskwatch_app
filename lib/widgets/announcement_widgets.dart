@@ -14,32 +14,43 @@ class DashboardAnnouncementSection extends StatelessWidget {
         : Get.put(AnnouncementController());
 
     return Obx(() {
-      if (!controller.isModuleAvailable.value || controller.announcements.isEmpty) {
+      if (controller.announcements.isEmpty) {
+        if (!controller.isLoading.value) {
+          controller.fetchAnnouncements();
+        }
         return const SizedBox.shrink();
       }
 
-      if (controller.isLoading.value && controller.announcements.isEmpty) {
-        return const SizedBox.shrink();
-      }
-
-      // Filter active approved announcements for the dashboard preview
+      // Filter active announcements for the dashboard preview
       final now = DateTime.now();
       
       final activeAnnouncements = controller.announcements.where((a) {
-        // Show if state is approved
-        if (a.state != 'approved') return false;
+        // Exclude explicitly cancelled/rejected announcements
+        final s = a.state.toLowerCase();
+        if (s == 'rejected' || s == 'cancel' || s == 'refuse' || s == 'expired') {
+          return false;
+        }
         
-        // And if current date is within start and end date (inclusive)
+        // Date check (inclusive of end day)
         try {
-          final start = DateTime.parse(a.dateStart);
-          final end = DateTime.parse(a.dateEnd).add(const Duration(days: 1)); // inclusive of end day
-          return now.isAfter(start) && now.isBefore(end);
+          if (a.dateEnd.isNotEmpty) {
+            final endParsed = DateTime.parse(a.dateEnd.split(' ')[0]);
+            final endDate = DateTime(endParsed.year, endParsed.month, endParsed.day, 23, 59, 59);
+            if (now.isAfter(endDate)) {
+              return false; // Expired
+            }
+          }
+          return true;
         } catch (_) {
-          return true; // fallback if parse fails
+          return true; // fallback
         }
       }).toList();
 
-      if (activeAnnouncements.isEmpty) {
+      final displayAnnouncements = activeAnnouncements.isNotEmpty
+          ? activeAnnouncements
+          : controller.announcements.toList();
+
+      if (displayAnnouncements.isEmpty) {
         return const SizedBox.shrink();
       }
 
@@ -163,13 +174,17 @@ class DashboardAnnouncementSection extends StatelessWidget {
               ListView.separated(
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
-                itemCount: activeAnnouncements.length > 3 ? 3 : activeAnnouncements.length,
-                separatorBuilder: (context, index) => const Divider(height: 1, thickness: 0.5),
+                itemCount: displayAnnouncements.length > 3
+                    ? 3
+                    : displayAnnouncements.length,
+                separatorBuilder: (context, index) =>
+                    const Divider(height: 1, thickness: 0.5),
                 itemBuilder: (context, index) {
-                  final announcement = activeAnnouncements[index];
+                  final announcement = displayAnnouncements[index];
                   return AnnouncementListTile(
                     announcement: announcement,
-                    onTap: () => _showAnnouncementDetail(context, announcement),
+                    onTap: () =>
+                        _showAnnouncementDetail(context, announcement),
                   );
                 },
               ),
@@ -1112,23 +1127,28 @@ class _AnnouncementDetailDialogState extends State<AnnouncementDetailDialog> {
   }) {
     return Row(
       children: [
-        Icon(icon, size: 16, color: AppTheme.primary.withOpacity(0.8)),
-        const SizedBox(width: 8),
+        Icon(icon, size: 15, color: AppTheme.primary.withValues(alpha: 0.8)),
+        const SizedBox(width: 6),
         Text(
           label,
           style: GoogleFonts.inter(
-            fontSize: 11,
+            fontSize: 10,
             fontWeight: FontWeight.w600,
             color: Colors.grey.shade600,
           ),
         ),
-        const Spacer(),
-        Text(
-          value,
-          style: GoogleFonts.spaceGrotesk(
-            fontSize: 11,
-            fontWeight: FontWeight.bold,
-            color: const Color(0xFF25181E),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            value,
+            textAlign: TextAlign.end,
+            style: GoogleFonts.spaceGrotesk(
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+              color: const Color(0xFF25181E),
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
         ),
       ],
@@ -1492,7 +1512,6 @@ class _AllAnnouncementsDialogState extends State<AllAnnouncementsDialog> {
           Expanded(
             child: Obx(() {
               final filtered = controller.announcements.where((a) {
-                if (a.state != 'approved') return false;
                 if (_searchQuery.isEmpty) return true;
                 return a.title.toLowerCase().contains(_searchQuery) ||
                     a.plainContent.toLowerCase().contains(_searchQuery) ||

@@ -191,7 +191,9 @@ class DiscussMessageModel {
   bool get isReply => (replyText != null && replyText!.isNotEmpty);
 
   String get displayBody {
-    if (isDeleted) return 'This message is deleted';
+    if (isDeleted || (contentBody.trim().isEmpty && cleanBody.trim().isEmpty && attachments.isEmpty && attachmentIds.isEmpty && !isReply)) {
+      return 'This message is deleted';
+    }
     final text = contentBody.isNotEmpty ? contentBody : cleanBody;
     if (text.trim().isEmpty && (attachments.isNotEmpty || attachmentIds.isNotEmpty)) {
       final isImage = attachments.any((a) => a.mimetype.startsWith('image/'));
@@ -250,9 +252,16 @@ class DiscussMessageModel {
     String cleanBody = FormatUtils.cleanHtml(unescaped);
     String contentBody = cleanBody;
 
-    final bool isMsgDeleted = bodyStr.contains('This message is deleted') ||
-        cleanBody.toLowerCase() == 'this message is deleted' ||
-        bodyStr.toLowerCase().contains('this message was deleted');
+    final cleanLower = cleanBody.toLowerCase().trim();
+    final bodyLower = bodyStr.toLowerCase().trim();
+
+    final bool isMsgDeleted = bodyLower.contains('this message is deleted') ||
+        bodyLower.contains('this message was deleted') ||
+        bodyLower.contains('message deleted') ||
+        cleanLower == 'this message is deleted' ||
+        cleanLower == 'this message was deleted' ||
+        cleanLower == 'message deleted' ||
+        (cleanLower.isEmpty && attachmentsList.isEmpty && (bodyLower == '<p></p>' || bodyLower == '<p><br></p>' || bodyLower == '<div></div>' || bodyLower.isEmpty));
 
     // Parse blockquote if present: e.g. <blockquote><b>Aniket Rai:</b> hi</blockquote> or &lt;blockquote&gt;
     final quoteMatch = RegExp(

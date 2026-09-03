@@ -36,6 +36,20 @@ class _DashboardScreenState extends State<DashboardScreen>
       if (mounted) {
         _checkAndShowWfhPopup();
       }
+      try {
+        await _trackerController.refreshTodayDurationFromBackend();
+      } catch (e) {
+        debugPrint('Error syncing today duration from backend: $e');
+      }
+      try {
+        if (Get.isRegistered<AnnouncementController>()) {
+          Get.find<AnnouncementController>().fetchAnnouncements();
+        } else {
+          Get.put(AnnouncementController()).fetchAnnouncements();
+        }
+      } catch (e) {
+        debugPrint('Error fetching announcements on dashboard init: $e');
+      }
     });
   }
 
@@ -382,22 +396,22 @@ class _DashboardScreenState extends State<DashboardScreen>
       final taskNotes = startWorkModel.notes;
 
       return Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _buildActiveTaskHeader(task, startWorkModel),
-            const SizedBox(height: 16),
+            const SizedBox(height: 10),
             _buildProgressBar(allocatedDuration, existingUsedTime),
-            const SizedBox(height: 6),
+            const SizedBox(height: 8),
             _buildTimeDetails(
               taskStartTime,
               allocatedDuration,
               existingUsedTime,
             ),
             if (taskNotes.isNotEmpty) ...[
-              const SizedBox(height: 6),
+              const SizedBox(height: 8),
               _buildNotesSection(taskNotes),
             ],
           ],
@@ -459,157 +473,133 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   Widget _buildActiveTaskHeader(TaskModel task, StartWorkModel startWorkModel) {
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(
-          child: MouseRegion(
-            cursor: SystemMouseCursors.click,
-            child: Tooltip(
-              message: 'Click to open task details, chatter & activities',
-              child: InkWell(
-                onTap: () {
-                  try {
-                    Get.toNamed(
-                      TaskDetailScreen.routeName,
-                      arguments: TaskDetailsModel(
-                        id: task.id,
-                        name: task.name,
-                        projectId: task.projectId,
-                        projectName: task.projectName,
-                        stageId: task.stageId ?? 0,
-                        stageName: task.stageName,
-                        dateDeadline: task.getEndDateTime(),
-                        dateStart: task.getStartDateTime(),
-                        allocatedHours: task.allocatedHours ?? 0.0,
-                        tags: task.tags,
-                        tagIds: task.tagIds,
-                        milestoneId: task.milestoneId,
-                        milestoneName: task.milestoneName,
-                        description: task.description,
-                      ),
-                    );
-                  } catch (e) {
-                    debugPrint('Error navigating to task detail: $e');
-                  }
-                },
-                borderRadius: BorderRadius.circular(8),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: AppTheme.primary.withValues(alpha: 0.05),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: AppTheme.primary.withValues(alpha: 0.18),
-                      width: 1,
-                    ),
+          child: InkWell(
+            onTap: () {
+              try {
+                Get.toNamed(
+                  TaskDetailScreen.routeName,
+                  arguments: TaskDetailsModel(
+                    id: task.id,
+                    name: task.name,
+                    projectId: task.projectId,
+                    projectName: task.projectName,
+                    stageId: task.stageId ?? 0,
+                    stageName: task.stageName,
+                    dateDeadline: task.getEndDateTime(),
+                    dateStart: task.getStartDateTime(),
+                    allocatedHours: task.allocatedHours ?? 0.0,
+                    tags: task.tags,
+                    tagIds: task.tagIds,
+                    milestoneId: task.milestoneId,
+                    milestoneName: task.milestoneName,
+                    description: task.description,
                   ),
-                  child: Row(
+                );
+              } catch (e) {
+                debugPrint('Error navigating to task detail: $e');
+              }
+            },
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    task.name,
-                                    style: GoogleFonts.spaceGrotesk(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.bold,
-                                      color: const Color(0xFF25181E),
-                                    ),
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 4),
-                            Row(
-                              children: [
-                                const Icon(
-                                  Icons.folder_open_rounded,
-                                  size: 12,
-                                  color: AppTheme.primary,
-                                ),
-                                const SizedBox(width: 4),
-                                Expanded(
-                                  child: Text(
-                                    startWorkModel.project.name,
-                                    style: GoogleFonts.inter(
-                                      fontSize: 10,
-                                      color: AppTheme.primary.withValues(alpha: 0.8),
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
+                      Flexible(
+                        child: Text(
+                          task.name,
+                          style: GoogleFonts.spaceGrotesk(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: const Color(0xFF25181E),
+                            height: 1.2,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                       const SizedBox(width: 6),
                       Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4),
+                        padding: const EdgeInsets.all(3),
                         decoration: BoxDecoration(
-                          color: AppTheme.primary.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(6),
+                          color: AppTheme.primary.withValues(alpha: 0.1),
+                          shape: BoxShape.circle,
                         ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              Icons.visibility_rounded,
-                              size: 13,
-                              color: AppTheme.primary,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              'View Task',
-                              style: GoogleFonts.inter(
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                color: AppTheme.primary,
-                              ),
-                            ),
-                          ],
+                        child: const Icon(
+                          Icons.open_in_new_rounded,
+                          size: 11,
+                          color: AppTheme.primary,
                         ),
                       ),
                     ],
                   ),
-                ),
+                  const SizedBox(height: 3),
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.folder_outlined,
+                        size: 11,
+                        color: AppTheme.primary.withValues(alpha: 0.7),
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          startWorkModel.project.name,
+                          style: GoogleFonts.inter(
+                            fontSize: 10,
+                            color: Colors.grey.shade600,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
           ),
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: 8),
         Obx(() {
           final taskStartAt = _trackerController.startWorkData.value?.startTime;
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                taskStartAt != null
-                    ? FormatUtils.formatTime(taskStartAt)
-                    : '--:--',
-                style: GoogleFonts.spaceGrotesk(
-                  fontSize: 12,
-                  color: AppTheme.primary,
-                  fontWeight: FontWeight.bold,
+          return Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: AppTheme.surfaceContainer.withValues(alpha: 0.7),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  taskStartAt != null
+                      ? FormatUtils.formatTime(taskStartAt)
+                      : '--:--',
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 11,
+                    color: AppTheme.primary,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
-              ),
-              Text(
-                'Started',
-                style: GoogleFonts.inter(
-                  fontSize: 9,
-                  color: Colors.grey.shade500,
-                  fontWeight: FontWeight.w500,
+                Text(
+                  'Started',
+                  style: GoogleFonts.inter(
+                    fontSize: 8,
+                    color: Colors.grey.shade500,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           );
         }),
       ],
@@ -648,7 +638,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               Text(
                 "Progress: $displayPercentage%",
                 style: GoogleFonts.inter(
-                  fontSize: 11,
+                  fontSize: 10,
                   fontWeight: FontWeight.bold,
                   color: const Color(0xFF25181E),
                 ),
@@ -663,33 +653,26 @@ class _DashboardScreenState extends State<DashboardScreen>
               ),
             ],
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 5),
           LayoutBuilder(
             builder: (context, constraints) {
               return Stack(
                 children: [
                   Container(
-                    height: 8,
+                    height: 5,
                     width: double.infinity,
                     decoration: BoxDecoration(
                       color: AppTheme.surfaceContainerHigh,
-                      borderRadius: BorderRadius.circular(4),
+                      borderRadius: BorderRadius.circular(3),
                     ),
                   ),
                   AnimatedContainer(
                     duration: const Duration(milliseconds: 300),
-                    height: 8,
+                    height: 5,
                     width: constraints.maxWidth * progressBarValue,
                     decoration: BoxDecoration(
                       color: progressColor,
-                      borderRadius: BorderRadius.circular(4),
-                      boxShadow: [
-                        BoxShadow(
-                          color: progressColor.withOpacity(0.3),
-                          blurRadius: 4,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
+                      borderRadius: BorderRadius.circular(3),
                     ),
                   ),
                 ],
@@ -707,11 +690,10 @@ class _DashboardScreenState extends State<DashboardScreen>
     Duration existingUsedTime,
   ) {
     return Container(
-      padding: const EdgeInsets.all(6),
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.pink.shade50,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: Colors.pink.shade200),
+        color: AppTheme.surfaceContainer.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(8),
       ),
       child: Row(
         children: [
@@ -798,10 +780,10 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   Widget _buildCompactDivider() {
     return Container(
-      height: 24,
+      height: 20,
       width: 1,
-      margin: const EdgeInsets.symmetric(horizontal: 8),
-      color: AppTheme.primary.withOpacity(0.1),
+      margin: const EdgeInsets.symmetric(horizontal: 4),
+      color: Colors.grey.withValues(alpha: 0.15),
     );
   }
 
@@ -815,17 +797,24 @@ class _DashboardScreenState extends State<DashboardScreen>
   }) {
     return Expanded(
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 14, color: color),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: GoogleFonts.inter(
-              fontSize: 8,
-              color: Colors.grey.shade500,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 0.5,
-            ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 10, color: color),
+              const SizedBox(width: 3),
+              Text(
+                label,
+                style: GoogleFonts.inter(
+                  fontSize: 8,
+                  color: Colors.grey.shade500,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.3,
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 2),
           valueBuilder != null
@@ -835,19 +824,23 @@ class _DashboardScreenState extends State<DashboardScreen>
                   return Text(
                     displayValue,
                     style: GoogleFonts.spaceGrotesk(
-                      fontSize: 11,
+                      fontSize: 10,
                       color: alert ? AppTheme.error : const Color(0xFF25181E),
                       fontWeight: FontWeight.bold,
                     ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   );
                 })
               : Text(
                   value!,
                   style: GoogleFonts.spaceGrotesk(
-                    fontSize: 11,
+                    fontSize: 10,
                     color: const Color(0xFF25181E),
                     fontWeight: FontWeight.bold,
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
         ],
       ),
@@ -859,23 +852,23 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     return InkWell(
       onTap: () => _showEditNotesDialog(taskNotes),
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(8),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: AppTheme.surfaceContainer,
-          borderRadius: BorderRadius.circular(12),
+          color: AppTheme.surfaceContainer.withValues(alpha: 0.45),
+          borderRadius: BorderRadius.circular(8),
         ),
         child: Row(
           children: [
             const Icon(Icons.edit_note_rounded,
-                size: 18, color: AppTheme.primary),
-            const SizedBox(width: 8),
+                size: 15, color: AppTheme.primary),
+            const SizedBox(width: 6),
             Expanded(
               child: Text(
                 safeNotes,
                 style: GoogleFonts.inter(
-                  fontSize: 11,
+                  fontSize: 10,
                   color: taskNotes.isEmpty
                       ? Colors.grey.shade500
                       : const Color(0xFF25181E),
@@ -887,7 +880,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               ),
             ),
             Icon(Icons.chevron_right_rounded,
-                size: 16, color: Colors.grey.shade400),
+                size: 14, color: Colors.grey.shade400),
           ],
         ),
       ),

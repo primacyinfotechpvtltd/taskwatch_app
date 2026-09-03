@@ -31,6 +31,11 @@ class RouteManager {
         routeName: DiscussScreen.routeName,
         isProtected: true,
       ),
+      RouteItem(
+        screen: const SigninScreen(),
+        routeName: SigninScreen.routeName,
+        isProtected: false,
+      ),
     ];
   }
 

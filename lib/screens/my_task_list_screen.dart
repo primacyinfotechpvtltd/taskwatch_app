@@ -319,57 +319,274 @@ class _MyTaskListScreenState extends State<MyTaskListScreen>
     required Set<String> items,
     required ValueChanged<String?> onChanged,
   }) {
+    final hasSelection = value != null && value.isNotEmpty;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style: GoogleFonts.inter(
-            fontWeight: FontWeight.bold,
-            fontSize: 13,
-            color: Colors.black87,
-          ),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              label,
+              style: GoogleFonts.inter(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: Colors.black87,
+              ),
+            ),
+            if (hasSelection)
+              GestureDetector(
+                onTap: () => onChanged(null),
+                child: Text(
+                  'Clear',
+                  style: GoogleFonts.inter(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.primary,
+                  ),
+                ),
+              ),
+          ],
         ),
         const SizedBox(height: 8),
-        Container(
-          height: 44,
-          padding: const EdgeInsets.symmetric(horizontal: 4),
-          decoration: BoxDecoration(
-            color: Colors.grey.shade50,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey.shade200),
+        InkWell(
+          onTap: () => _showSearchableSelectionDialog(
+            title: 'Select $label',
+            items: items.toList(),
+            selectedValue: value,
+            onSelected: onChanged,
           ),
-          child: DropdownButtonHideUnderline(
-            child: ButtonTheme(
-              alignedDropdown: true,
-              child: DropdownButton<String>(
-                isExpanded: true,
-                value: value,
-                icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 20),
-                elevation: 4,
-                borderRadius: BorderRadius.circular(16),
-                style: GoogleFonts.inter(fontSize: 13, color: Colors.black87),
-                items: [
-                  DropdownMenuItem(
-                    value: null,
-                    child: Text(
-                      'All',
-                      style: GoogleFonts.inter(color: Colors.grey.shade500),
-                    ),
-                  ),
-                  ...items.map(
-                    (item) => DropdownMenuItem(
-                      value: item,
-                      child: Text(item, overflow: TextOverflow.ellipsis),
-                    ),
-                  ),
-                ],
-                onChanged: onChanged,
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            height: 46,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade50,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: hasSelection ? AppTheme.primary.withValues(alpha: 0.5) : Colors.grey.shade200,
               ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  label.toLowerCase().contains('project') ? Icons.folder_outlined : Icons.flag_outlined,
+                  size: 18,
+                  color: hasSelection ? AppTheme.primary : Colors.grey.shade500,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    value ?? 'All',
+                    style: GoogleFonts.inter(
+                      fontSize: 13,
+                      fontWeight: hasSelection ? FontWeight.w600 : FontWeight.normal,
+                      color: hasSelection ? Colors.black87 : Colors.grey.shade500,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.all(5),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primary.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.search_rounded,
+                    size: 16,
+                    color: AppTheme.primary,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Icon(
+                  Icons.keyboard_arrow_down_rounded,
+                  size: 18,
+                  color: Colors.grey.shade600,
+                ),
+              ],
             ),
           ),
         ),
       ],
+    );
+  }
+
+  void _showSearchableSelectionDialog({
+    required String title,
+    required List<String> items,
+    required String? selectedValue,
+    required ValueChanged<String?> onSelected,
+  }) {
+    showDialog(
+      context: context,
+      builder: (dialogCtx) {
+        String searchQuery = '';
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final filteredList = items.where((item) {
+              if (searchQuery.trim().isEmpty) return true;
+              return item.toLowerCase().contains(searchQuery.trim().toLowerCase());
+            }).toList();
+
+            return Dialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              backgroundColor: Colors.white,
+              insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 30),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 500, maxWidth: 400),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Header
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 18, 16, 12),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(7),
+                            decoration: BoxDecoration(
+                              color: AppTheme.primary.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(
+                              Icons.search_rounded,
+                              size: 18,
+                              color: AppTheme.primary,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              title,
+                              style: GoogleFonts.spaceGrotesk(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.black87,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close_rounded, size: 20, color: Colors.grey),
+                            onPressed: () => Navigator.pop(dialogCtx),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // Search input
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                      child: TextField(
+                        autofocus: true,
+                        decoration: InputDecoration(
+                          hintText: 'Search...',
+                          hintStyle: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade400),
+                          prefixIcon: const Icon(Icons.search_rounded, size: 18, color: Colors.grey),
+                          suffixIcon: searchQuery.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(Icons.clear_rounded, size: 16, color: Colors.grey),
+                                  onPressed: () => setModalState(() => searchQuery = ''),
+                                )
+                              : null,
+                          filled: true,
+                          fillColor: Colors.grey.shade50,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(color: Colors.grey.shade200),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(color: Colors.grey.shade200),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(color: AppTheme.primary, width: 1.5),
+                          ),
+                        ),
+                        style: GoogleFonts.inter(fontSize: 13),
+                        onChanged: (val) => setModalState(() => searchQuery = val),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Divider(height: 1, thickness: 0.5),
+
+                    // Items list
+                    Flexible(
+                      child: ListView(
+                        shrinkWrap: true,
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        children: [
+                          // "All" option (only if search is empty or matches 'all')
+                          if (searchQuery.trim().isEmpty || 'all'.contains(searchQuery.trim().toLowerCase()))
+                            ListTile(
+                              dense: true,
+                              visualDensity: VisualDensity.compact,
+                              title: Text(
+                                'All',
+                                style: GoogleFonts.inter(
+                                  fontSize: 13,
+                                  fontWeight: selectedValue == null ? FontWeight.bold : FontWeight.w500,
+                                  color: selectedValue == null ? AppTheme.primary : Colors.grey.shade700,
+                                ),
+                              ),
+                              trailing: selectedValue == null
+                                  ? const Icon(Icons.check_circle_rounded, size: 18, color: AppTheme.primary)
+                                  : null,
+                              onTap: () {
+                                onSelected(null);
+                                Navigator.pop(dialogCtx);
+                              },
+                            ),
+
+                          if (filteredList.isEmpty && searchQuery.trim().isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.all(24.0),
+                              child: Center(
+                                child: Text(
+                                  'No results found',
+                                  style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade500),
+                                ),
+                              ),
+                            ),
+
+                          ...filteredList.map((item) {
+                            final isSelected = selectedValue == item;
+                            return ListTile(
+                              dense: true,
+                              visualDensity: VisualDensity.compact,
+                              title: Text(
+                                item,
+                                style: GoogleFonts.inter(
+                                  fontSize: 13,
+                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                                  color: isSelected ? AppTheme.primary : Colors.black87,
+                                ),
+                              ),
+                              trailing: isSelected
+                                  ? const Icon(Icons.check_circle_rounded, size: 18, color: AppTheme.primary)
+                                  : null,
+                              onTap: () {
+                                onSelected(item);
+                                Navigator.pop(dialogCtx);
+                              },
+                            );
+                          }),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 

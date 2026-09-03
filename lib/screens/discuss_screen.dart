@@ -1,6 +1,5 @@
-import 'package:file_picker/file_picker.dart';
-import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:intl/intl.dart';
 import 'package:pi_task_watch/exports.dart';
 
 class DiscussScreen extends StatefulWidget {
@@ -106,17 +105,28 @@ class _DiscussScreenState extends State<DiscussScreen> {
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          child: Row(
-            children: [
-              _buildFilterChip('All', 'all'),
-              const SizedBox(width: 6),
-              _buildFilterChip('Chats', 'chat'),
-              const SizedBox(width: 6),
-              _buildFilterChip('Channels', 'channel'),
-              const SizedBox(width: 6),
-              _buildFilterChip('Colleagues', 'colleagues'),
-            ],
-          ),
+          child: Obx(() {
+            final unreadCount = controller.channels
+                .where((c) => c.unreadCount > 0)
+                .length;
+            return Row(
+              children: [
+                _buildFilterChip('All', 'all'),
+                const SizedBox(width: 6),
+                _buildFilterChip(
+                  'Unread',
+                  'unread',
+                  badgeCount: unreadCount,
+                ),
+                const SizedBox(width: 6),
+                _buildFilterChip('Chats', 'chat'),
+                const SizedBox(width: 6),
+                _buildFilterChip('Channels', 'channel'),
+                const SizedBox(width: 6),
+                _buildFilterChip('Colleagues', 'colleagues'),
+              ],
+            );
+          }),
         ),
         const SizedBox(height: 6),
         const Divider(height: 1, thickness: 0.5),
@@ -135,6 +145,7 @@ class _DiscussScreenState extends State<DiscussScreen> {
               return _buildColleaguesList();
             }
             final filtered = controller.channels.where((c) {
+              if (_filterType == 'unread') return c.unreadCount > 0;
               if (_filterType == 'chat') return c.channelType == 'chat';
               if (_filterType == 'channel') return c.channelType != 'chat';
               return true;
@@ -170,7 +181,7 @@ class _DiscussScreenState extends State<DiscussScreen> {
     );
   }
 
-  Widget _buildFilterChip(String label, String type) {
+  Widget _buildFilterChip(String label, String type, {int? badgeCount}) {
     final isSelected = _filterType == type;
     return GestureDetector(
       onTap: () => setState(() => _filterType = type),
@@ -187,38 +198,62 @@ class _DiscussScreenState extends State<DiscussScreen> {
           boxShadow: isSelected
               ? [
                   BoxShadow(
-                    color: AppTheme.primary.withOpacity(0.2),
+                    color: AppTheme.primary.withValues(alpha: 0.2),
                     blurRadius: 6,
                     offset: const Offset(0, 2),
                   )
                 ]
               : null,
         ),
-        child: Text(
-          label,
-          style: GoogleFonts.inter(
-            fontSize: 10,
-            fontWeight: FontWeight.bold,
-            color: isSelected ? Colors.white : Colors.grey.shade600,
-          ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: GoogleFonts.inter(
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+                color: isSelected ? Colors.white : Colors.grey.shade600,
+              ),
+            ),
+            if (badgeCount != null && badgeCount > 0) ...[
+              const SizedBox(width: 5),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                decoration: BoxDecoration(
+                  color: isSelected ? Colors.white : AppTheme.primary,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  '$badgeCount',
+                  style: GoogleFonts.inter(
+                    fontSize: 9,
+                    fontWeight: FontWeight.bold,
+                    color: isSelected ? AppTheme.primary : Colors.white,
+                  ),
+                ),
+              ),
+            ],
+          ],
         ),
       ),
     );
   }
 
   Widget _buildEmptyChannelsState() {
+    final isUnreadFilter = _filterType == 'unread';
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(
-            Icons.forum_outlined,
+            isUnreadFilter ? Icons.mark_chat_read_outlined : Icons.forum_outlined,
             size: 40,
             color: Colors.grey.shade400,
           ),
           const SizedBox(height: 10),
           Text(
-            'No discussions found',
+            isUnreadFilter ? 'No unread messages' : 'No discussions found',
             style: GoogleFonts.inter(
               fontSize: 12,
               color: Colors.grey.shade500,
@@ -569,62 +604,7 @@ class _DiscussScreenState extends State<DiscussScreen> {
                 ),
               ),
 
-              // Action Buttons Matching Odoo Top Bar (Image 1)
-              // 1. Green Circular Video Call Button
-              Tooltip(
-                message: 'Start Video Call (with Screen Share)',
-                child: InkWell(
-                  onTap: () => OdooCallDialog.startCall(
-                    context,
-                    channel: activeChannel,
-                    isVideoCall: true,
-                  ),
-                  borderRadius: BorderRadius.circular(20),
-                  child: Container(
-                    width: 30,
-                    height: 30,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF28A745).withOpacity(0.12),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.videocam_rounded,
-                      size: 16,
-                      color: Color(0xFF28A745),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 4),
-
-              // 2. Green Circular Audio Call Button
-              Tooltip(
-                message: 'Start Audio Call',
-                child: InkWell(
-                  onTap: () => OdooCallDialog.startCall(
-                    context,
-                    channel: activeChannel,
-                    isVideoCall: false,
-                  ),
-                  borderRadius: BorderRadius.circular(20),
-                  child: Container(
-                    width: 30,
-                    height: 30,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF28A745).withOpacity(0.12),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.phone_rounded,
-                      size: 15,
-                      color: Color(0xFF28A745),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 2),
-
-              // 3. More Actions Menu (Notifications, Member Invite, Search, Attach, Pinned, Info)
+              // More Actions Menu (Notifications, Member Invite, Search, Attach, Pinned, Info)
               PopupMenuButton<String>(
                 icon: const Icon(Icons.more_vert_rounded,
                     size: 18, color: Color(0xFF555555)),
@@ -816,7 +796,33 @@ class _DiscussScreenState extends State<DiscussScreen> {
               itemCount: msgs.length,
               itemBuilder: (context, index) {
                 // Display chronological order (oldest at top, newest at bottom)
-                final msg = msgs[msgs.length - 1 - index];
+                final msgIndex = msgs.length - 1 - index;
+                final msg = msgs[msgIndex];
+
+                // Show date header if it's the first message of the day (chronologically)
+                bool showDateHeader = false;
+                if (msgIndex == 0) {
+                  showDateHeader = true; // Oldest message always has a date header
+                } else {
+                  final prevMsg = msgs[msgIndex - 1];
+                  if (!_isSameDay(msg.date, prevMsg.date)) {
+                    showDateHeader = true;
+                  }
+                }
+
+                if (showDateHeader) {
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildDateHeader(_formatChatDateHeader(msg.date)),
+                      MessageBubble(
+                        key: ValueKey('msg_${msg.id}'),
+                        message: msg,
+                      ),
+                    ],
+                  );
+                }
+
                 return MessageBubble(
                   key: ValueKey('msg_${msg.id}'),
                   message: msg,
@@ -903,6 +909,63 @@ class _DiscussScreenState extends State<DiscussScreen> {
       ],
     );
     });
+  }
+
+  bool _isSameDay(DateTime d1, DateTime d2) {
+    return d1.year == d2.year && d1.month == d2.month && d1.day == d2.day;
+  }
+
+  String _formatChatDateHeader(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final msgDate = DateTime(date.year, date.month, date.day);
+
+    final difference = today.difference(msgDate).inDays;
+
+    if (difference == 0) {
+      return 'Today';
+    } else if (difference == 1) {
+      return 'Yesterday';
+    } else if (difference > 1 && difference < 7) {
+      return DateFormat('EEEE').format(date); // e.g. Monday
+    } else if (date.year == now.year) {
+      return DateFormat('d MMMM').format(date); // e.g. 3 September
+    } else {
+      return DateFormat('d MMMM yyyy').format(date); // e.g. 3 September 2025
+    }
+  }
+
+  Widget _buildDateHeader(String text) {
+    return Center(
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.grey.shade200.withValues(alpha: 0.9),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: Colors.grey.shade300.withValues(alpha: 0.7),
+            width: 0.5,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.03),
+              blurRadius: 4,
+              offset: const Offset(0, 1),
+            ),
+          ],
+        ),
+        child: Text(
+          text,
+          style: GoogleFonts.inter(
+            fontSize: 10.5,
+            fontWeight: FontWeight.w600,
+            color: Colors.grey.shade700,
+            letterSpacing: 0.2,
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildEmptyConversationState() {

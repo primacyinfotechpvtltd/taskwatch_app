@@ -14,6 +14,7 @@ class AuthController extends GetxController {
   static const String _keyDb = 'user_db';
   static const String _keyServerUrl = 'server_url';
   static const String _keyIsLoggedIn = 'is_logged_in';
+  static const String _keyRememberMe = 'remember_me';
 
   /// Safely converts any value to boolean
   /// Handles: bool, int (1=true, 0=false), string ('true', '1', 'yes'=true)
@@ -449,12 +450,20 @@ class AuthController extends GetxController {
   Future<void> restoreServerUrl() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final serverUrl = prefs.getString(_keyServerUrl) ?? '';
+      var serverUrl = prefs.getString(_keyServerUrl) ?? '';
+      if (serverUrl.contains(':9070') || serverUrl.contains(':8017')) {
+        serverUrl = serverUrl.replaceAll(':9070', '').replaceAll(':8017', '');
+        await prefs.setString(_keyServerUrl, serverUrl);
+      }
       if (serverUrl.isNotEmpty) {
         AppConstant.userGivenApiServerUrl = serverUrl;
         // Ensure OdooRpcApiManager is also updated with the restored URL
-        OdooRpcApiManager.configure(serverUrl: serverUrl);
-        if (kDebugMode) print("🌐 Restored saved server URL: $serverUrl");
+        OdooRpcApiManager.configure(serverUrl: AppConstant.apiServerUrl);
+        if (kDebugMode) {
+          print("🌐 Restored saved server URL: ${AppConstant.apiServerUrl}");
+        }
+      } else {
+        OdooRpcApiManager.configure(serverUrl: AppConstant.apiServerUrl);
       }
     } catch (e) {
       if (kDebugMode) print("❌ Error restoring server URL: $e");
@@ -535,16 +544,47 @@ class AuthController extends GetxController {
         await prefs.setString(_keyPassword, password);
         await prefs.setString(_keyDb, db);
         await prefs.setString(_keyServerUrl, AppConstant.apiServerUrl);
+        await prefs.setBool(_keyRememberMe, true);
         await prefs.setBool(_keyIsLoggedIn, true);
         if (kDebugMode) {
           print("✅ Credentials saved successfully: email=$email, db=$db");
         }
       } else {
+        await prefs.setBool(_keyRememberMe, false);
         await clearSavedCredentials();
         if (kDebugMode) print("🗑️ Credentials cleared (rememberMe=false)");
       }
     } catch (e) {
       if (kDebugMode) print("❌ Error saving credentials: $e");
+    }
+  }
+
+  /// Get saved credentials if remembered
+  Future<Map<String, dynamic>> getSavedCredentials() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final rememberMe = prefs.getBool(_keyRememberMe) ?? false;
+      final email = prefs.getString(_keyEmail) ?? '';
+      final password = prefs.getString(_keyPassword) ?? '';
+      final db = prefs.getString(_keyDb) ?? '';
+      final serverUrl = prefs.getString(_keyServerUrl) ?? '';
+
+      return {
+        'rememberMe': rememberMe,
+        'email': email,
+        'password': password,
+        'db': db,
+        'serverUrl': serverUrl,
+      };
+    } catch (e) {
+      if (kDebugMode) print("❌ Error getting saved credentials: $e");
+      return {
+        'rememberMe': false,
+        'email': '',
+        'password': '',
+        'db': '',
+        'serverUrl': '',
+      };
     }
   }
 
@@ -985,13 +1025,12 @@ class AuthController extends GetxController {
     }
   }
 
-  // Logout method to clear credentials and all cached data
+  // Logout method to clear active session while preserving remembered credentials
   Future<void> logout() async {
     try {
       if (kDebugMode) print('🚪 [LOGOUT] Starting logout process...');
 
-      // 1. Clear user data
-      //LogUtils.i('AUTH_STATE: Setting _user.value to null (logout)');
+      // 1. Clear user in-memory session data
       _user.value = null;
       _settings.value = null;
       isWfhApproved.value = true;
@@ -1002,37 +1041,80 @@ class AuthController extends GetxController {
 
       if (kDebugMode) print('🚪 [LOGOUT] Cleared user and settings data');
 
-      // 2. Clear saved credentials from SharedPreferences
-      await clearSavedCredentials();
-
-      if (kDebugMode) print('🚪 [LOGOUT] Cleared saved credentials');
-
-      // 3. Clear all SharedPreferences (complete cache clear)
+      // 2. Manage SharedPreferences: mark logged out, preserve credentials if remembered
       final prefs = await SharedPreferences.getInstance();
-      await prefs.clear();
+      final rememberMe = prefs.getBool(_keyRememberMe) ?? false;
+      final savedEmail = prefs.getString(_keyEmail) ?? '';
+      final savedPassword = prefs.getString(_keyPassword) ?? '';
+      final savedDb = prefs.getString(_keyDb) ?? '';
+      final savedServerUrl = prefs.getString(_keyServerUrl) ?? '';
 
-      if (kDebugMode) print('🚪 [LOGOUT] Cleared all SharedPreferences cache');
+      // Mark session as not logged in
+      await prefs.setBool(_keyIsLoggedIn, false);
 
-      // 4. Clear Odoo session
-      OdooRpcApiManager.clearSession();
-
-      if (kDebugMode) print('🚪 [LOGOUT] Cleared Odoo session');
-
-      // 5. Reset tracker controller if it exists
-      try {
-        final trackerController = Get.find<TrackerController>();
-        trackerController.setUser(user: null);
-        if (kDebugMode) print('🚪 [LOGOUT] Reset tracker controller');
-      } catch (e) {
-        if (kDebugMode) print('🚪 [LOGOUT] Tracker controller not found (OK)');
+      if (!rememberMe) {
+        // Clear credentials if user didn't check remember me
+        await prefs.remove(_keyEmail);
+        await prefs.remove(_keyPassword);
+        await prefs.remove(_keyDb);
+        await prefs.remove(_keyRememberMe);
+      } else {
+        // Keep credentials saved in SharedPreferences so they auto-fill on SigninScreen
+        if (savedEmail.isNotEmpty) await prefs.setString(_keyEmail, savedEmail);
+        if (savedPassword.isNotEmpty) {
+          await prefs.setString(_keyPassword, savedPassword);
+        }
+        if (savedDb.isNotEmpty) await prefs.setString(_keyDb, savedDb);
+        if (savedServerUrl.isNotEmpty) {
+          await prefs.setString(_keyServerUrl, savedServerUrl);
+        }
+        await prefs.setBool(_keyRememberMe, true);
       }
 
-      // 6. Navigate to login screen
-      Get.offAllNamed(SigninScreen.routeName);
+      // 3. Clear Odoo session cookies
+      try {
+        OdooRpcApiManager.clearSession();
+      } catch (e) {
+        if (kDebugMode) print('🚪 [LOGOUT] Odoo session clear note: $e');
+      }
+
+      // 4. Reset tracker & controller caches
+      try {
+        if (Get.isRegistered<TrackerController>()) {
+          Get.find<TrackerController>().resetTracker();
+        }
+      } catch (_) {}
+      try {
+        if (Get.isRegistered<TimesheetController>()) {
+          Get.find<TimesheetController>().timesheetList.clear();
+        }
+      } catch (_) {}
+      try {
+        if (Get.isRegistered<TaskController>()) {
+          Get.find<TaskController>().clearCache();
+        }
+      } catch (_) {}
+      try {
+        if (Get.isRegistered<DiscussController>()) {
+          Get.find<DiscussController>().channels.clear();
+          Get.find<DiscussController>().channelMessages.clear();
+        }
+      } catch (_) {}
+      try {
+        if (Get.isRegistered<AnnouncementController>()) {
+          Get.find<AnnouncementController>().announcements.clear();
+        }
+      } catch (_) {}
 
       if (kDebugMode) print('✅ [LOGOUT] Logout completed successfully');
-
       showToast('Logged out successfully', idSuccess: true);
+
+      // 5. Navigate to login screen
+      try {
+        Get.offAllNamed(SigninScreen.routeName);
+      } catch (_) {
+        Get.offAll(() => const SigninScreen());
+      }
     } catch (e) {
       if (kDebugMode) print('🚨 [LOGOUT] Error during logout: $e');
       showToast('Logout failed. Please try again.', idSuccess: false);

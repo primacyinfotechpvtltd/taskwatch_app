@@ -70,6 +70,50 @@ class TrackerController extends GetxController {
 
   void setUser({required UserModel? user}) {
     _user.value = user;
+    if (user == null) {
+      resetTracker();
+    }
+  }
+
+  /// Completely reset and clear all tracker state on logout
+  void resetTracker() {
+    _cleanupAllTimers();
+    _user.value = null;
+    _settings.value = null;
+    _isInitialized = false;
+    _isDurationTimerRunning = false;
+    _isTimesheetSyncRunning = false;
+    _isSessionCreationInProgress = false;
+    _isStoppingWork = false;
+    trackerDuration.value = Duration.zero;
+    startWorkData.value = null;
+    isTracking.value = false;
+    totalBreakDuration.value = Duration.zero;
+    _isIdleMode.value = false;
+    _isIdleDialogShowing.value = false;
+    _idleEntryList.clear();
+    _screenshotCount = 0;
+    _lastTimerTick = null;
+    _lastIdleNote = '';
+    _logDebug('TrackerController completely reset and caches cleared');
+  }
+
+  /// Refreshes today's timesheets from backend and updates tracked duration
+  Future<void> refreshTodayDurationFromBackend() async {
+    if (isTracking.value) return; // don't override live tracking timer
+    try {
+      if (Get.isRegistered<TimesheetController>()) {
+        final timesheets = await Get.find<TimesheetController>()
+            .getAllTimesheet(date: DateTime.now());
+        final backendDuration = TimesheetModel.calculateTotalDuration(
+          timesheetList: timesheets,
+        );
+        trackerDuration.value = backendDuration;
+        debugPrint('TRACKER: Refreshed worked duration from backend: $backendDuration');
+      }
+    } catch (e) {
+      debugPrint('TRACKER: Error refreshing worked duration from backend: $e');
+    }
   }
 
   @override
@@ -114,18 +158,9 @@ class TrackerController extends GetxController {
     required UserModel user,
     required Duration workedDuration,
   }) {
-    print("onFullyReady called");
-
-    // Prevent multiple initializations
-    if (_isInitialized || _user.value != null) {
-      _logDebug('Controller already initialized, skipping setup');
-      return;
-    }
-
-    print("worked duration: $workedDuration");
+    print("onFullyReady called with worked duration: $workedDuration");
 
     trackerDuration.value = workedDuration;
-
     _user.value = user;
     _isInitialized = true;
     _logDebug('Initializing controller for user: ${user.email}');

@@ -127,11 +127,10 @@ class _OdooDateRangePickerState extends State<OdooDateRangePicker> {
   @override
   void initState() {
     super.initState();
-    _isRangeMode = (widget.initialStartDate != null && widget.initialEndDate != null) &&
-        widget.allowRange;
+    _isRangeMode = widget.allowRange;
 
-    _selectedStartDate = widget.initialStartDate ?? widget.initialEndDate;
-    _selectedEndDate = _isRangeMode ? widget.initialEndDate : null;
+    _selectedStartDate = widget.initialStartDate ?? widget.initialEndDate ?? DateTime.now();
+    _selectedEndDate = widget.initialEndDate;
 
     final now = DateTime.now();
     _currentMonth = DateTime(
@@ -140,13 +139,17 @@ class _OdooDateRangePickerState extends State<OdooDateRangePicker> {
       1,
     );
 
-    _startTime = _selectedStartDate != null
-        ? TimeOfDay.fromDateTime(_selectedStartDate!)
+    _startTime = widget.initialStartDate != null
+        ? TimeOfDay.fromDateTime(widget.initialStartDate!)
         : const TimeOfDay(hour: 12, minute: 0);
 
-    _endTime = _selectedEndDate != null
-        ? TimeOfDay.fromDateTime(_selectedEndDate!)
-        : const TimeOfDay(hour: 14, minute: 0);
+    if (widget.initialEndDate != null) {
+      _endTime = TimeOfDay.fromDateTime(widget.initialEndDate!);
+    } else {
+      final startMin = _startTime.hour * 60 + _startTime.minute;
+      final endMin = (startMin + 120) % (24 * 60);
+      _endTime = TimeOfDay(hour: endMin ~/ 60, minute: endMin % 60);
+    }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _scrollToActiveTime();
@@ -259,20 +262,33 @@ class _OdooDateRangePickerState extends State<OdooDateRangePicker> {
       }
     }
 
-    if (_selectedEndDate != null && _isRangeMode) {
+    final effectiveEndDate = _selectedEndDate ?? (_isRangeMode ? _selectedStartDate : null);
+
+    if (effectiveEndDate != null && _isRangeMode) {
       if (widget.includeTime) {
         finalEnd = DateTime(
-          _selectedEndDate!.year,
-          _selectedEndDate!.month,
-          _selectedEndDate!.day,
+          effectiveEndDate.year,
+          effectiveEndDate.month,
+          effectiveEndDate.day,
           _endTime.hour,
           _endTime.minute,
         );
+        // If on the same day and end time <= start time, advance end time forward by 2 hours
+        if (_selectedStartDate != null &&
+            effectiveEndDate.year == _selectedStartDate!.year &&
+            effectiveEndDate.month == _selectedStartDate!.month &&
+            effectiveEndDate.day == _selectedStartDate!.day) {
+          final startMinutes = _startTime.hour * 60 + _startTime.minute;
+          final endMinutes = _endTime.hour * 60 + _endTime.minute;
+          if (endMinutes <= startMinutes && finalStart != null) {
+            finalEnd = finalStart.add(const Duration(hours: 2));
+          }
+        }
       } else {
         finalEnd = DateTime(
-          _selectedEndDate!.year,
-          _selectedEndDate!.month,
-          _selectedEndDate!.day,
+          effectiveEndDate.year,
+          effectiveEndDate.month,
+          effectiveEndDate.day,
           23,
           59,
           59,
@@ -281,7 +297,7 @@ class _OdooDateRangePickerState extends State<OdooDateRangePicker> {
     }
 
     if (!_isRangeMode) {
-      widget.onApply(null, finalStart);
+      widget.onApply(finalStart, null);
       return;
     }
 
@@ -385,6 +401,18 @@ class _OdooDateRangePickerState extends State<OdooDateRangePicker> {
               setState(() {
                 if (_activeTimeSlotIsStart) {
                   _startTime = slot;
+                  final startMin = slot.hour * 60 + slot.minute;
+                  final endMin = _endTime.hour * 60 + _endTime.minute;
+                  if (_selectedStartDate == null ||
+                      _selectedEndDate == null ||
+                      (_selectedStartDate!.year == _selectedEndDate!.year &&
+                          _selectedStartDate!.month == _selectedEndDate!.month &&
+                          _selectedStartDate!.day == _selectedEndDate!.day)) {
+                    if (endMin <= startMin) {
+                      final newEndMin = (startMin + 120) % (24 * 60);
+                      _endTime = TimeOfDay(hour: newEndMin ~/ 60, minute: newEndMin % 60);
+                    }
+                  }
                 } else {
                   _endTime = slot;
                 }
@@ -610,12 +638,12 @@ class _OdooDateRangePickerState extends State<OdooDateRangePicker> {
             alignment: Alignment.center,
             children: [
               // Range Background Ribbon
-              if (_isRangeMode && (isInRange || (isStart && endDateOnly != null) || isEnd)) ...[
+              if (_isRangeMode && endDateOnly != null && (isInRange || isStart || isEnd)) ...[
                 if (isInRange)
                   Positioned.fill(
                     child: Container(color: odooLightTeal),
                   ),
-                if (isStart && endDateOnly != null)
+                if (isStart)
                   Positioned.fill(
                     left: 12,
                     child: Container(color: odooLightTeal),
