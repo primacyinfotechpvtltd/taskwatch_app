@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:dio/dio.dart' as dio;
 import 'package:logger/logger.dart';
 import 'package:uuid/uuid.dart';
@@ -1065,12 +1066,42 @@ class OdooRpcApiManager {
           username: _username!,
           password: _password!,
         );
-        if (sessionResp.isSuccess && sessionResp.data != null) {
+        if (sessionResp.isSuccess && sessionResp.data != null && sessionResp.data!.isNotEmpty) {
           _sessionId = sessionResp.data;
           return _sessionId;
         }
       } catch (e) {
-        _logger.w('⚠️ ensureWebSession error: $e');
+        _logger.w('⚠️ ensureWebSession dio error: $e');
+      }
+
+      // Robust fallback using native HttpClient
+      try {
+        final client = HttpClient();
+        final baseUrl = _effectiveServerUrl;
+        final cleanUrl = baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl;
+        final uri = Uri.parse('$cleanUrl$_webSessionEndpoint');
+        final req = await client.postUrl(uri);
+        req.headers.contentType = ContentType.json;
+        req.write(jsonEncode({
+          "jsonrpc": "2.0",
+          "method": "call",
+          "params": {
+            "db": _database!,
+            "login": _username!,
+            "password": _password!,
+          },
+          "id": DateTime.now().millisecondsSinceEpoch,
+        }));
+        final res = await req.close();
+        for (var cookie in res.cookies) {
+          if (cookie.name == 'session_id' && cookie.value.isNotEmpty) {
+            _sessionId = cookie.value;
+            _logger.i('✅ Web session established via HttpClient: ${_sessionId?.substring(0, 8)}...');
+            return _sessionId;
+          }
+        }
+      } catch (e) {
+        _logger.e('❌ Failed to establish web session via HttpClient: $e');
       }
     }
     return null;

@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:pi_task_watch/exports.dart';
-import 'package:pi_task_watch/utils/log_utils.dart';
 
 enum MessageTickStatus {
   none,
@@ -12,10 +11,9 @@ enum MessageTickStatus {
   doubleBlue,
 }
 
-class DiscussController extends GetxController {
+class DiscussController extends GetxController with WidgetsBindingObserver {
   final RxList<DiscussChannelModel> channels = <DiscussChannelModel>[].obs;
   final RxMap<int, List<DiscussMessageModel>> channelMessages = <int, List<DiscussMessageModel>>{}.obs;
-  final RxInt activeChannelOtherUserLastSeenMessageId = (-1).obs;
   final Map<int, int> channelMemberIds = {};
   
   final RxBool isLoadingChannels = false.obs;
@@ -127,10 +125,9 @@ class DiscussController extends GetxController {
   // Scroll Controller for Chat Thread
   final ScrollController chatScrollController = ScrollController();
   
-  Timer? _refreshTimer;
   StreamSubscription? _authSubscription;
   StreamSubscription? _wsSubscription;
-  bool _isLongPollingActive = false;
+  Timer? _wsDebounceTimer;
 
   void scrollToBottom({bool animate = true}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -151,6 +148,7 @@ class DiscussController extends GetxController {
   @override
   void onInit() {
     super.onInit();
+    WidgetsBinding.instance.addObserver(this);
     //LogUtils.i('DISCUSS_LIFECYCLE: DiscussController onInit started');
     
     // Watch auth state to load or clear discuss module
@@ -169,32 +167,35 @@ class DiscussController extends GetxController {
         clearDiscuss();
       }
     });
-
-    // Background real-time polling for new incoming messages every 2.5 seconds
-    _refreshTimer = Timer.periodic(const Duration(milliseconds: 2500), (_) {
-      if (OdooRpcApiManager.isAuthenticated && !isLoadingChannels.value) {
-        if (selectedChannelId.value != -1) {
-          fetchMessages(selectedChannelId.value, background: true);
-        }
-      }
-    });
     //LogUtils.i('DISCUSS_LIFECYCLE: DiscussController onInit complete');
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      debugPrint('[DiscussController] App resumed. Ensuring WebSocket is connected...');
+      OdooWebSocketService().ensureConnected();
+      if (selectedChannelId.value != -1) {
+        fetchMessages(selectedChannelId.value, background: true);
+      }
+      fetchChannels();
+    }
+  }
+
+  @override
   void onClose() {
-    _isLongPollingActive = false;
-    _refreshTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     _authSubscription?.cancel();
     _wsSubscription?.cancel();
+    _wsDebounceTimer?.cancel();
     OdooWebSocketService().disconnect();
     chatScrollController.dispose();
     super.onClose();
   }
 
   void clearDiscuss() {
-    _isLongPollingActive = false;
     _wsSubscription?.cancel();
+    _wsDebounceTimer?.cancel();
     OdooWebSocketService().disconnect();
     channels.clear();
     channelMessages.clear();
@@ -223,10 +224,6 @@ class DiscussController extends GetxController {
       
       // 5. Connect Odoo WebSocket for real-time messages
       _initWebSocket();
-      
-      // 6. Start fallback polling loop
-      _startLongPolling();
-      
     } catch (e) {
       debugPrint('DISCUSS_INIT_ERROR: $e');
     } finally {
@@ -250,12 +247,172 @@ class DiscussController extends GetxController {
 
     _wsSubscription?.cancel();
     _wsSubscription = wsService.messageStream.listen((data) {
-      debugPrint('[DiscussController] Real-time WS message received');
-      if (selectedChannelId.value != -1) {
-        fetchMessages(selectedChannelId.value, background: true);
-      }
-      fetchChannels();
+      _handleWebSocketEvent(data);
     });
+  }
+
+  void _handleWebSocketEvent(Map<String, dynamic> data) {
+    try {
+      final type = data['type'] as String?;
+      final payload = data['payload'];
+
+      debugPrint('[DiscussController] Real-time WS event received: $type');
+
+      if (type == 'discuss.channel/new_message' && payload is Map) {
+        _handleNewMessageFromWs(Map<String, dynamic>.from(payload));
+      } else if (type == 'mail.record/insert' && payload is Map) {
+        _handleRecordInsertFromWs(Map<String, dynamic>.from(payload));
+      } else {
+        // For other structural events (e.g. channel joined, channel archived), refresh channels
+        _wsDebounceTimer?.cancel();
+        _wsDebounceTimer = Timer(const Duration(milliseconds: 1000), () {
+          fetchChannels();
+        });
+      }
+    } catch (e) {
+      debugPrint('[DiscussController] Error handling WS event: $e');
+    }
+  }
+
+  void _handleNewMessageFromWs(Map<String, dynamic> payload) {
+    try {
+      final channelId = payload['id'] is int ? payload['id'] as int : null;
+      if (channelId == null) return;
+
+      final data = payload['data'];
+      if (data is! Map) return;
+
+      final rawMsgs = data['mail.message'] as List?;
+      final rawPartners = data['res.partner'] as List?;
+
+      // Build map of partner names
+      final Map<int, String> partnerNames = {};
+      if (rawPartners != null) {
+        for (var p in rawPartners) {
+          if (p is Map && p['id'] is int && p['name'] != null) {
+            partnerNames[p['id'] as int] = p['name'].toString();
+          }
+        }
+      }
+
+      if (rawMsgs != null && rawMsgs.isNotEmpty) {
+        for (var raw in rawMsgs) {
+          if (raw is! Map) continue;
+          final rawMap = Map<String, dynamic>.from(raw);
+
+          var newMsg = DiscussMessageModel.fromJson(rawMap, partnerId.value);
+          if (partnerNames.containsKey(newMsg.authorId) &&
+              (newMsg.authorName == 'System' || newMsg.authorName.isEmpty)) {
+            newMsg = newMsg.copyWith(authorName: partnerNames[newMsg.authorId]!);
+          }
+
+          // 1. If message belongs to currently open active chat, update/insert immediately (0ms delay)
+          if (channelId == selectedChannelId.value) {
+            final currentList = channelMessages[channelId] != null
+                ? List<DiscussMessageModel>.from(channelMessages[channelId]!)
+                : <DiscussMessageModel>[];
+
+            // Check if message already exists by server ID
+            final existingIdx = currentList.indexWhere((m) => m.id == newMsg.id);
+            if (existingIdx != -1) {
+              currentList[existingIdx] = newMsg;
+              channelMessages[channelId] = currentList;
+              channelMessages.refresh();
+            } else {
+              // Check if replacing an optimistic local message
+              final tempIdx = currentList.indexWhere((m) =>
+                  m.id > 1000000000000 &&
+                  m.isOutgoing &&
+                  (m.cleanBody == newMsg.cleanBody || m.contentBody == newMsg.cleanBody));
+
+              if (tempIdx != -1) {
+                currentList[tempIdx] = newMsg;
+                channelMessages[channelId] = currentList;
+                channelMessages.refresh();
+              } else {
+                // Incoming message from another user!
+                currentList.add(newMsg);
+                channelMessages[channelId] = currentList;
+                channelMessages.refresh();
+                scrollToBottom(animate: true);
+              }
+            }
+            markChannelAsSeen(channelId);
+          }
+
+          // 2. Update channel preview list item in real-time
+          final chanIdx = channels.indexWhere((c) => c.id == channelId);
+          if (chanIdx != -1) {
+            final isCurrent = (channelId == selectedChannelId.value);
+            final currentChan = channels[chanIdx];
+            channels[chanIdx] = currentChan.copyWith(
+              lastMessage: newMsg.displayBody,
+              lastMessageTime: newMsg.date,
+              unreadCount: isCurrent ? 0 : currentChan.unreadCount + 1,
+            );
+            channels.refresh();
+            sortChannels();
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('[DiscussController] Error processing new_message WS frame: $e');
+    }
+  }
+
+  void _handleRecordInsertFromWs(Map<String, dynamic> payload) {
+    try {
+      if (payload.containsKey('discuss.channel.member') && payload['discuss.channel.member'] is List) {
+        bool unreadChanged = false;
+        for (var item in payload['discuss.channel.member']) {
+          if (item is Map && item['partner_id'] == partnerId.value) {
+            final chanInfo = item['channel_id'];
+            int? cId;
+            if (chanInfo is Map && chanInfo['id'] is int) {
+              cId = chanInfo['id'] as int;
+            } else if (chanInfo is int) {
+              cId = chanInfo;
+            }
+            final unread = item['message_unread_counter'] as int?;
+            if (cId != null && unread != null) {
+              final idx = channels.indexWhere((c) => c.id == cId);
+              if (idx != -1 && cId != selectedChannelId.value) {
+                channels[idx] = channels[idx].copyWith(unreadCount: unread);
+                unreadChanged = true;
+              }
+            }
+          }
+        }
+        if (unreadChanged) {
+          channels.refresh();
+        }
+      }
+
+      // Also process any Message or mail.message records if pushed via mail.record/insert
+      final rawMsgs = payload['Message'] ?? payload['mail.message'];
+      if (rawMsgs is List && rawMsgs.isNotEmpty) {
+        for (var raw in rawMsgs) {
+          if (raw is! Map) continue;
+          int? cId;
+          if (raw['res_id'] is int) {
+            cId = raw['res_id'] as int;
+          } else if (raw['thread'] is Map && raw['thread']['id'] is int) {
+            cId = raw['thread']['id'] as int;
+          }
+          if (cId != null) {
+            _handleNewMessageFromWs({
+              'id': cId,
+              'data': {
+                'mail.message': [raw],
+                'res.partner': payload['res.partner'] ?? [],
+              }
+            });
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('[DiscussController] Error processing mail.record/insert WS frame: $e');
+    }
   }
 
   Future<void> _fetchPartnerId() async {
@@ -663,6 +820,16 @@ class DiscussController extends GetxController {
         });
         channels.value = fetched;
         
+        // Register any newly discovered channels on the WebSocket
+        final List<String> channelSubs = [];
+        for (var c in fetched) {
+          channelSubs.add('discuss.channel_${c.id}');
+          channelSubs.add('mail.channel_${c.id}');
+        }
+        if (channelSubs.isNotEmpty) {
+          OdooWebSocketService().subscribe(channelSubs);
+        }
+        
         // Auto-select the first channel if none is selected
         if (selectedChannelId.value == -1 && channels.isNotEmpty) {
           selectChannel(channels.first.id);
@@ -693,7 +860,12 @@ class DiscussController extends GetxController {
       List<Map<String, dynamic>> finalUsers = [];
 
       if (response.isSuccess && response.data != null && response.data!.isNotEmpty) {
-        finalUsers = response.data!.map((e) => Map<String, dynamic>.from(e)).toList();
+        finalUsers = response.data!.map((e) {
+          final m = Map<String, dynamic>.from(e);
+          m['name'] = (m['name'] is String) ? m['name'] as String : 'Colleague';
+          m['email'] = (m['email'] is String) ? m['email'] as String : '';
+          return m;
+        }).toList();
       }
 
       // Fallback 1: res.users query
@@ -791,11 +963,10 @@ class DiscussController extends GetxController {
 
   void selectChannel(int channelId) {
     selectedChannelId.value = channelId;
-    // Clear unread count locally when entering a channel
-    final idx = channels.indexWhere((c) => c.id == channelId);
-    if (idx != -1) {
-      channels[idx] = channels[idx].copyWith(unreadCount: 0);
-    }
+    markChannelAsSeen(channelId);
+    
+    // Ensure WebSocket is connected
+    OdooWebSocketService().ensureConnected();
     
     // Subscribe to channel on Odoo WebSocket
     OdooWebSocketService().subscribe([
@@ -941,8 +1112,6 @@ class DiscussController extends GetxController {
           channelMessages[channelId] = chronological;
           scrollToBottom(animate: false);
           
-          await fetchChannelMembersSeenStatus(channelId);
-          
           // Update the channel's last message info only when actually changed
           if (chronological.isNotEmpty) {
             final last = chronological.last;
@@ -971,35 +1140,65 @@ class DiscussController extends GetxController {
   }
 
   Future<void> markChannelAsSeen(int channelId) async {
-    final memberId = channelMemberIds[channelId];
-    if (memberId == null) {
-      //LogUtils.w('DISCUSS_SEEN: Cannot mark channel $channelId as seen - member ID not found in mapping.');
-      return;
+    if (channelId == -1) return;
+
+    // Immediately clear unread count in local UI
+    final cIdx = channels.indexWhere((c) => c.id == channelId);
+    if (cIdx != -1 && channels[cIdx].unreadCount > 0) {
+      channels[cIdx] = channels[cIdx].copyWith(unreadCount: 0);
+      channels.refresh();
     }
 
+    int? memberId = channelMemberIds[channelId];
+    if (memberId == null) {
+      try {
+        final memberRes = await OdooRpcApiManager.searchRead(
+          model: 'discuss.channel.member',
+          domain: [
+            ['channel_id', '=', channelId],
+            ['partner_id', '=', partnerId.value],
+          ],
+          fields: ['id'],
+          limit: 1,
+        );
+        if (memberRes.isSuccess && memberRes.data != null && memberRes.data!.isNotEmpty) {
+          memberId = memberRes.data![0]['id'] as int?;
+          if (memberId != null) {
+            channelMemberIds[channelId] = memberId;
+          }
+        }
+      } catch (_) {}
+    }
+
+    if (memberId == null) return;
+
     final messages = channelMessages[channelId];
-    if (messages == null || messages.isEmpty) return;
+    int latestMessageId = 0;
+    if (messages != null && messages.isNotEmpty) {
+      final realMessages = messages.where((m) => m.id > 0 && m.id < 1000000000000).toList();
+      if (realMessages.isNotEmpty) {
+        latestMessageId = realMessages.last.id;
+      }
+    }
 
-    final latestMessageId = messages.last.id;
-
-    //LogUtils.i('DISCUSS_SEEN: Marking channel $channelId as seen (member=$memberId, msg=$latestMessageId)');
     try {
-      final response = await OdooRpcApiManager.write(
+      final values = <String, dynamic>{
+        'message_unread_counter': 0,
+        'last_seen_dt': DateTime.now().toUtc().toString().substring(0, 19),
+      };
+      if (latestMessageId > 0) {
+        values['seen_message_id'] = latestMessageId;
+        values['fetched_message_id'] = latestMessageId;
+        values['new_message_separator'] = latestMessageId + 1;
+      }
+
+      await OdooRpcApiManager.write(
         model: 'discuss.channel.member',
         ids: [memberId],
-        values: {
-          'seen_message_id': latestMessageId,
-          'fetched_message_id': latestMessageId,
-          'last_seen_dt': DateTime.now().toUtc().toString().substring(0, 19),
-        },
+        values: values,
       );
-      if (response.isSuccess) {
-        //LogUtils.i('DISCUSS_SEEN: Server updated successfully for member=$memberId');
-      } else {
-        //LogUtils.w('DISCUSS_SEEN_FAILED: Server returned error: ${response.message}');
-      }
     } catch (e) {
-      //LogUtils.w('DISCUSS_SEEN_ERROR: Failed to write seen status: $e');
+      debugPrint('[DiscussController] Failed to mark channel as seen: $e');
     }
   }
 
@@ -1447,67 +1646,12 @@ class DiscussController extends GetxController {
     }
   }
 
-  Future<void> fetchChannelMembersSeenStatus(int channelId) async {
-    try {
-      final channel = channels.firstWhereOrNull((c) => c.id == channelId);
-      if (channel == null || channel.channelType != 'chat') {
-        activeChannelOtherUserLastSeenMessageId.value = -1;
-        return;
-      }
-
-      final response = await OdooRpcApiManager.searchRead(
-        model: 'discuss.channel.member',
-        domain: [
-          ['channel_id', '=', channelId],
-          ['partner_id', '!=', partnerId.value]
-        ],
-        fields: ['last_seen_message_id'],
-        limit: 1,
-      );
-
-      if (response.isSuccess && response.data != null && response.data!.isNotEmpty) {
-        final firstMember = response.data!.first;
-        final rawSeenId = firstMember['last_seen_message_id'];
-        if (rawSeenId is List && rawSeenId.isNotEmpty) {
-          activeChannelOtherUserLastSeenMessageId.value = rawSeenId[0] as int;
-        } else if (rawSeenId is int) {
-          activeChannelOtherUserLastSeenMessageId.value = rawSeenId;
-        } else {
-          activeChannelOtherUserLastSeenMessageId.value = -1;
-        }
-        //LogUtils.i('DISCUSS_TICKS: Other user last seen message ID = ${activeChannelOtherUserLastSeenMessageId.value}');
-      } else {
-        activeChannelOtherUserLastSeenMessageId.value = -1;
-      }
-    } catch (e) {
-      //LogUtils.e('DISCUSS_TICKS_ERROR: $e');
-      activeChannelOtherUserLastSeenMessageId.value = -1;
-    }
-  }
-
   MessageTickStatus getMessageTickStatus(DiscussMessageModel message) {
     if (!message.isOutgoing) return MessageTickStatus.none;
-
     if (message.id <= 0) {
       return MessageTickStatus.single;
     }
-
-    final otherSeenId = activeChannelOtherUserLastSeenMessageId.value;
-    if (otherSeenId != -1) {
-      if (message.id <= otherSeenId) {
-        return MessageTickStatus.doubleBlue;
-      } else {
-        return MessageTickStatus.single;
-      }
-    }
-
-    // Fallback simulation based on message age
-    final difference = DateTime.now().difference(message.date);
-    if (difference.inMinutes < 2) {
-      return MessageTickStatus.single;
-    } else {
-      return MessageTickStatus.doubleBlue;
-    }
+    return MessageTickStatus.doubleGray;
   }
 
   void sortChannels() {
@@ -1516,114 +1660,5 @@ class DiscussController extends GetxController {
       final timeB = b.lastMessageTime ?? DateTime(1970);
       return timeB.compareTo(timeA);
     });
-  }
-
-  void _startLongPolling() {
-    if (_isLongPollingActive) return;
-    _isLongPollingActive = true;
-    _runLongPollLoop();
-  }
-
-  Future<void> _runLongPollLoop() async {
-    //LogUtils.i('DISCUSS_LONGPOLL: Starting background poll loop...');
-    int lastNotificationId = 0;
-
-    while (_isLongPollingActive && OdooRpcApiManager.isAuthenticated) {
-      if (partnerId.value == -1) {
-        await Future.delayed(const Duration(seconds: 2));
-        continue;
-      }
-
-      final channelsToListen = <dynamic>[];
-      // 1. User partner notification channel
-      channelsToListen.add('res.partner_${partnerId.value}');
-      // 2. Individual discuss channels
-      for (var c in channels) {
-        channelsToListen.add('discuss.channel_${c.id}');
-      }
-
-      if (channelsToListen.isEmpty) {
-        await Future.delayed(const Duration(seconds: 5));
-        continue;
-      }
-
-      //LogUtils.i('DISCUSS_LONGPOLL: Polling Odoo server (last=$lastNotificationId)...');
-      final response = await OdooRpcApiManager.longPoll(
-        channels: channelsToListen,
-        last: lastNotificationId,
-      );
-
-      if (!_isLongPollingActive) break;
-
-      if (response.isSuccess && response.data != null) {
-        final List<dynamic> result = List<dynamic>.from(response.data);
-        //LogUtils.i('DISCUSS_LONGPOLL: Received ${result.length} notifications.');
-        
-        bool messageChanged = false;
-        
-        for (var raw in result) {
-          if (raw is Map) {
-            final id = raw['id'];
-            if (id is int && id > lastNotificationId) {
-              lastNotificationId = id;
-            }
-            
-            final channel = raw['channel'];
-            final message = raw['message'];
-            //LogUtils.i('DISCUSS_LONGPOLL_EVENT: Channel: $channel, message keys: ${message?.keys}');
-            
-            if (channel != null && channel.toString().contains('discuss.channel_')) {
-              messageChanged = true;
-            }
-          }
-        }
-
-        if (messageChanged) {
-          //LogUtils.i('DISCUSS_LONGPOLL: Detected message updates. Fetching fresh messages...');
-          if (selectedChannelId.value != -1) {
-            await fetchMessages(selectedChannelId.value, background: true);
-          }
-          await fetchChannels();
-        }
-        
-        await Future.delayed(const Duration(milliseconds: 100));
-      } else {
-        final err = response.message;
-        if (err != null && (err.contains('404') || err.contains('not found') || err.contains('301') || err.contains('302'))) {
-          //LogUtils.w('DISCUSS_LONGPOLL: Longpolling endpoint not configured/available (404/302). Falling back to Adaptive Polling...');
-          _runAdaptivePollingLoop();
-          break; // Exit long poll loop
-        }
-        //LogUtils.w('DISCUSS_LONGPOLL_WARNING: Poll failed: $err. Retrying in 5 seconds...');
-        await Future.delayed(const Duration(seconds: 5));
-      }
-    }
-    
-    //LogUtils.i('DISCUSS_LONGPOLL: Long polling loop terminated.');
-    _isLongPollingActive = false;
-  }
-
-  Future<void> _runAdaptivePollingLoop() async {
-    while (_isLongPollingActive && OdooRpcApiManager.isAuthenticated) {
-      final hasSelectedChannel = selectedChannelId.value != -1;
-      
-      // If a chat conversation is active, poll every 2.5s; otherwise poll channels every 8s
-      final delay = hasSelectedChannel
-          ? const Duration(milliseconds: 2500)
-          : const Duration(seconds: 8);
-
-      await Future.delayed(delay);
-
-      if (!_isLongPollingActive || !OdooRpcApiManager.isAuthenticated) break;
-
-      try {
-        if (selectedChannelId.value != -1) {
-          await fetchMessages(selectedChannelId.value, background: true);
-        }
-        await fetchChannels();
-      } catch (e) {
-        debugPrint('DISCUSS_POLL_ERROR: $e');
-      }
-    }
   }
 }

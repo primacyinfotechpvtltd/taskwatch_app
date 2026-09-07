@@ -221,10 +221,18 @@ class DiscussMessageModel {
       parentMsgId = parentField;
     }
 
-    String bodyStr = json['body'] ?? '';
+    String bodyStr = '';
+    if (json['body'] is String) {
+      bodyStr = json['body'] as String;
+    } else if (json['body'] is List && (json['body'] as List).isNotEmpty) {
+      final bList = json['body'] as List;
+      bodyStr = bList.length >= 2 ? bList[1].toString() : bList.first.toString();
+    }
+    
     DateTime msgDate = DateTime.now();
-    if (json['date'] != null && json['date'] != false) {
-      msgDate = FormatUtils.parseOdooDateTime(json['date']);
+    final rawDate = json['date'] ?? json['create_date'];
+    if (rawDate != null && rawDate != false) {
+      msgDate = FormatUtils.parseOdooDateTime(rawDate.toString());
     }
 
     final rawAttachments = json['attachment_ids'];

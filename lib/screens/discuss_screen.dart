@@ -280,9 +280,9 @@ class _DiscussScreenState extends State<DiscussScreen> {
       itemCount: users.length,
       itemBuilder: (context, index) {
         final u = users[index];
-        final name = u['name'] ?? 'Colleague';
-        final email = u['email'] ?? '';
-        final uId = u['id'] as int;
+        final name = (u['name'] is String) ? u['name'] as String : 'Colleague';
+        final email = (u['email'] is String) ? u['email'] as String : '';
+        final uId = u['id'] is int ? u['id'] as int : int.tryParse('${u['id']}') ?? 0;
 
         // Choose avatar background color based on name hash
         final nameHash = name.hashCode.abs();

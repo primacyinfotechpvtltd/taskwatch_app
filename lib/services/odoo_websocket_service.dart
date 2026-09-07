@@ -5,7 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:pi_task_watch/managers/odoo_rpc_api_manager.dart';
 
 /// Odoo WebSocket Service for real-time Discuss chat updates.
-/// Connects natively to wss://<server>/websocket (Odoo 17/18/19).
+/// Connects natively to wss://server/websocket (Odoo 17/18/19).
 class OdooWebSocketService {
   static final OdooWebSocketService _instance = OdooWebSocketService._internal();
   factory OdooWebSocketService() => _instance;
@@ -24,6 +24,7 @@ class OdooWebSocketService {
   bool get isConnected => _webSocket != null && _webSocket!.readyState == WebSocket.open;
 
   final Set<String> _subscribedChannels = {};
+  int _lastNotificationId = 0;
 
   /// Connect to Odoo WebSocket server using active OdooRpcApiManager session
   Future<void> connect({List<String>? initialChannels}) async {
@@ -55,16 +56,18 @@ class OdooWebSocketService {
     }
 
     try {
-      // Build wss:// or ws:// URL
-      Uri uri = Uri.parse(baseUrl);
+      // Build wss:// or ws:// URL with Odoo 19 version parameter and clean Origin
+      final cleanUrl = baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl;
+      Uri uri = Uri.parse(cleanUrl);
       final wsScheme = uri.scheme == 'https' ? 'wss' : 'ws';
-      final wsUrl = '$wsScheme://${uri.host}${uri.hasPort ? ':${uri.port}' : ''}/websocket';
+      final wsUrl = '$wsScheme://${uri.host}${uri.hasPort ? ':${uri.port}' : ''}/websocket?version=19.0-2';
 
-      debugPrint('[OdooWS] Connecting to $wsUrl ...');
+      debugPrint('[OdooWS] Connecting to $wsUrl with Origin: $cleanUrl ...');
 
       _webSocket = await WebSocket.connect(
         wsUrl,
         headers: {
+          'Origin': cleanUrl,
           'Cookie': 'session_id=$sessionId; session=$sessionId',
         },
       ).timeout(const Duration(seconds: 15));
@@ -72,7 +75,7 @@ class OdooWebSocketService {
       _isConnecting = false;
       debugPrint('[OdooWS] Connected successfully!');
 
-      // Send initial subscription if channels exist
+      // Send initial subscription (in Odoo 19, channels: [] automatically maps all session channels)
       _subscribeToCurrentChannels();
 
       // Start ping heartbeat (every 45 seconds to prevent idle disconnect)
@@ -92,7 +95,7 @@ class OdooWebSocketService {
     }
   }
 
-  /// Subscribe to specific channels (e.g., 'discuss.channel_42', 'res.partner_15')
+  /// Subscribe to specific channels (or register extra channels)
   void subscribe(List<String> channels) {
     _subscribedChannels.addAll(channels);
     if (isConnected) {
@@ -101,18 +104,18 @@ class OdooWebSocketService {
   }
 
   void _subscribeToCurrentChannels() {
-    if (!isConnected || _subscribedChannels.isEmpty) return;
+    if (!isConnected) return;
 
     try {
       final payload = jsonEncode({
         "event_name": "subscribe",
         "data": {
           "channels": _subscribedChannels.toList(),
-          "last": 0,
+          "last": _lastNotificationId,
         }
       });
       _webSocket!.add(payload);
-      debugPrint('[OdooWS] Subscribed to ${_subscribedChannels.length} channels');
+      debugPrint('[OdooWS] Sent subscribe payload: ${_subscribedChannels.length} channels (last: $_lastNotificationId)');
     } catch (e) {
       debugPrint('[OdooWS] Error sending subscribe payload: $e');
     }
@@ -140,9 +143,17 @@ class OdooWebSocketService {
   }
 
   void _processFrame(Map<String, dynamic> frame) {
+    // Record notification ID to maintain event ordering and recover misses
+    if (frame.containsKey('id') && frame['id'] is int) {
+      final nid = frame['id'] as int;
+      if (nid > _lastNotificationId) {
+        _lastNotificationId = nid;
+      }
+    }
+
     // Format 1: { "id": 123, "message": { "type": "...", "payload": {...} } }
     // Format 2: { "type": "...", "payload": {...} }
-    Map<String, dynamic>? msgPayload;
+    final Map<String, dynamic> msgPayload;
 
     if (frame.containsKey('message') && frame['message'] is Map) {
       msgPayload = Map<String, dynamic>.from(frame['message']);
@@ -150,20 +161,20 @@ class OdooWebSocketService {
       msgPayload = frame;
     }
 
-    if (msgPayload != null) {
-      debugPrint('[OdooWS] Received notification: ${msgPayload['type']}');
-      _messageController.add(msgPayload);
-    }
+    debugPrint('[OdooWS] Received notification: ${msgPayload['type']}');
+    _messageController.add(msgPayload);
   }
 
   void _startPingHeartbeat() {
     _pingTimer?.cancel();
-    _pingTimer = Timer.periodic(const Duration(seconds: 45), (_) {
+    _pingTimer = Timer.periodic(const Duration(seconds: 25), (_) {
       if (isConnected) {
         try {
-          _webSocket!.add(jsonEncode({"event_name": "ping"}));
+          // Send Odoo 19 connection check byte (0x00) to keep connection alive
+          _webSocket!.add([0x00]);
         } catch (e) {
-          debugPrint('[OdooWS] Ping failed: $e');
+          debugPrint('[OdooWS] Heartbeat failed: $e');
+          _scheduleReconnect();
         }
       }
     });
@@ -175,7 +186,7 @@ class OdooWebSocketService {
   }
 
   void _onDone() {
-    debugPrint('[OdooWS] WebSocket connection closed');
+    debugPrint('[OdooWS] WebSocket connection closed (code: ${_webSocket?.closeCode}, reason: ${_webSocket?.closeReason})');
     if (!_isDisposed) {
       _scheduleReconnect();
     }
@@ -187,12 +198,21 @@ class OdooWebSocketService {
     if (_isDisposed) return;
 
     _reconnectTimer?.cancel();
-    _reconnectTimer = Timer(const Duration(seconds: 10), () {
+    // Fast reconnect within 2 seconds
+    _reconnectTimer = Timer(const Duration(seconds: 2), () {
       if (!_isDisposed && !isConnected) {
         debugPrint('[OdooWS] Attempting auto-reconnect...');
         connect();
       }
     });
+  }
+
+  /// Ensure the socket is connected; reconnects immediately if disconnected
+  void ensureConnected() {
+    if (!isConnected && !_isConnecting && !_isDisposed) {
+      debugPrint('[OdooWS] ensureConnected: Socket not connected, connecting now...');
+      connect();
+    }
   }
 
   /// Disconnect and cleanup WebSocket resources
@@ -205,6 +225,7 @@ class OdooWebSocketService {
     } catch (_) {}
     _webSocket = null;
     _subscribedChannels.clear();
+    _lastNotificationId = 0;
     debugPrint('[OdooWS] Disconnected');
   }
 }
