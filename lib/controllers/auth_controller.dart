@@ -1,11 +1,9 @@
 import 'package:flutter/foundation.dart';
 
-import 'package:pi_task_watch/controllers/timesheet_controller.dart';
 import 'package:pi_task_watch/utils/date_to_simple_string.dart';
 import 'package:pi_task_watch/exports.dart';
 import 'package:pi_task_watch/models/timesheet_model.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:pi_task_watch/utils/log_utils.dart';
 
 class AuthController extends GetxController {
   // Shared preferences keys
@@ -838,9 +836,13 @@ class AuthController extends GetxController {
     bool rememberMe = false,
   }) async {
     try {
-      // Check if user is already logged in
-      if (_user.value != null) {
-        if (kDebugMode) print("✅ User already logged in");
+      // Check if user is already logged in with matching account
+      if (_user.value != null &&
+          _user.value!.email.toLowerCase() == email.trim().toLowerCase() &&
+          OdooRpcApiManager.currentDatabase == db) {
+        if (kDebugMode) {
+          print("✅ User already logged in with matching credentials");
+        }
         return _user.value;
       }
 

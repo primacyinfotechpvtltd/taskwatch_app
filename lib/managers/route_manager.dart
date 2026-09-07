@@ -104,7 +104,14 @@ class _RouteWrapperState extends State<RouteWrapper> {
 
         // Redirect to SigninScreen if trying to access protected route without authentication
         if (widget.routeItem.isProtected && !isAuthenticated) {
-          return SigninScreen();
+          return const SigninScreen();
+        }
+
+        // Redirect to Dashboard if already authenticated and accessing SigninScreen
+        if (!widget.routeItem.isProtected &&
+            isAuthenticated &&
+            widget.routeItem.routeName == SigninScreen.routeName) {
+          return const DashboardScreen();
         }
 
         // All checks passed, show requested screen

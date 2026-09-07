@@ -72,8 +72,20 @@ class _SigninScreenState extends State<SigninScreen>
 
       if (mounted) setState(() {});
 
+      // If user is already authenticated, redirect to dashboard immediately
+      if (_authController.user.value != null) {
+        Get.offAllNamed(DashboardScreen.routeName);
+        return;
+      }
+
       // Attempt auto-login if credentials exist and session is active
       final result = await _authController.attemptAutoLogin();
+
+      // If auto-login succeeded, redirect to dashboard immediately
+      if (result) {
+        Get.offAllNamed(DashboardScreen.routeName);
+        return;
+      }
 
       // If auto-login was not successful or not attempted, fetch databases for current URL
       if (!result && _isValidUrl(AppConstant.apiServerUrl)) {
@@ -207,8 +219,11 @@ class _SigninScreenState extends State<SigninScreen>
             _rememberMe, // Pass the remember me flag to save credentials
       );
 
-      if (kDebugMode && signInResult != null) {
-        print("📝 Credentials saved: ${_rememberMe ? 'Yes' : 'No'}");
+      if (signInResult != null) {
+        if (kDebugMode) {
+          print("📝 Credentials saved: ${_rememberMe ? 'Yes' : 'No'}");
+        }
+        Get.offAllNamed(DashboardScreen.routeName);
       }
     } else if (_selectedDatabase == null) {
       //
