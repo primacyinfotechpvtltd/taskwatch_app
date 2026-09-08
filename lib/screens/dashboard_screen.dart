@@ -30,6 +30,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     )..repeat(reverse: true);
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await AppConstant.initPackageInfo();
       // Reset popup flag so dashboard always shows the warning on each fresh load
       _authController.hasShownWfhWarningPopup = false;
       await _authController.checkWfhApprovalForCurrentUser();
@@ -949,14 +950,40 @@ class _DashboardScreenState extends State<DashboardScreen>
                         ),
                         overflow: TextOverflow.ellipsis,
                       ),
-                      Text(
-                        user?.email ?? "",
-                        style: TextStyle(
-                          fontSize: 9,
-                          color: Colors.white.withOpacity(0.9),
-                          fontWeight: FontWeight.w500,
-                        ),
-                        overflow: TextOverflow.ellipsis,
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              user?.email ?? "",
+                              style: TextStyle(
+                                fontSize: 9,
+                                color: Colors.white.withOpacity(0.9),
+                                fontWeight: FontWeight.w500,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 4,
+                              vertical: 0.5,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              AppConstant.formattedVersion,
+                              style: const TextStyle(
+                                fontSize: 8,
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -1238,6 +1265,18 @@ class _DashboardScreenState extends State<DashboardScreen>
         children: [
           _buildRecentTasksSection(),
           const DashboardAnnouncementSection(),
+          const SizedBox(height: 16),
+          Center(
+            child: Text(
+              'PI Task Watch ${AppConstant.formattedVersion}',
+              style: GoogleFonts.inter(
+                fontSize: 11,
+                color: Colors.grey.shade400,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
         ],
       ),
     );

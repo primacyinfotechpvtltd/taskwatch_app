@@ -1,12 +1,32 @@
+import 'package:package_info_plus/package_info_plus.dart';
+
 class AppConstant {
   static const String appName = "PI TaskWatch";
+
+  // App version dynamically resolved via package_info_plus
+  static String appVersion = "1.0.52";
+  static String buildNumber = "52";
+
+  static Future<void> initPackageInfo() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      if (info.version.isNotEmpty) {
+        appVersion = info.version;
+      }
+      if (info.buildNumber.isNotEmpty) {
+        buildNumber = info.buildNumber;
+      }
+    } catch (_) {}
+  }
+
+  static String get formattedVersion => "v$appVersion";
 
   static const bool isDebug = false;
 
   static const String apiScheme = isDebug ? "https" : "https";
   //
   static const String apiHostName =
-      isDebug ? "staging-pi.o19.primacyinfotech.com" : "staging-pi.o19.primacyinfotech.com";
+      isDebug ? "app.primacyinfotech.com" : "app.primacyinfotech.com";
   //
   static const int? apiPort = null;
   //
