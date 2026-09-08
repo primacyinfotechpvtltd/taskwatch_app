@@ -34,6 +34,9 @@ void main() async {
     setAllController();
     // LogUtils.i('Controllers setup complete');
 
+    // Initialize package info dynamically
+    await AppConstant.initPackageInfo();
+
     // Initialize lifecycle service to prevent freezing during system sleep/idle
     // LogUtils.i('Initializing AppLifecycleService...');
     await AppLifecycleService().initialize();

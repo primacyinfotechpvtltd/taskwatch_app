@@ -2,7 +2,7 @@ name: pi_task_watch
 description: "PI Task Watch - Employee monitoring application with Odoo integration"
 publish_to: "none"
 
-version: 1.0.51+51
+version: 1.0.52+52
 
 environment:
   sdk: ^3.6.0
@@ -22,6 +22,7 @@ dependencies:
   screen_capturer: ^0.2.3
   path_provider: ^2.1.1
   file_picker: ^8.0.0
+  package_info_plus: ^9.0.1
 
   # connectivity_plus: ^3.0.3  # For network connectivity detection
   # flutter_secure_storage: ^8.0.0  # For secure storage of sensitive data

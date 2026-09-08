@@ -49,6 +49,7 @@ class _SigninScreenState extends State<SigninScreen>
 
     // Restore server URL, load saved credentials and attempt auto-login
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await AppConstant.initPackageInfo();
       await _authController.restoreServerUrl();
 
       // Update the controller text with the restored URL
@@ -953,6 +954,19 @@ class _SigninScreenState extends State<SigninScreen>
                               ),
                             ),
                           ],
+                        ),
+                        // const SizedBox(height: 12),
+                        Center(
+                          child: Text(
+                            "${AppConstant.formattedVersion}",
+                            textAlign: TextAlign.center,
+                            style: GoogleFonts.inter(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.grey.shade500,
+                              letterSpacing: 0.3,
+                            ),
+                          ),
                         ),
                       ],
                     ),

@@ -16,6 +16,7 @@ class OdooWebSocketService {
   Timer? _reconnectTimer;
   bool _isConnecting = false;
   bool _isDisposed = false;
+  int _reconnectAttempts = 0;
   
   final StreamController<Map<String, dynamic>> _messageController =
       StreamController<Map<String, dynamic>>.broadcast();
@@ -73,6 +74,7 @@ class OdooWebSocketService {
       ).timeout(const Duration(seconds: 15));
 
       _isConnecting = false;
+      _reconnectAttempts = 0;
       debugPrint('[OdooWS] Connected successfully!');
 
       // Send initial subscription (in Odoo 19, channels: [] automatically maps all session channels)
@@ -198,10 +200,18 @@ class OdooWebSocketService {
     if (_isDisposed) return;
 
     _reconnectTimer?.cancel();
-    // Fast reconnect within 2 seconds
-    _reconnectTimer = Timer(const Duration(seconds: 2), () {
+    _reconnectAttempts++;
+    // Exponential backoff: 5s, 10s, 30s, 60s to avoid hammering the server
+    final delaySeconds = _reconnectAttempts == 1
+        ? 5
+        : (_reconnectAttempts == 2
+            ? 10
+            : (_reconnectAttempts == 3 ? 30 : 60));
+
+    debugPrint('[OdooWS] Scheduling auto-reconnect in ${delaySeconds}s (attempt $_reconnectAttempts)...');
+    _reconnectTimer = Timer(Duration(seconds: delaySeconds), () {
       if (!_isDisposed && !isConnected) {
-        debugPrint('[OdooWS] Attempting auto-reconnect...');
+        debugPrint('[OdooWS] Attempting auto-reconnect (attempt $_reconnectAttempts)...');
         connect();
       }
     });
@@ -226,6 +236,7 @@ class OdooWebSocketService {
     _webSocket = null;
     _subscribedChannels.clear();
     _lastNotificationId = 0;
+    _reconnectAttempts = 0;
     debugPrint('[OdooWS] Disconnected');
   }
 }
