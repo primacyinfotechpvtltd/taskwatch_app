@@ -451,10 +451,10 @@ class _IdleTimeWidgetState extends State<IdleTimeWidget> {
         discussionWithNames = _selectedEmployees.map((e) => e.name).join(", ");
         break;
       case IdleMode.keep:
-        idleTypeString = 'keep';
+        idleTypeString = null;
         break;
       case IdleMode.remove:
-        idleTypeString = _retainSession ? 'keep' : 'remove';
+        idleTypeString = _retainSession ? null : 'remove';
         break;
     }
 

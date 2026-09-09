@@ -523,6 +523,14 @@ class TrackerController extends GetxController {
 
   /// Immediately attempts to sync idle data to API, stores locally if failed
   Future<void> _syncIdleDataImmediately(IdleTimeData idleData) async {
+    // If idleType is null or 'keep', do not send to taskwatch_idle endpoint
+    if (idleData.idleType == null ||
+        idleData.idleType == 'keep' ||
+        idleData.mode == IdleMode.keep) {
+      _logDebug('Skipping idle sync to API for keep/retained session');
+      return;
+    }
+
     try {
       _logDebug('Attempting immediate idle data sync to API');
       final success = await Get.find<TimesheetController>().updateSyncIdle(
@@ -553,6 +561,12 @@ class TrackerController extends GetxController {
     final List<IdleTimeData> failedEntries = [];
 
     for (final idleData in _idleEntryList) {
+      if (idleData.idleType == null ||
+          idleData.idleType == 'keep' ||
+          idleData.mode == IdleMode.keep) {
+        // Discard any retained/keep entries without sending to API
+        continue;
+      }
       try {
         final success = await Get.find<TimesheetController>().updateSyncIdle(
           idleData: idleData,
@@ -778,8 +792,12 @@ class TrackerController extends GetxController {
           'Idle result: mode=${idleDataWithTimesheetId.mode}, keep time=${idleDataWithTimesheetId.keepTime}, seconds=${idleDataWithTimesheetId.idleSeconds}, timesheetId=${idleDataWithTimesheetId.timesheetId}, projectId=${idleDataWithTimesheetId.projectId}, taskId=${idleDataWithTimesheetId.taskId}',
         );
 
-        // Immediately attempt to sync idle data to API
-        await _syncIdleDataImmediately(idleDataWithTimesheetId);
+        // Immediately attempt to sync idle data to API (skip for keep/retained sessions)
+        if (idleDataWithTimesheetId.idleType != null &&
+            idleDataWithTimesheetId.idleType != 'keep' &&
+            idleDataWithTimesheetId.mode != IdleMode.keep) {
+          await _syncIdleDataImmediately(idleDataWithTimesheetId);
+        }
 
         // Check if user selected a different task
         if (idleDataWithTimesheetId.taskId != null &&
