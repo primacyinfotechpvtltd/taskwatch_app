@@ -779,7 +779,7 @@ class DiscussController extends GetxController with WidgetsBindingObserver {
           }
         }
         
-        // Fetch partner online / im_status presence for direct chats
+        // Fetch partner online / im_status presence for direct chats in a single batch
         final partnerIdsToQuery = fetched
             .where((c) => c.otherPartnerId != null && c.otherPartnerId! > 0)
             .map((c) => c.otherPartnerId!)
@@ -794,18 +794,61 @@ class DiscussController extends GetxController with WidgetsBindingObserver {
               ],
               fields: ['id', 'im_status'],
             );
+            final Map<int, String> statusMap = {};
+            final Set<int> leavePartnerIds = {};
             if (presenceRes.isSuccess && presenceRes.data != null) {
-              final Map<int, String> statusMap = {};
               for (var p in presenceRes.data!) {
                 final pId = p['id'] as int;
                 final stat = p['im_status']?.toString();
-                if (stat != null) statusMap[pId] = stat;
-              }
-              for (var i = 0; i < fetched.length; i++) {
-                final oId = fetched[i].otherPartnerId;
-                if (oId != null && statusMap.containsKey(oId)) {
-                  fetched[i] = fetched[i].copyWith(imStatus: statusMap[oId]);
+                if (stat != null) {
+                  statusMap[pId] = stat;
+                  if (stat.contains('leave')) {
+                    leavePartnerIds.add(pId);
+                  }
                 }
+              }
+            }
+
+            // If any partner is on leave, fetch return date from hr.employee.public
+            final Map<int, String> returnDateMap = {};
+            if (leavePartnerIds.isNotEmpty) {
+              try {
+                final absentRes = await OdooRpcApiManager.searchRead(
+                  model: 'hr.employee.public',
+                  domain: [
+                    ['is_absent', '=', true]
+                  ],
+                  fields: ['user_partner_id', 'leave_date_to'],
+                );
+                if (absentRes.isSuccess && absentRes.data != null) {
+                  for (var emp in absentRes.data!) {
+                    final partnerVal = emp['user_partner_id'];
+                    int? pId;
+                    if (partnerVal is List && partnerVal.isNotEmpty) {
+                      pId = partnerVal[0] as int;
+                    } else if (partnerVal is int) {
+                      pId = partnerVal;
+                    }
+                    final returnDate = emp['leave_date_to']?.toString();
+                    if (pId != null &&
+                        returnDate != null &&
+                        returnDate != 'false') {
+                      returnDateMap[pId] = returnDate;
+                    }
+                  }
+                }
+              } catch (e) {
+                debugPrint('DISCUSS_ABSENT_EMPLOYEE_ERROR: $e');
+              }
+            }
+
+            for (var i = 0; i < fetched.length; i++) {
+              final oId = fetched[i].otherPartnerId;
+              if (oId != null && statusMap.containsKey(oId)) {
+                fetched[i] = fetched[i].copyWith(
+                  imStatus: statusMap[oId],
+                  outOfOfficeDateEnd: returnDateMap[oId],
+                );
               }
             }
           } catch (e) {
@@ -949,6 +992,38 @@ class DiscussController extends GetxController with WidgetsBindingObserver {
         if (idVal is int) {
           uniqueMap[idVal] = u;
         }
+      }
+
+      // If any colleague has leave status, fetch return dates from hr.employee.public
+      final hasLeaves = uniqueMap.values.any((u) => u['im_status']?.toString().contains('leave') == true);
+      if (hasLeaves) {
+        try {
+          final absentRes = await OdooRpcApiManager.searchRead(
+            model: 'hr.employee.public',
+            domain: [
+              ['is_absent', '=', true]
+            ],
+            fields: ['user_partner_id', 'leave_date_to'],
+          );
+          if (absentRes.isSuccess && absentRes.data != null) {
+            for (var emp in absentRes.data!) {
+              final partnerVal = emp['user_partner_id'];
+              int? pId;
+              if (partnerVal is List && partnerVal.isNotEmpty) {
+                pId = partnerVal[0] as int;
+              } else if (partnerVal is int) {
+                pId = partnerVal;
+              }
+              final returnDate = emp['leave_date_to']?.toString();
+              if (pId != null &&
+                  uniqueMap.containsKey(pId) &&
+                  returnDate != null &&
+                  returnDate != 'false') {
+                uniqueMap[pId]!['out_of_office_date_end'] = returnDate;
+              }
+            }
+          }
+        } catch (_) {}
       }
 
       usersToChat.value = uniqueMap.values.toList();

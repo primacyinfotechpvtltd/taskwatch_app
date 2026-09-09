@@ -121,22 +121,66 @@ class _ChannelListTileState extends State<ChannelListTile> {
                             ),
                           ),
                   ),
-                  if (isChat && (widget.channel.isOnline || widget.channel.isAway))
-                    Positioned(
-                      bottom: 0,
-                      right: 0,
-                      child: Container(
-                        width: 11,
-                        height: 11,
-                        decoration: BoxDecoration(
-                          color: widget.channel.isOnline
-                              ? const Color(0xFF00FF66)
-                              : const Color(0xFFFFB300),
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 2),
+                  if (isChat) ...[
+                    if (widget.channel.isOnLeave)
+                      Positioned(
+                        bottom: -1,
+                        right: -1,
+                        child: Container(
+                          width: 15,
+                          height: 15,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFFBEB),
+                            shape: BoxShape.circle,
+                            border: Border.all(color: const Color(0xFFF59E0B), width: 1.5),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.15),
+                                blurRadius: 2,
+                                offset: const Offset(0, 1),
+                              ),
+                            ],
+                          ),
+                          child: const Center(
+                            child: Icon(
+                              Icons.flight_takeoff_rounded,
+                              size: 9,
+                              color: Color(0xFFD97706),
+                            ),
+                          ),
+                        ),
+                      )
+                    else if (widget.channel.isOnline || widget.channel.isAway)
+                      Positioned(
+                        bottom: 0,
+                        right: 0,
+                        child: Container(
+                          width: 11,
+                          height: 11,
+                          decoration: BoxDecoration(
+                            color: widget.channel.isOnline
+                                ? const Color(0xFF00FF66)
+                                : const Color(0xFFFFB300),
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 2),
+                          ),
+                        ),
+                      )
+                    else
+                      Positioned(
+                        bottom: 0,
+                        right: 0,
+                        child: Container(
+                          width: 10,
+                          height: 10,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.grey.shade400, width: 1.5),
+                          ),
                         ),
                       ),
-                    ),
+                  ],
                 ],
               ),
               const SizedBox(width: 12),
@@ -178,18 +222,46 @@ class _ChannelListTileState extends State<ChannelListTile> {
                     const SizedBox(height: 3),
                     Row(
                       children: [
-                        Expanded(
-                          child: Text(
-                            widget.channel.lastMessage ?? 'No messages yet',
-                            style: GoogleFonts.inter(
-                              fontSize: 11,
-                              color: hasUnread ? Colors.black87 : Colors.grey.shade600,
-                              fontWeight: hasUnread ? FontWeight.w500 : FontWeight.normal,
+                        if (widget.channel.isOnLeave)
+                          Expanded(
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.flight_takeoff_rounded,
+                                  size: 12,
+                                  color: Color(0xFFD97706),
+                                ),
+                                const SizedBox(width: 4),
+                                Expanded(
+                                  child: Text(
+                                    widget.channel.formattedReturnDate != null
+                                        ? 'Back on ${widget.channel.formattedReturnDate}'
+                                        : 'On Leave',
+                                    style: GoogleFonts.inter(
+                                      fontSize: 11,
+                                      color: const Color(0xFFD97706),
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                          )
+                        else
+                          Expanded(
+                            child: Text(
+                              widget.channel.lastMessage ?? 'No messages yet',
+                              style: GoogleFonts.inter(
+                                fontSize: 11,
+                                color: hasUnread ? Colors.black87 : Colors.grey.shade600,
+                                fontWeight: hasUnread ? FontWeight.w500 : FontWeight.normal,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
-                        ),
                         if (hasUnread)
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),

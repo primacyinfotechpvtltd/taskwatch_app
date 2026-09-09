@@ -867,6 +867,13 @@ class TrackerController extends GetxController {
           if (currentTimeEntryDuration.value.isNegative) {
             currentTimeEntryDuration.value = Duration.zero;
           }
+
+          // Ensure startWorkData duration reflects the deducted time so break is NOT added to timesheet
+          if (startWorkData.value != null) {
+            startWorkData.value = startWorkData.value!.copyWith(
+              duration: currentTimeEntryDuration.value,
+            );
+          }
         }
 
         lastUserActivityTime.value = DateTime.now();

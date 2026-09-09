@@ -1043,10 +1043,10 @@ class OdooRpcApiManager {
     _username = username;
     _password = password;
     _uid = uid;
-    _authMode = OdooAuthMode.password;
+    _authMode = OdooAuthMode.session;
     _lastAuthTime = DateTime.now();
-    // _sessionId intentionally NOT set — password mode doesn't need it.
-    _sessionId = null;
+    // Proactively establish web session to use /web/dataset/call_kw and avoid Odoo 19 /jsonrpc deprecation warnings
+    ensureWebSession();
   }
 
   static void setSessionId(String sessionId) {
@@ -1112,8 +1112,8 @@ class OdooRpcApiManager {
       // Password mode: session cookie not required — uid + credentials are enough
       return _uid != null && _password != null && _database != null;
     }
-    // Session mode: both uid and session cookie required
-    return _uid != null && _sessionId != null;
+    // Session mode: uid with either existing session or credentials to establish one
+    return _uid != null && (_sessionId != null || _password != null);
   }
 
   static bool get hasValidSession => isAuthenticated;
@@ -1403,23 +1403,61 @@ class OdooRpcApiManager {
       );
     }
 
-    if (_authMode == OdooAuthMode.password) {
-      return await _executeKwPasswordBased(
-        model: model,
-        method: method,
-        args: args,
-        kwargs: kwargs,
-        showLog: showLog,
-      );
-    } else {
-      return await _executeKwSessionBased(
-        model: model,
-        method: method,
-        args: args,
-        kwargs: kwargs,
-        showLog: showLog,
-      );
+    // Proactively ensure session is available to route calls to /web/dataset/call_kw,
+    // which completely avoids the Odoo 19 /jsonrpc deprecation warnings.
+    if (_sessionId == null && _database != null && _password != null) {
+      await ensureWebSession();
     }
+
+    if (_sessionId != null && _sessionId!.isNotEmpty) {
+      final res = await _executeKwSessionBased(
+        model: model,
+        method: method,
+        args: args,
+        kwargs: kwargs,
+        showLog: showLog,
+      );
+      if (res.isSuccess) {
+        return res;
+      }
+      // If session expired, attempt re-authentication once
+      final msg = res.message?.toLowerCase() ?? '';
+      if (msg.contains('session') || msg.contains('not authenticated')) {
+        _sessionId = null;
+        await ensureWebSession();
+        if (_sessionId != null && _sessionId!.isNotEmpty) {
+          final retryRes = await _executeKwSessionBased(
+            model: model,
+            method: method,
+            args: args,
+            kwargs: kwargs,
+            showLog: showLog,
+          );
+          if (retryRes.isSuccess) {
+            return retryRes;
+          }
+        }
+      }
+      // If session execution failed on server, fallback to password-based if credentials exist
+      if (_password != null && _uid != null) {
+        return await _executeKwPasswordBased(
+          model: model,
+          method: method,
+          args: args,
+          kwargs: kwargs,
+          showLog: showLog,
+        );
+      }
+      return res;
+    }
+
+    return await _executeKwPasswordBased(
+      model: model,
+      method: method,
+      args: args,
+      kwargs: kwargs,
+      showLog: showLog,
+    );
   }
 
   static Future<OdooResponse<dynamic>> _executeKwPasswordBased({

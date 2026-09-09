@@ -611,16 +611,10 @@ class _IdleTimeWidgetState extends State<IdleTimeWidget> {
           color: Colors.teal,
         ),
         _buildOptionCard(
-          mode: IdleMode.keep,
-          icon: Icons.play_arrow_outlined,
-          label: 'Keep',
-          color: Colors.green,
-        ),
-        _buildOptionCard(
           mode: IdleMode.remove,
-          icon: Icons.close_outlined,
-          label: 'Remove',
-          color: Colors.red,
+          icon: Icons.coffee_outlined,
+          label: 'Break',
+          color: Colors.orange.shade800,
         ),
       ],
     );
@@ -1306,7 +1300,7 @@ class _IdleTimeWidgetState extends State<IdleTimeWidget> {
         const SizedBox(height: 16),
 
         Text(
-          'Reason for Removal',
+          'Reason for Break',
           style: GoogleFonts.inter(
             fontSize: 13,
             fontWeight: FontWeight.bold,
@@ -1316,28 +1310,10 @@ class _IdleTimeWidgetState extends State<IdleTimeWidget> {
         const SizedBox(height: 8),
         CompactTextField(
           controller: _noteController,
-          hintText: 'Enter reason for removing time...',
+          hintText: 'Enter reason for taking a break...',
           maxLines: 3,
         ),
       ],
-    );
-  }
-
-  Widget _buildSimpleMessage(String message) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.grey[50],
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.info_outline, color: Colors.grey[600], size: 20),
-          const SizedBox(width: 8),
-          Expanded(
-              child: Text(message, style: TextStyle(color: Colors.grey[700]))),
-        ],
-      ),
     );
   }
 
