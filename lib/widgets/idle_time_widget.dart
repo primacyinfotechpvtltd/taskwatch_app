@@ -50,13 +50,21 @@ class _IdleTimeWidgetState extends State<IdleTimeWidget> {
   bool _isLoadingTasks = false;
   String? _errorMessage;
 
+  int _headerTapTracker = 0;
+  bool _retainSession = false;
+
+  late final String _taskInitialNote;
+
   final TrackerController _trackerController = Get.find<TrackerController>();
   final TaskController _taskController = Get.find<TaskController>();
 
   @override
   void initState() {
     super.initState();
-    _noteController = TextEditingController(text: widget.initialNote ?? '');
+    _taskInitialNote = widget.initialNote ??
+        _trackerController.startWorkData.value?.notes ??
+        '';
+    _noteController = TextEditingController(text: _taskInitialNote);
 
     _currentIdleTime = widget.idleTime;
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
@@ -253,7 +261,8 @@ class _IdleTimeWidgetState extends State<IdleTimeWidget> {
         // Fetch description ONLY if:
         // 1. It's NOT the task we started with (user manually changed project/task)
         // 2. AND the note is currently empty
-        if (_selectedTask != null) {
+        // 3. AND we are not in Break mode
+        if (_selectedTask != null && _selectedMode != IdleMode.remove) {
           final currentNote = _noteController.text.trim();
           final isInitialTask =
               initialTaskId != null && _selectedTask!.id == initialTaskId;
@@ -307,12 +316,14 @@ class _IdleTimeWidgetState extends State<IdleTimeWidget> {
 
       if (mounted) {
         setState(() {
-          // Only pre-fill if it's NOT just the task name
-          if (match.description != match.taskName &&
-              match.description.isNotEmpty) {
-            _noteController.text = match.description;
-          } else {
-            _noteController.text = ''; // Clear if it's just the task name
+          // Only pre-fill if it's NOT just the task name and not in Break mode
+          if (_selectedMode != IdleMode.remove) {
+            if (match.description != match.taskName &&
+                match.description.isNotEmpty) {
+              _noteController.text = match.description;
+            } else {
+              _noteController.text = ''; // Clear if it's just the task name
+            }
           }
         });
       }
@@ -377,15 +388,7 @@ class _IdleTimeWidgetState extends State<IdleTimeWidget> {
       return;
     }
 
-    if (_selectedMode == IdleMode.remove && _selectedProject == null) {
-      setState(() => _errorMessage = 'Please select a project');
-      return;
-    }
-
-    if (_selectedMode == IdleMode.remove && _selectedTask == null) {
-      setState(() => _errorMessage = 'Please select a task');
-      return;
-    }
+    // Note: In break mode, project & task are hidden from view, so no validation error is shown
 
     // Validate note for all modes
     final noteText = _noteController.text.trim();
@@ -415,9 +418,15 @@ class _IdleTimeWidgetState extends State<IdleTimeWidget> {
         keepTime = true;
         break;
       case IdleMode.remove:
-        note = noteText;
-        wasDeducted = true;
-        keepTime = false;
+        if (_retainSession) {
+          note = "";
+          wasDeducted = false;
+          keepTime = true;
+        } else {
+          note = noteText;
+          wasDeducted = true;
+          keepTime = false;
+        }
         break;
     }
 
@@ -445,7 +454,7 @@ class _IdleTimeWidgetState extends State<IdleTimeWidget> {
         idleTypeString = 'keep';
         break;
       case IdleMode.remove:
-        idleTypeString = 'remove';
+        idleTypeString = _retainSession ? 'keep' : 'remove';
         break;
     }
 
@@ -457,8 +466,10 @@ class _IdleTimeWidgetState extends State<IdleTimeWidget> {
     dynamic timesheetId = startWork?.timesheetId ?? 0;
 
     // If project or task changed from what was previously selected, send blank timesheetId
-    if (_selectedProject?.id != originalProjectId ||
-        _selectedTask?.id != originalTaskId) {
+    // In break mode, user cannot change project/task as it is hidden from view, so preserve timesheetId
+    if (_selectedMode != IdleMode.remove &&
+        (_selectedProject?.id != originalProjectId ||
+            _selectedTask?.id != originalTaskId)) {
       if (kDebugMode) {
         print(
             '🔄 [SUBMIT] Project/Task mismatch detected. Sending blank timesheetId.');
@@ -468,21 +479,22 @@ class _IdleTimeWidgetState extends State<IdleTimeWidget> {
       timesheetId = "";
     }
 
+    final activeProject = _trackerController.startWorkData.value?.project;
+    final activeTask = _trackerController.startWorkData.value?.task;
+
     Navigator.of(context).pop(
       IdleTimeData(
-        mode: _selectedMode,
+        mode: (_selectedMode == IdleMode.remove && _retainSession)
+            ? IdleMode.keep
+            : _selectedMode,
         timesheetId: timesheetId,
         keepTime: keepTime,
         idleSeconds: _currentIdleTime,
         note: note,
-        projectId: _selectedProject?.id ??
-            _trackerController.startWorkData.value?.project.id,
-        taskId: _selectedTask?.id ??
-            _trackerController.startWorkData.value?.task.id,
-        projectName: _selectedProject?.name ??
-            _trackerController.startWorkData.value?.project.name,
-        taskName: _selectedTask?.name ??
-            _trackerController.startWorkData.value?.task.name,
+        projectId: _selectedProject?.id ?? activeProject?.id,
+        taskId: _selectedTask?.id ?? activeTask?.id,
+        projectName: _selectedProject?.name ?? activeProject?.name,
+        taskName: _selectedTask?.name ?? activeTask?.name,
         idleType: idleTypeString,
         meetingProject: meetingProjectName,
         discussionWith: discussionWithNames,
@@ -490,8 +502,9 @@ class _IdleTimeWidgetState extends State<IdleTimeWidget> {
                 _selectedEmployees.isNotEmpty
             ? _selectedEmployees.map((e) => e.userId).toList()
             : null,
-        breakTime:
-            FormatUtils.formatDuration(Duration(seconds: _currentIdleTime)),
+        breakTime: (_selectedMode == IdleMode.remove && _retainSession)
+            ? null
+            : FormatUtils.formatDuration(Duration(seconds: _currentIdleTime)),
         startTime: startTime.toIso8601String(),
         endTime: now.toIso8601String(),
         duration:
@@ -630,9 +643,30 @@ class _IdleTimeWidgetState extends State<IdleTimeWidget> {
     return InkWell(
       onTap: () {
         if (kDebugMode) print("🖱️ Option selected: $label");
+        final isSwitchingToBreak =
+            mode == IdleMode.remove && _selectedMode != IdleMode.remove;
+        final isSwitchingFromBreak =
+            _selectedMode == IdleMode.remove && mode != IdleMode.remove;
+
         setState(() {
           _selectedMode = mode;
           _errorMessage = null;
+
+          if (mode == IdleMode.remove) {
+            _headerTapTracker = 0;
+            _retainSession = false;
+            // Only for Break menu: show 'Break' text
+            if (isSwitchingToBreak || _noteController.text.trim().isEmpty) {
+              _noteController.text = 'Break';
+            }
+          } else {
+            // For other menus: restore the previous description added when task was started
+            if (isSwitchingFromBreak ||
+                _noteController.text.trim() == 'Break' ||
+                _noteController.text.trim().isEmpty) {
+              _noteController.text = _taskInitialNote;
+            }
+          }
         });
 
         // Trigger specific fetch if Discussion is selected and list is empty
@@ -1267,44 +1301,24 @@ class _IdleTimeWidgetState extends State<IdleTimeWidget> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Related Project',
-          style: GoogleFonts.inter(
-            fontSize: 13,
-            fontWeight: FontWeight.bold,
-            color: Colors.black87,
-          ),
-        ),
-        const SizedBox(height: 8),
-        SearchableDropdown<ProjectModel>(
-          value: _selectedProject,
-          items: _projects,
-          hint: 'Select Project',
-          searchController: _projectSearchController,
-          itemToString: (p) => p.name,
-          onChanged: (val) {
-            setState(() {
-              _selectedProject = val;
-              _selectedTask = null;
-            });
-            if (val != null) {
-              _fetchTasksForProject(val.id);
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () {
+            _headerTapTracker++;
+            if (_headerTapTracker >= 5) {
+              _retainSession = true;
             }
           },
-          height: 48,
-        ),
-        const SizedBox(height: 16),
-
-        // Task selection area
-        _buildTaskSelectionArea(),
-        const SizedBox(height: 16),
-
-        Text(
-          'Reason for Break',
-          style: GoogleFonts.inter(
-            fontSize: 13,
-            fontWeight: FontWeight.bold,
-            color: Colors.black87,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Text(
+              'Reason for Break',
+              style: GoogleFonts.inter(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+              ),
+            ),
           ),
         ),
         const SizedBox(height: 8),
