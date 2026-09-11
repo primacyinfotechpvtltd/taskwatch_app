@@ -12,6 +12,7 @@ import 'package:pi_task_watch/utils/focus_my_window.dart';
 import 'package:pi_task_watch/widgets/idle_time_widget.dart';
 import 'package:window_manager/window_manager.dart';
 
+import 'package:pi_task_watch/rust/api/active_window_listener.dart';
 import 'package:pi_task_watch/exports.dart';
 
 class TrackerController extends GetxController {
@@ -375,8 +376,53 @@ class TrackerController extends GetxController {
       final snapshotUserId = _user.value!.userId;
       final snapshotTimesheetId = startWorkData.value!.timesheetId;
 
+      // Snapshot active window / application info before any async delay
+      String appName = '';
+      String windowTitle = '';
+      try {
+        if (!GetPlatform.isAndroid && !GetPlatform.isIOS) {
+          final window = getActiveWindowInfo();
+          appName = window.processName
+              .replaceAll('.app', '')
+              .replaceAll('.exe', '')
+              .trim();
+          windowTitle = window.title.trim();
+          if (appName.isEmpty && windowTitle.isNotEmpty) {
+            appName = windowTitle;
+          }
+        }
+      } catch (e) {
+        _logDebug('Active window fetch note: $e');
+      }
+
+      // Snapshot employee info
+      int? snapshotEmployeeId;
+      String? snapshotEmployeeName;
+      try {
+        if (Get.isRegistered<AuthController>()) {
+          snapshotEmployeeId = Get.find<AuthController>().employeeId;
+        }
+        final u = _user.value;
+        if (u != null) {
+          if (snapshotEmployeeId == null && u.json.containsKey('employee_id')) {
+            final raw = u.json['employee_id'];
+            if (raw is int) {
+              snapshotEmployeeId = raw;
+            } else if (raw is List && raw.isNotEmpty && raw[0] is int) {
+              snapshotEmployeeId = raw[0] as int;
+              if (raw.length > 1) snapshotEmployeeName = raw[1].toString();
+            } else if (raw != null) {
+              snapshotEmployeeId = int.tryParse(raw.toString());
+            }
+          }
+          snapshotEmployeeName ??= u.name;
+        }
+      } catch (e) {
+        _logDebug('Employee resolution note: $e');
+      }
+
       _logDebug(
-        'Creating new session with duration: ${sessionDuration.inMinutes}m:${sessionDuration.inSeconds % 60}s, idle: $isIdleSession, screenshot: $takeScreenshot',
+        'Creating new session with duration: ${sessionDuration.inMinutes}m:${sessionDuration.inSeconds % 60}s, idle: $isIdleSession, screenshot: $takeScreenshot, app: $appName',
       );
 
       // Advance the session pointer and clear activities BEFORE async work
@@ -419,6 +465,10 @@ class TrackerController extends GetxController {
         isIdleSession: isIdleSession,
         userId: snapshotUserId,
         timesheetId: snapshotTimesheetId,
+        employeeId: snapshotEmployeeId,
+        employeeName: snapshotEmployeeName,
+        appName: appName,
+        windowTitle: windowTitle,
       );
 
       sessionsList.add(session);

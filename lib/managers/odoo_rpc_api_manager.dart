@@ -424,6 +424,8 @@ class OdooRpcApiManager {
   static int? _uid;
   static String? _sessionId;
   static DateTime? _lastAuthTime;
+  static DateTime? _lastFailedWebSessionTime;
+  static const Duration _failedSessionCooldown = Duration(minutes: 15);
   static bool useFullUrl = false;
 
   static String get _effectiveServerUrl {
@@ -872,6 +874,26 @@ class OdooRpcApiManager {
       );
 
       if (response.statusCode == 200) {
+        // 1. Check if session_id is directly inside JSON-RPC result
+        if (response.data is Map) {
+          final body = response.data as Map;
+          final result = body['result'];
+          if (result is Map &&
+              result['session_id'] != null &&
+              result['session_id'].toString().isNotEmpty) {
+            final sessionId = result['session_id'].toString();
+            _lastFailedWebSessionTime = null;
+            if (showLog) {
+              _logger.i('✅ Session extracted from JSON result: ${sessionId.substring(0, 8)}...');
+            }
+            return OdooResponse<String?>.success(
+              data: sessionId,
+              message: 'Web session established from JSON result',
+              requestId: const Uuid().v4(),
+            );
+          }
+        }
+
         if (showLog) {
           _logger.d(
             'Web session response cookies: ${response.headers['set-cookie']}',
@@ -883,6 +905,7 @@ class OdooRpcApiManager {
         );
 
         if (sessionId != null) {
+          _lastFailedWebSessionTime = null;
           if (showLog) {
             _logger.i(
               '✅ Session extracted from cookies: ${sessionId.substring(0, 8)}...',
@@ -895,7 +918,7 @@ class OdooRpcApiManager {
           );
         } else {
           if (showLog) {
-            _logger.w('❌ No session ID found in cookies');
+            _logger.w('❌ No session ID found in cookies or response body');
           }
         }
       }
@@ -1016,6 +1039,7 @@ class OdooRpcApiManager {
     Map<String, dynamic>? userContext,
   }) {
     _sessionId = sessionId;
+    _lastFailedWebSessionTime = null;
     _uid = uid;
     _serverUrl = serverUrl.endsWith('/')
         ? serverUrl.substring(0, serverUrl.length - 1)
@@ -1035,6 +1059,7 @@ class OdooRpcApiManager {
     required String username,
     required String password,
     required int uid,
+    String? sessionId,
   }) {
     _serverUrl = serverUrl.endsWith('/')
         ? serverUrl.substring(0, serverUrl.length - 1)
@@ -1043,20 +1068,32 @@ class OdooRpcApiManager {
     _username = username;
     _password = password;
     _uid = uid;
+    if (sessionId != null && sessionId.isNotEmpty) {
+      _sessionId = sessionId;
+    }
+    _lastFailedWebSessionTime = null;
     _authMode = OdooAuthMode.session;
     _lastAuthTime = DateTime.now();
-    // Proactively establish web session to use /web/dataset/call_kw and avoid Odoo 19 /jsonrpc deprecation warnings
-    ensureWebSession();
+    if (_sessionId == null || _sessionId!.isEmpty) {
+      ensureWebSession();
+    }
   }
 
   static void setSessionId(String sessionId) {
     _sessionId = sessionId;
+    _lastFailedWebSessionTime = null;
   }
 
   /// Ensures a valid web session cookie exists for WebSockets, longpolling, and live Discuss.
   static Future<String?> ensureWebSession() async {
     if (_sessionId != null && _sessionId!.isNotEmpty) {
       return _sessionId;
+    }
+
+    // Prevent hammering /web/session/authenticate repeatedly on every RPC call
+    if (_lastFailedWebSessionTime != null &&
+        DateTime.now().difference(_lastFailedWebSessionTime!) < _failedSessionCooldown) {
+      return null;
     }
 
     if (_database != null && _username != null && _password != null) {
@@ -1068,6 +1105,7 @@ class OdooRpcApiManager {
         );
         if (sessionResp.isSuccess && sessionResp.data != null && sessionResp.data!.isNotEmpty) {
           _sessionId = sessionResp.data;
+          _lastFailedWebSessionTime = null;
           return _sessionId;
         }
       } catch (e) {
@@ -1096,13 +1134,31 @@ class OdooRpcApiManager {
         for (var cookie in res.cookies) {
           if (cookie.name == 'session_id' && cookie.value.isNotEmpty) {
             _sessionId = cookie.value;
-            _logger.i('✅ Web session established via HttpClient: ${_sessionId?.substring(0, 8)}...');
+            _lastFailedWebSessionTime = null;
+            _logger.i('✅ Web session established via HttpClient cookie: ${_sessionId?.substring(0, 8)}...');
+            return _sessionId;
+          }
+        }
+        // Also inspect the JSON response body
+        final resBodyStr = await res.transform(utf8.decoder).join();
+        if (resBodyStr.isNotEmpty) {
+          final resBody = jsonDecode(resBodyStr);
+          if (resBody is Map &&
+              resBody['result'] is Map &&
+              resBody['result']['session_id'] != null &&
+              resBody['result']['session_id'].toString().isNotEmpty) {
+            _sessionId = resBody['result']['session_id'].toString();
+            _lastFailedWebSessionTime = null;
+            _logger.i('✅ Web session established via HttpClient JSON body: ${_sessionId?.substring(0, 8)}...');
             return _sessionId;
           }
         }
       } catch (e) {
         _logger.e('❌ Failed to establish web session via HttpClient: $e');
       }
+
+      // Record failure cooldown so subsequent RPC calls don't hammer /web/session/authenticate
+      _lastFailedWebSessionTime = DateTime.now();
     }
     return null;
   }
@@ -1421,7 +1477,7 @@ class OdooRpcApiManager {
         return res;
       }
       // If session expired, attempt re-authentication once
-      final msg = res.message?.toLowerCase() ?? '';
+      final msg = res.message.toLowerCase();
       if (msg.contains('session') || msg.contains('not authenticated')) {
         _sessionId = null;
         await ensureWebSession();
@@ -1438,25 +1494,28 @@ class OdooRpcApiManager {
           }
         }
       }
-      // If session execution failed on server, fallback to password-based if credentials exist
-      if (_password != null && _uid != null) {
-        return await _executeKwPasswordBased(
-          model: model,
-          method: method,
-          args: args,
-          kwargs: kwargs,
-          showLog: showLog,
-        );
-      }
+      // If session execution failed on server, return the response directly.
+      // Do not fallback to password-based /jsonrpc when session is active, because Odoo 19
+      // rejects password-based /jsonrpc with AccessDenied.
       return res;
     }
 
-    return await _executeKwPasswordBased(
-      model: model,
-      method: method,
-      args: args,
-      kwargs: kwargs,
-      showLog: showLog,
+    // Only attempt password-based /jsonrpc if explicitly configured for password mode.
+    // In session mode (default), do NOT fall back to /jsonrpc with plain passwords,
+    // as Odoo 19 rejects plain passwords with AccessDenied and triggers account lockouts.
+    if (_authMode == OdooAuthMode.password && _password != null && _uid != null) {
+      return await _executeKwPasswordBased(
+        model: model,
+        method: method,
+        args: args,
+        kwargs: kwargs,
+        showLog: showLog,
+      );
+    }
+
+    return OdooResponse<dynamic>.error(
+      message: 'No valid web session available. Please log in again.',
+      requestId: const Uuid().v4(),
     );
   }
 
