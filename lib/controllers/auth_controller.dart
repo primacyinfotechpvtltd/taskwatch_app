@@ -244,7 +244,13 @@ class AuthController extends GetxController {
         // print('[STEP 3] Total WFH records fetched: ${requests.length}');
 
         for (final req in requests) {
-          final String reqState = req['state']?.toString() ?? '';
+          final String reqState =
+              (req['state']?.toString() ?? '').toLowerCase().trim();
+
+          // Cancelled or rejected requests are no longer valid, ignore them
+          if (reqState == 'cancel' || reqState == 'rejected') {
+            continue;
+          }
 
           // Resolve employee_id from [id, name] tuple or plain int
           int? reqEmpId;
