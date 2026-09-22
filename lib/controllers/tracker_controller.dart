@@ -12,6 +12,7 @@ import 'package:pi_task_watch/utils/focus_my_window.dart';
 import 'package:pi_task_watch/widgets/idle_time_widget.dart';
 import 'package:window_manager/window_manager.dart';
 
+import 'package:pi_task_watch/rust/api/active_window_listener.dart';
 import 'package:pi_task_watch/exports.dart';
 
 class TrackerController extends GetxController {
@@ -375,8 +376,53 @@ class TrackerController extends GetxController {
       final snapshotUserId = _user.value!.userId;
       final snapshotTimesheetId = startWorkData.value!.timesheetId;
 
+      // Snapshot active window / application info before any async delay
+      String appName = '';
+      String windowTitle = '';
+      try {
+        if (!GetPlatform.isAndroid && !GetPlatform.isIOS) {
+          final window = getActiveWindowInfo();
+          appName = window.processName
+              .replaceAll('.app', '')
+              .replaceAll('.exe', '')
+              .trim();
+          windowTitle = window.title.trim();
+          if (appName.isEmpty && windowTitle.isNotEmpty) {
+            appName = windowTitle;
+          }
+        }
+      } catch (e) {
+        _logDebug('Active window fetch note: $e');
+      }
+
+      // Snapshot employee info
+      int? snapshotEmployeeId;
+      String? snapshotEmployeeName;
+      try {
+        if (Get.isRegistered<AuthController>()) {
+          snapshotEmployeeId = Get.find<AuthController>().employeeId;
+        }
+        final u = _user.value;
+        if (u != null) {
+          if (snapshotEmployeeId == null && u.json.containsKey('employee_id')) {
+            final raw = u.json['employee_id'];
+            if (raw is int) {
+              snapshotEmployeeId = raw;
+            } else if (raw is List && raw.isNotEmpty && raw[0] is int) {
+              snapshotEmployeeId = raw[0] as int;
+              if (raw.length > 1) snapshotEmployeeName = raw[1].toString();
+            } else if (raw != null) {
+              snapshotEmployeeId = int.tryParse(raw.toString());
+            }
+          }
+          snapshotEmployeeName ??= u.name;
+        }
+      } catch (e) {
+        _logDebug('Employee resolution note: $e');
+      }
+
       _logDebug(
-        'Creating new session with duration: ${sessionDuration.inMinutes}m:${sessionDuration.inSeconds % 60}s, idle: $isIdleSession, screenshot: $takeScreenshot',
+        'Creating new session with duration: ${sessionDuration.inMinutes}m:${sessionDuration.inSeconds % 60}s, idle: $isIdleSession, screenshot: $takeScreenshot, app: $appName',
       );
 
       // Advance the session pointer and clear activities BEFORE async work
@@ -419,6 +465,10 @@ class TrackerController extends GetxController {
         isIdleSession: isIdleSession,
         userId: snapshotUserId,
         timesheetId: snapshotTimesheetId,
+        employeeId: snapshotEmployeeId,
+        employeeName: snapshotEmployeeName,
+        appName: appName,
+        windowTitle: windowTitle,
       );
 
       sessionsList.add(session);
@@ -523,6 +573,14 @@ class TrackerController extends GetxController {
 
   /// Immediately attempts to sync idle data to API, stores locally if failed
   Future<void> _syncIdleDataImmediately(IdleTimeData idleData) async {
+    // If idleType is null or 'keep', do not send to taskwatch_idle endpoint
+    if (idleData.idleType == null ||
+        idleData.idleType == 'keep' ||
+        idleData.mode == IdleMode.keep) {
+      _logDebug('Skipping idle sync to API for keep/retained session');
+      return;
+    }
+
     try {
       _logDebug('Attempting immediate idle data sync to API');
       final success = await Get.find<TimesheetController>().updateSyncIdle(
@@ -553,6 +611,12 @@ class TrackerController extends GetxController {
     final List<IdleTimeData> failedEntries = [];
 
     for (final idleData in _idleEntryList) {
+      if (idleData.idleType == null ||
+          idleData.idleType == 'keep' ||
+          idleData.mode == IdleMode.keep) {
+        // Discard any retained/keep entries without sending to API
+        continue;
+      }
       try {
         final success = await Get.find<TimesheetController>().updateSyncIdle(
           idleData: idleData,
@@ -778,8 +842,12 @@ class TrackerController extends GetxController {
           'Idle result: mode=${idleDataWithTimesheetId.mode}, keep time=${idleDataWithTimesheetId.keepTime}, seconds=${idleDataWithTimesheetId.idleSeconds}, timesheetId=${idleDataWithTimesheetId.timesheetId}, projectId=${idleDataWithTimesheetId.projectId}, taskId=${idleDataWithTimesheetId.taskId}',
         );
 
-        // Immediately attempt to sync idle data to API
-        await _syncIdleDataImmediately(idleDataWithTimesheetId);
+        // Immediately attempt to sync idle data to API (skip for keep/retained sessions)
+        if (idleDataWithTimesheetId.idleType != null &&
+            idleDataWithTimesheetId.idleType != 'keep' &&
+            idleDataWithTimesheetId.mode != IdleMode.keep) {
+          await _syncIdleDataImmediately(idleDataWithTimesheetId);
+        }
 
         // Check if user selected a different task
         if (idleDataWithTimesheetId.taskId != null &&
@@ -866,6 +934,13 @@ class TrackerController extends GetxController {
           }
           if (currentTimeEntryDuration.value.isNegative) {
             currentTimeEntryDuration.value = Duration.zero;
+          }
+
+          // Ensure startWorkData duration reflects the deducted time so break is NOT added to timesheet
+          if (startWorkData.value != null) {
+            startWorkData.value = startWorkData.value!.copyWith(
+              duration: currentTimeEntryDuration.value,
+            );
           }
         }
 

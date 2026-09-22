@@ -1,3 +1,4 @@
+import 'package:intl/intl.dart';
 import 'package:get/get.dart';
 import 'package:pi_task_watch/controllers/auth_controller.dart';
 import 'package:pi_task_watch/utils/format_utils.dart';
@@ -12,12 +13,38 @@ class DiscussChannelModel {
   final DateTime? lastMessageTime;
   final int? otherPartnerId;
   final String? otherPartnerName;
-  final String? imStatus; // 'online', 'offline', 'away', 'busy'
+  final String? imStatus; // 'online', 'offline', 'away', 'busy', 'leave_online', etc.
+  final String? outOfOfficeDateEnd;
 
-  bool get isOnline => imStatus == 'online';
-  bool get isAway => imStatus == 'away' || imStatus == 'idle';
+  bool get isOnline => imStatus == 'online' || imStatus == 'leave_online';
+  bool get isAway => imStatus == 'away' || imStatus == 'idle' || imStatus == 'leave_away';
   bool get isBusy => imStatus == 'busy' || imStatus == 'dnd';
-  bool get isOffline => imStatus == 'offline' || imStatus == null || imStatus!.isEmpty;
+  bool get isOffline =>
+      imStatus == 'offline' ||
+      imStatus == 'leave_offline' ||
+      imStatus == null ||
+      imStatus!.isEmpty;
+
+  bool get isOnLeave =>
+      (imStatus != null && imStatus!.contains('leave')) ||
+      (outOfOfficeDateEnd != null &&
+          outOfOfficeDateEnd!.isNotEmpty &&
+          outOfOfficeDateEnd != 'false');
+
+  String? get formattedReturnDate {
+    if (outOfOfficeDateEnd == null ||
+        outOfOfficeDateEnd!.isEmpty ||
+        outOfOfficeDateEnd == 'false') {
+      return null;
+    }
+    try {
+      final dt = DateTime.tryParse(outOfOfficeDateEnd!);
+      if (dt != null) {
+        return DateFormat('MMM d').format(dt);
+      }
+    } catch (_) {}
+    return outOfOfficeDateEnd;
+  }
 
   DiscussChannelModel({
     required this.id,
@@ -30,6 +57,7 @@ class DiscussChannelModel {
     this.otherPartnerId,
     this.otherPartnerName,
     this.imStatus,
+    this.outOfOfficeDateEnd,
   });
 
   factory DiscussChannelModel.fromJson(Map<String, dynamic> json, {int? currentPartnerId}) {
@@ -86,6 +114,9 @@ class DiscussChannelModel {
     }
 
     final imStat = json['im_status'] is String ? json['im_status'] as String : null;
+    final outOfOffice = json['out_of_office_date_end'] != null && json['out_of_office_date_end'] != false
+        ? json['out_of_office_date_end'].toString()
+        : null;
 
     return DiscussChannelModel(
       id: json['id'] is int ? json['id'] as int : 0,
@@ -100,6 +131,7 @@ class DiscussChannelModel {
       otherPartnerId: otherId,
       otherPartnerName: otherName,
       imStatus: imStat,
+      outOfOfficeDateEnd: outOfOffice,
     );
   }
 
@@ -114,6 +146,7 @@ class DiscussChannelModel {
     int? otherPartnerId,
     String? otherPartnerName,
     String? imStatus,
+    String? outOfOfficeDateEnd,
   }) {
     return DiscussChannelModel(
       id: id ?? this.id,
@@ -126,6 +159,7 @@ class DiscussChannelModel {
       otherPartnerId: otherPartnerId ?? this.otherPartnerId,
       otherPartnerName: otherPartnerName ?? this.otherPartnerName,
       imStatus: imStatus ?? this.imStatus,
+      outOfOfficeDateEnd: outOfOfficeDateEnd ?? this.outOfOfficeDateEnd,
     );
   }
 }

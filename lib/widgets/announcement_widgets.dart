@@ -15,9 +15,6 @@ class DashboardAnnouncementSection extends StatelessWidget {
 
     return Obx(() {
       if (controller.announcements.isEmpty) {
-        if (!controller.isLoading.value) {
-          controller.fetchAnnouncements();
-        }
         return const SizedBox.shrink();
       }
 

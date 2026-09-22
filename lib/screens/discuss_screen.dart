@@ -296,6 +296,24 @@ class _DiscussScreenState extends State<DiscussScreen> {
         ];
         final avatarColor = avatarColors[nameHash % avatarColors.length];
 
+        final rawOutOfOffice = u['out_of_office_date_end']?.toString();
+        final bool isOnLeave = (u['im_status']?.toString().contains('leave') == true) ||
+            (rawOutOfOffice != null &&
+                rawOutOfOffice.isNotEmpty &&
+                rawOutOfOffice != 'false');
+        String? formattedReturnDate;
+        if (rawOutOfOffice != null &&
+            rawOutOfOffice.isNotEmpty &&
+            rawOutOfOffice != 'false') {
+          try {
+            final dt = DateTime.tryParse(rawOutOfOffice);
+            if (dt != null) {
+              formattedReturnDate = DateFormat('MMM d').format(dt);
+            }
+          } catch (_) {}
+          formattedReturnDate ??= rawOutOfOffice;
+        }
+
         return Container(
           margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
           decoration: BoxDecoration(
@@ -344,7 +362,36 @@ class _DiscussScreenState extends State<DiscussScreen> {
                       ),
                     ),
                   ),
-                  if (u['im_status'] == 'online' || u['im_status'] == 'away')
+                  if (isOnLeave)
+                    Positioned(
+                      bottom: -1,
+                      right: -1,
+                      child: Container(
+                        width: 15,
+                        height: 15,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFFBEB),
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                              color: const Color(0xFFF59E0B), width: 1.5),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.15),
+                              blurRadius: 2,
+                              offset: const Offset(0, 1),
+                            ),
+                          ],
+                        ),
+                        child: const Center(
+                          child: Icon(
+                            Icons.flight_takeoff_rounded,
+                            size: 9,
+                            color: Color(0xFFD97706),
+                          ),
+                        ),
+                      ),
+                    )
+                  else if (u['im_status'] == 'online' || u['im_status'] == 'away')
                     Positioned(
                       bottom: 0,
                       right: 0,
@@ -371,15 +418,36 @@ class _DiscussScreenState extends State<DiscussScreen> {
                 color: const Color(0xFF25181E),
               ),
             ),
-            subtitle: email.isNotEmpty
-                ? Text(
-                    email,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.grey.shade500,
-                    ),
+            subtitle: isOnLeave
+                ? Row(
+                    children: [
+                      const Icon(
+                        Icons.flight_takeoff_rounded,
+                        size: 11,
+                        color: Color(0xFFD97706),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        formattedReturnDate != null
+                            ? 'Back on $formattedReturnDate'
+                            : 'On Leave',
+                        style: GoogleFonts.inter(
+                          fontSize: 11,
+                          color: const Color(0xFFD97706),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
                   )
-                : null,
+                : (email.isNotEmpty
+                    ? Text(
+                        email,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade500,
+                        ),
+                      )
+                    : null),
             trailing: Icon(
               Icons.chat_bubble_outline_rounded,
               size: 18,
@@ -523,49 +591,84 @@ class _DiscussScreenState extends State<DiscussScreen> {
               InkWell(
                 onTap: () => _showChannelInfo(activeChannel),
                 borderRadius: BorderRadius.circular(16),
-                child: CircleAvatar(
-                  radius: 16,
-                  backgroundColor: avatarColor.withOpacity(0.15),
-                  child: activeChannel.channelType == 'chat' &&
-                          activeChannel.otherPartnerId != null
-                      ? ClipRRect(
-                          borderRadius: BorderRadius.circular(16),
-                          child: OdooNetworkImage(
-                            model: 'res.partner',
-                            id: activeChannel.otherPartnerId!,
-                            field: 'image_128',
-                            placeholder: Text(
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    CircleAvatar(
+                      radius: 16,
+                      backgroundColor: avatarColor.withOpacity(0.15),
+                      child: activeChannel.channelType == 'chat' &&
+                              activeChannel.otherPartnerId != null
+                          ? ClipRRect(
+                              borderRadius: BorderRadius.circular(16),
+                              child: OdooNetworkImage(
+                                model: 'res.partner',
+                                id: activeChannel.otherPartnerId!,
+                                field: 'image_128',
+                                placeholder: Text(
+                                  activeChannel.name.isNotEmpty
+                                      ? activeChannel.name[0].toUpperCase()
+                                      : 'C',
+                                  style: GoogleFonts.spaceGrotesk(
+                                    fontWeight: FontWeight.bold,
+                                    color: avatarColor,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                                errorWidget: Text(
+                                  activeChannel.name.isNotEmpty
+                                      ? activeChannel.name[0].toUpperCase()
+                                      : 'C',
+                                  style: GoogleFonts.spaceGrotesk(
+                                    fontWeight: FontWeight.bold,
+                                    color: avatarColor,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                            )
+                          : Text(
                               activeChannel.name.isNotEmpty
                                   ? activeChannel.name[0].toUpperCase()
-                                  : 'C',
+                                  : '#',
                               style: GoogleFonts.spaceGrotesk(
                                 fontWeight: FontWeight.bold,
                                 color: avatarColor,
                                 fontSize: 12,
                               ),
                             ),
-                            errorWidget: Text(
-                              activeChannel.name.isNotEmpty
-                                  ? activeChannel.name[0].toUpperCase()
-                                  : 'C',
-                              style: GoogleFonts.spaceGrotesk(
-                                fontWeight: FontWeight.bold,
-                                color: avatarColor,
-                                fontSize: 12,
+                    ),
+                    if (activeChannel.channelType == 'chat' &&
+                        activeChannel.isOnLeave)
+                      Positioned(
+                        bottom: -1,
+                        right: -1,
+                        child: Container(
+                          width: 14,
+                          height: 14,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFFBEB),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                                color: const Color(0xFFF59E0B), width: 1.5),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.15),
+                                blurRadius: 2,
+                                offset: const Offset(0, 1),
                               ),
-                            ),
+                            ],
                           ),
-                        )
-                      : Text(
-                          activeChannel.name.isNotEmpty
-                              ? activeChannel.name[0].toUpperCase()
-                              : '#',
-                          style: GoogleFonts.spaceGrotesk(
-                            fontWeight: FontWeight.bold,
-                            color: avatarColor,
-                            fontSize: 12,
+                          child: const Center(
+                            child: Icon(
+                              Icons.flight_takeoff_rounded,
+                              size: 8,
+                              color: Color(0xFFD97706),
+                            ),
                           ),
                         ),
+                      ),
+                  ],
                 ),
               ),
               const SizedBox(width: 10),
@@ -591,12 +694,19 @@ class _DiscussScreenState extends State<DiscussScreen> {
                       ),
                       Text(
                         activeChannel.channelType == 'chat'
-                            ? 'Direct Message • Tap for Profile & Hierarchy'
+                            ? (activeChannel.isOnLeave &&
+                                    activeChannel.formattedReturnDate != null
+                                ? 'Direct Message • Back on ${activeChannel.formattedReturnDate} ✈️'
+                                : 'Direct Message • Tap for Profile & Hierarchy')
                             : 'Group Channel',
                         style: TextStyle(
                           fontSize: 9,
-                          color: Colors.grey.shade500,
-                          fontWeight: FontWeight.w500,
+                          color: activeChannel.isOnLeave
+                              ? const Color(0xFFD97706)
+                              : Colors.grey.shade500,
+                          fontWeight: activeChannel.isOnLeave
+                              ? FontWeight.w600
+                              : FontWeight.w500,
                         ),
                       ),
                     ],

@@ -244,7 +244,13 @@ class AuthController extends GetxController {
         // print('[STEP 3] Total WFH records fetched: ${requests.length}');
 
         for (final req in requests) {
-          final String reqState = req['state']?.toString() ?? '';
+          final String reqState =
+              (req['state']?.toString() ?? '').toLowerCase().trim();
+
+          // Cancelled or rejected requests are no longer valid, ignore them
+          if (reqState == 'cancel' || reqState == 'rejected') {
+            continue;
+          }
 
           // Resolve employee_id from [id, name] tuple or plain int
           int? reqEmpId;
@@ -863,8 +869,6 @@ class AuthController extends GetxController {
       }
 
       _authLoading.value = true;
-      // Get all databases for verification
-      await getAllDb();
 
       // Pre-configure database so ApiManager.headers() sends X-Odoo-Database.
       // (ApiManager reads OdooRpcApiManager.currentDatabase for that header.)
@@ -917,10 +921,30 @@ class AuthController extends GetxController {
         return null;
       }
 
-      // ── Set OdooRpcApiManager credentials (password-based, like Postman) ──
-      // Uses uid from login result + stored password. No session cookie needed.
-      // This permanently fixes the "Not authenticated" race condition caused by
-      // the old cookie extraction → setSession → authenticate() chain.
+      // ── Extract session ID from login response (Set-Cookie or body) ──
+      String? sessionId;
+      try {
+        if (result['session_id'] != null &&
+            result['session_id'].toString().isNotEmpty) {
+          sessionId = result['session_id'].toString();
+        } else {
+          for (final entry in apiResponse.rawResponse.headers.entries) {
+            if (entry.key.toLowerCase() == 'set-cookie') {
+              final match =
+                  RegExp(r'session_id=([^;,\s]+)').firstMatch(entry.value);
+              if (match != null &&
+                  match.group(1) != null &&
+                  match.group(1) != 'false') {
+                sessionId = match.group(1);
+                break;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        if (kDebugMode) print("⚠️ Error extracting session ID: $e");
+      }
+
       final loginUser = UserModel.fromJson(result);
       OdooRpcApiManager.setCredentialsAndUid(
         serverUrl: AppConstant.apiServerUrl,
@@ -928,10 +952,14 @@ class AuthController extends GetxController {
         username: email,
         password: password,
         uid: loginUser.userId,
+        sessionId: sessionId,
       );
+      if (sessionId != null && sessionId.isNotEmpty) {
+        OdooRpcApiManager.setSessionId(sessionId);
+      }
       if (kDebugMode) {
         print(
-            '🔐 [OdooRpc] Password-mode auth set: uid=${loginUser.userId}, db=$db');
+            '🔐 [OdooRpc] Auth set: uid=${loginUser.userId}, db=$db, sessionId=${sessionId != null ? "${sessionId.substring(0, 8)}..." : "none"}');
       }
 
       // Show toast message based on success/failure

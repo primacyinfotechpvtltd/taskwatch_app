@@ -4,8 +4,8 @@ class AppConstant {
   static const String appName = "PI TaskWatch";
 
   // App version dynamically resolved via package_info_plus
-  static String appVersion = "1.0.52";
-  static String buildNumber = "52";
+  static String appVersion = "1.0.57";
+  static String buildNumber = "57";
 
   static Future<void> initPackageInfo() async {
     try {

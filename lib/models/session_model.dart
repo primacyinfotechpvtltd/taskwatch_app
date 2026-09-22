@@ -15,6 +15,10 @@ class SessionModel {
   final bool isIdleSession;
   final int timesheetId;
   final int userId;
+  final int? employeeId;
+  final String? employeeName;
+  final String? appName;
+  final String? windowTitle;
 
   SessionModel({
     String? uniqueId,
@@ -29,6 +33,10 @@ class SessionModel {
     required this.isIdleSession,
     required this.timesheetId,
     required this.userId,
+    this.employeeId,
+    this.employeeName,
+    this.appName,
+    this.windowTitle,
   }) : uniqueId = uniqueId ?? const Uuid().v4();
 
   // Create a copy with modified fields
@@ -45,6 +53,10 @@ class SessionModel {
     bool? isIdleSession,
     int? timesheetId,
     int? userId,
+    int? employeeId,
+    String? employeeName,
+    String? appName,
+    String? windowTitle,
   }) {
     return SessionModel(
       uniqueId: uniqueId ?? this.uniqueId,
@@ -59,6 +71,10 @@ class SessionModel {
       isIdleSession: isIdleSession ?? this.isIdleSession,
       timesheetId: timesheetId ?? this.timesheetId,
       userId: userId ?? this.userId,
+      employeeId: employeeId ?? this.employeeId,
+      employeeName: employeeName ?? this.employeeName,
+      appName: appName ?? this.appName,
+      windowTitle: windowTitle ?? this.windowTitle,
     );
   }
 
@@ -77,6 +93,10 @@ class SessionModel {
       'isIdleSession': isIdleSession,
       'timesheetId': timesheetId,
       'userId': userId,
+      'employeeId': employeeId,
+      'employeeName': employeeName,
+      'appName': appName,
+      'windowTitle': windowTitle,
     };
   }
 
@@ -102,6 +122,10 @@ class SessionModel {
       isIdleSession: json['isIdleSession'] ?? false,
       timesheetId: json['timesheetId'],
       userId: json['userId'],
+      employeeId: json['employeeId'] as int?,
+      employeeName: json['employeeName'] as String?,
+      appName: json['appName'] as String?,
+      windowTitle: json['windowTitle'] as String?,
     );
   }
 
@@ -115,40 +139,115 @@ class SessionModel {
       return "${twoDigits(d.inHours)}:${twoDigits(d.inMinutes.remainder(60))}:${twoDigits(d.inSeconds.remainder(60))}";
     }
 
+    final int mouseClicks = activities
+        .where((activity) => activity == UserActivityType.mouseClick)
+        .length;
+    final int mouseScrolls = activities
+        .where((activity) => activity == UserActivityType.mouseScroll)
+        .length;
+    final int keyPresses = activities
+        .where((activity) => activity == UserActivityType.keyboardPress)
+        .length;
+
+    final int durationSeconds = duration.inSeconds;
+    final int durationMinutes = (durationSeconds / 60.0).round();
+    final double timeSpentMinutes = durationSeconds / 60.0;
+
+    final int totalActions = mouseClicks + mouseScrolls + keyPresses;
+    double productivity = 0.0;
+    if (durationSeconds > 0 && totalActions > 0) {
+      final expectedActions = (durationSeconds / 60.0) * 30.0;
+      productivity = expectedActions > 0
+          ? ((totalActions / expectedActions) * 100.0).clamp(0.0, 100.0)
+          : 100.0;
+    } else if (totalActions > 0) {
+      productivity = 100.0;
+    }
+    final double prodValue = double.parse(productivity.toStringAsFixed(2));
+
+    final resolvedAppName = appName ?? '';
+    final resolvedWindowTitle = windowTitle ?? '';
+    final resolvedEmpName = employeeName ?? '';
+    final resolvedEmpId = employeeId ?? userId;
+
+    final List<Map<String, dynamic>> screenshotList = hasScreenshot
+        ? [
+            {
+              "url": screenshotImage!,
+              "timestamp": dateToSimpleString(endTime),
+              "tracker_timestamp": formatDuration(duration),
+              "app": resolvedAppName,
+              "app_name": resolvedAppName,
+              "application": resolvedAppName,
+              "process_name": resolvedAppName,
+              "window_title": resolvedWindowTitle,
+              "title": resolvedWindowTitle,
+              "active_window": resolvedWindowTitle,
+              "project_id": project.id,
+              "project_name": project.name,
+              "project": project.name,
+              "task_id": task.id,
+              "task_name": task.name,
+              "task": task.name,
+              "user_id": userId,
+              "employee_id": resolvedEmpId,
+              if (resolvedEmpName.isNotEmpty) ...{
+                "employee_name": resolvedEmpName,
+                "employee": resolvedEmpName,
+              },
+              "duration": durationSeconds,
+              "duration_in_minutes": durationMinutes,
+              "time_spent": timeSpentMinutes,
+              "mouse_clicks": mouseClicks,
+              "mouse_click_count": mouseClicks,
+              "mouse_scrolls": mouseScrolls,
+              "mouse_scroll_count": mouseScrolls,
+              "key_presses": keyPresses,
+              "keyboard_press_count": keyPresses,
+              "keyboard_presses": keyPresses,
+              "productivity": prodValue,
+            },
+          ]
+        : [];
+
     return {
       "session_id": uniqueId,
       "timesheet_id": timesheetId,
       "start_date": dateToSimpleString(startTime),
       "end_date": dateToSimpleString(endTime),
       "user_id": userId,
+      "employee_id": resolvedEmpId,
+      if (resolvedEmpName.isNotEmpty) ...{
+        "employee_name": resolvedEmpName,
+        "employee": resolvedEmpName,
+      },
       "project_id": project.id,
+      "project_name": project.name,
+      "project": project.name,
       "task_id": task.id,
-      "screenshot_list": hasScreenshot
-          ? [
-              {
-                "url": screenshotImage!,
-                "timestamp": dateToSimpleString(endTime),
-                "tracker_timestamp": formatDuration(duration),
-              },
-            ]
-          : [],
-      "duration": duration.inSeconds,
-      "mouse_click_count": activities
-          .where((activity) => activity == UserActivityType.mouseClick)
-          .length,
-      "mouse_clicks": activities
-          .where((activity) => activity == UserActivityType.mouseClick)
-          .length,
-      "mouse_scrolls": activities
-          .where((activity) => activity == UserActivityType.mouseScroll)
-          .length,
-      "keyboard_press_count": activities
-          .where((activity) => activity == UserActivityType.keyboardPress)
-          .length,
-      "key_presses": activities
-          .where((activity) => activity == UserActivityType.keyboardPress)
-          .length,
+      "task_name": task.name,
+      "task": task.name,
+      "app": resolvedAppName,
+      "app_name": resolvedAppName,
+      "application": resolvedAppName,
+      "process_name": resolvedAppName,
+      "window_title": resolvedWindowTitle,
+      "title": resolvedWindowTitle,
+      "active_window": resolvedWindowTitle,
+      "screenshot_list": screenshotList,
+      "duration": durationSeconds,
+      "duration_in_minutes": durationMinutes,
+      "time_spent": timeSpentMinutes,
+      "mouse_click_count": mouseClicks,
+      "mouse_clicks": mouseClicks,
+      "mouse_scroll_count": mouseScrolls,
+      "mouse_scrolls": mouseScrolls,
+      "keyboard_press_count": keyPresses,
+      "keyboard_presses": keyPresses,
+      "key_presses": keyPresses,
+      "key_press_count": keyPresses,
       "screenshot_count": hasScreenshot ? 1 : 0,
+      "productivity": prodValue,
     };
   }
   //

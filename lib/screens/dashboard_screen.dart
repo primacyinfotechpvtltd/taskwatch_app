@@ -33,6 +33,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       await AppConstant.initPackageInfo();
       // Reset popup flag so dashboard always shows the warning on each fresh load
       _authController.hasShownWfhWarningPopup = false;
+      // Always refresh WFH status on dashboard load
       await _authController.checkWfhApprovalForCurrentUser();
       if (mounted) {
         _checkAndShowWfhPopup();
@@ -43,10 +44,11 @@ class _DashboardScreenState extends State<DashboardScreen>
         debugPrint('Error syncing today duration from backend: $e');
       }
       try {
-        if (Get.isRegistered<AnnouncementController>()) {
-          Get.find<AnnouncementController>().fetchAnnouncements();
-        } else {
-          Get.put(AnnouncementController()).fetchAnnouncements();
+        final ac = Get.isRegistered<AnnouncementController>()
+            ? Get.find<AnnouncementController>()
+            : Get.put(AnnouncementController());
+        if (!ac.isLoading.value && ac.announcements.isEmpty) {
+          ac.fetchAnnouncements();
         }
       } catch (e) {
         debugPrint('Error fetching announcements on dashboard init: $e');

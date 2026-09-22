@@ -121,8 +121,14 @@ class AnnouncementController extends GetxController {
         order: 'create_date desc',
       );
 
-      // 2. Fallback with standard safe fields if first query fails
-      if (!response.isSuccess) {
+      final isAuthError = !response.isSuccess &&
+          (response.message.toLowerCase().contains('session') ||
+              response.message.toLowerCase().contains('authenticated') ||
+              response.message.toLowerCase().contains('access denied') ||
+              response.message.toLowerCase().contains('unauthorized'));
+
+      // 2. Fallback with standard safe fields if first query fails (and not auth error)
+      if (!response.isSuccess && !isAuthError) {
         response = await OdooRpcApiManager.searchRead(
           model: 'hr.announcement',
           domain: [],
@@ -149,8 +155,8 @@ class AnnouncementController extends GetxController {
         );
       }
 
-      // 3. Fallback with minimal fields
-      if (!response.isSuccess) {
+      // 3. Fallback with minimal fields (and not auth error)
+      if (!response.isSuccess && !isAuthError) {
         response = await OdooRpcApiManager.searchRead(
           model: 'hr.announcement',
           domain: [],
