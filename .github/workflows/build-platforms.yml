@@ -98,13 +98,13 @@ jobs:
               Write-Host "  Signed: $($file.Name)"
           }
 
-      - name: Bundle MSVC C++ Runtime DLLs for Universal Windows 10/11 Compatibility
+      - name: Bundle MSVC C++ Runtime & UCRT DLLs for Universal Windows 10 Pro / Lite Compatibility
         shell: powershell
         run: |
           $ReleaseDir = "build\windows\x64\runner\Release"
-          Write-Host "Copying MSVC Runtime DLLs to $ReleaseDir for Windows 10/11 clean install compatibility..."
+          Write-Host "Copying MSVC Runtime & UCRT DLLs to $ReleaseDir for Windows 10 Pro and Windows 10 Lite compatibility..."
 
-          # Find VC Redist DLL directory on GitHub Actions Windows-2022 runner
+          # 1. Find and copy VC Redist DLLs from Visual Studio 2022
           $VcRedistDirs = Get-ChildItem -Path "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Redist\MSVC" -Directory -ErrorAction SilentlyContinue
           if ($VcRedistDirs) {
               $LatestVcRedist = $VcRedistDirs | Sort-Object Name -Descending | Select-Object -First 1
@@ -115,8 +115,19 @@ jobs:
               }
           }
 
-          # Fallback: Check System32 for standard C++ runtime DLLs
-          $RequiredDlls = @("msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll", "vcruntime140.dll", "vcruntime140_1.dll", "vcruntime140_threads.dll", "vcomp140.dll")
+          # 2. Find and copy Universal CRT (UCRT) DLLs from Windows 10 SDK (Critical for Windows 10 Lite)
+          $UcrtKits = Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\Redist" -Recurse -Filter "ucrt" -Directory -ErrorAction SilentlyContinue
+          foreach ($ucrt in $UcrtKits) {
+              $ucrtX64 = Join-Path $ucrt.FullName "DLLs\x64"
+              if (Test-Path $ucrtX64) {
+                  Write-Host "Copying UCRT DLLs from $ucrtX64..."
+                  Copy-Item -Path "$ucrtX64\*.dll" -Destination $ReleaseDir -Force
+                  break
+              }
+          }
+
+          # 3. Fallback: Copy standard C++ runtime DLLs from System32
+          $RequiredDlls = @("msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll", "vcruntime140.dll", "vcruntime140_1.dll", "vcruntime140_threads.dll", "vcomp140.dll", "ucrtbase.dll")
           foreach ($dll in $RequiredDlls) {
               $destPath = Join-Path $ReleaseDir $dll
               if (-not (Test-Path $destPath)) {
@@ -127,6 +138,26 @@ jobs:
                   }
               }
           }
+
+          # 4. Fallback: Copy api-ms-win-crt-*.dll from System32 if needed
+          $SystemCrtDlls = Get-ChildItem -Path "C:\Windows\System32" -Filter "api-ms-win-crt-*.dll" -ErrorAction SilentlyContinue
+          foreach ($dllFile in $SystemCrtDlls) {
+              $destPath = Join-Path $ReleaseDir $dllFile.Name
+              if (-not (Test-Path $destPath)) {
+                  Copy-Item -Path $dllFile.FullName -Destination $destPath -Force
+              }
+          }
+
+          # 5. Download official Microsoft vc_redist.x64.exe installer into the release folder
+          try {
+              Write-Host "Downloading Microsoft Visual C++ 2015-2022 Redistributable installer..."
+              $VcRedistExe = Join-Path $ReleaseDir "vc_redist.x64.exe"
+              Invoke-WebRequest -Uri "https://aka.ms/vs/17/release/vc_redist.x64.exe" -OutFile $VcRedistExe -UseBasicParsing
+              Write-Host "Successfully downloaded vc_redist.x64.exe"
+          } catch {
+              Write-Host "Warning: Could not download vc_redist.x64.exe: $_"
+          }
+
           Write-Host "Bundled DLLs in release directory:"
           Get-ChildItem -Path $ReleaseDir -Filter "*.dll" | Select-Object Name
 
@@ -139,6 +170,17 @@ jobs:
           $env:Path += ";$env:USERPROFILE\.pub-cache\bin"
           fastforge package --platform windows --targets exe
 
+      - name: Copy vc_redist to Installer Dist Directory
+        shell: powershell
+        run: |
+          if (Test-Path "dist\windows\exe") {
+              $VcRedistSrc = "build\windows\x64\runner\Release\vc_redist.x64.exe"
+              if (Test-Path $VcRedistSrc) {
+                  Copy-Item -Path $VcRedistSrc -Destination "dist\windows\exe\vc_redist.x64.exe" -Force
+                  Write-Host "Copied vc_redist.x64.exe into dist\windows\exe\"
+              }
+          }
+
       - name: Create ZIP Fallback Artifact
         run: |
           mkdir -p dist/zip
@@ -148,7 +190,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: PI-Task-Watch-Windows-Installer
-          path: dist/windows/exe/*.exe
+          path: dist/windows/exe/*
           if-no-files-found: ignore
           retention-days: 1
 

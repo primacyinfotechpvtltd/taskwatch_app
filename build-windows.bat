@@ -68,8 +68,8 @@ if %errorlevel% neq 0 (
 )
 
 echo.
-echo 📦 Bundling MSVC C++ Runtime DLLs for Windows 10/11 compatibility...
-powershell -Command "$ReleaseDir = 'build\windows\x64\runner\Release'; $RequiredDlls = @('msvcp140.dll', 'msvcp140_1.dll', 'msvcp140_2.dll', 'vcruntime140.dll', 'vcruntime140_1.dll', 'vcruntime140_threads.dll', 'vcomp140.dll'); foreach ($dll in $RequiredDlls) { $sysPath = 'C:\Windows\System32\' + $dll; if (Test-Path $sysPath) { Copy-Item -Path $sysPath -Destination (Join-Path $ReleaseDir $dll) -Force } }"
+echo 📦 Bundling MSVC C++ Runtime & UCRT DLLs for Windows 10 Pro / Lite compatibility...
+powershell -Command "$ReleaseDir = 'build\windows\x64\runner\Release'; $UcrtDirs = Get-ChildItem -Path 'C:\Program Files (x86)\Windows Kits\10\Redist' -Recurse -Filter 'ucrt' -Directory -ErrorAction SilentlyContinue; foreach ($u in $UcrtDirs) { $x64 = Join-Path $u.FullName 'DLLs\x64'; if (Test-Path $x64) { Copy-Item -Path ($x64 + '\*.dll') -Destination $ReleaseDir -Force; break } }; $Required = @('msvcp140.dll', 'msvcp140_1.dll', 'msvcp140_2.dll', 'vcruntime140.dll', 'vcruntime140_1.dll', 'vcruntime140_threads.dll', 'vcomp140.dll', 'ucrtbase.dll'); foreach ($d in $Required) { $s = 'C:\Windows\System32\' + $d; if (Test-Path $s) { Copy-Item -Path $s -Destination (Join-Path $ReleaseDir $d) -Force } }; Get-ChildItem -Path 'C:\Windows\System32' -Filter 'api-ms-win-crt-*.dll' | ForEach-Object { $dest = Join-Path $ReleaseDir $_.Name; if (-not (Test-Path $dest)) { Copy-Item $_.FullName -Destination $dest -Force } }; try { Invoke-WebRequest -Uri 'https://aka.ms/vs/17/release/vc_redist.x64.exe' -OutFile (Join-Path $ReleaseDir 'vc_redist.x64.exe') -UseBasicParsing } catch {}"
 
 echo.
 echo 🎉 Build successful!
@@ -80,10 +80,11 @@ echo.
 echo 💡 Inside this folder you will find:
 echo    - pi_task_watch.exe (The application executable)
 echo    - flutter_windows.dll
-echo    - msvcp140.dll, vcruntime140.dll (Bundled C++ Runtimes for clean Windows 10/11 installs)
+echo    - msvcp140.dll, vcruntime140.dll, ucrtbase.dll (Bundled C++ & UCRT Runtimes for Windows 10 Pro/Lite)
+echo    - vc_redist.x64.exe (Standalone Microsoft runtime installer)
 echo    - data/ (Application assets)
 echo.
-echo ⚠️  Note: When distributing, make sure to send the entire Release folder, not just the .exe!
+echo ⚠️  Note: When distributing, make sure to send the entire Release folder or ZIP, not just the .exe!
 echo.
 
 :: Check if Fastforge is activated to package it
